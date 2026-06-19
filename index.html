@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Your Story - Renters.com</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #ffffff; }
+  button:hover { opacity: 0.92; }
+</style>
+</head>
+<body>
+
+<div style="max-width:680px;margin:0 auto;padding:24px 20px;font-family:'Open Sans',sans-serif;">
+
+  <div id="sw-progress" style="display:flex;gap:6px;margin-bottom:24px;">
+    <div id="sw-pip0" style="height:3px;flex:1;border-radius:2px;background:#0d2d4e;"></div>
+    <div id="sw-pip1" style="height:3px;flex:1;border-radius:2px;background:#e8eceb;"></div>
+    <div id="sw-pip2" style="height:3px;flex:1;border-radius:2px;background:#e8eceb;"></div>
+    <div id="sw-pip3" style="height:3px;flex:1;border-radius:2px;background:#e8eceb;"></div>
+  </div>
+
+  <div id="sw-screen-welcome" style="display:block;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Your profile</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;line-height:1.3;">Tell your story.</h1>
+    <div style="background:#f4f7f6;border-radius:10px;padding:20px 24px;margin-bottom:20px;border:1px solid #e8eceb;">
+      <p style="font-size:15px;color:#0d2d4e;margin:0 0 8px;line-height:1.6;">Get in front of landlords who are actively looking for someone like you.</p>
+      <p style="font-size:15px;color:#0d2d4e;margin:0 0 8px;line-height:1.6;">A complete profile lets landlords see <strong>who you actually are</strong> — not just what a credit score says about you.</p>
+      <p style="font-size:15px;color:#0d2d4e;margin:0;line-height:1.6;">Most renters never get to tell their story. <strong>Here, we let you do that.</strong></p>
+    </div>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">We're not asking you to be perfect. We're asking you to be real and transparent, so landlords can get comfortable with the person they're going to rent their home to.</p>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 16px;">How would you like to write your story?</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <button onclick="swGoTo('guided')" style="border:1px solid #e8eceb;border-radius:10px;padding:20px;cursor:pointer;background:#fff;text-align:left;font-family:inherit;">
+        <div style="font-size:22px;color:#3a9e8f;margin-bottom:8px;">💬</div>
+        <p style="font-size:15px;font-weight:600;color:#0d2d4e;margin:0 0 4px;">Help me write it</p>
+        <p style="font-size:13px;color:#4a5a6a;margin:0;line-height:1.5;">Answer 5 quick questions and we'll draft your story using AI — you review and edit.</p>
+      </button>
+      <button onclick="swGoTo('self')" style="border:1px solid #e8eceb;border-radius:10px;padding:20px;cursor:pointer;background:#fff;text-align:left;font-family:inherit;">
+        <div style="font-size:22px;color:#3a9e8f;margin-bottom:8px;">✏️</div>
+        <p style="font-size:15px;font-weight:600;color:#0d2d4e;margin:0 0 4px;">I'll write it myself</p>
+        <p style="font-size:13px;color:#4a5a6a;margin:0;line-height:1.5;">Jump straight to writing with guided prompts to help you get started.</p>
+      </button>
+    </div>
+  </div>
+
+  <div id="sw-screen-guided" style="display:none;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Step 1 of 3 — About you</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;">Let's start with the basics.</h1>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">Answer honestly — the more real you are, the more landlords will connect with your profile.</p>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">Tell us a little about yourself. Who are you?</label>
+      <textarea id="sw-q1" style="width:100%;min-height:80px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.5;" placeholder="e.g. I'm a teacher of 8 years, originally from Texas, now looking to settle in the Pacific Northwest with my partner and our dog."></textarea>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">What kind of place are you looking for, and when do you need to move?</label>
+      <textarea id="sw-q2" style="width:100%;min-height:70px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.5;" placeholder="e.g. A 2-bedroom house or apartment, long-term rental, ideally by end of next month."></textarea>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button onclick="swGoTo('welcome')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Back</button>
+      <button onclick="swNextGuided1()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#0d2d4e;color:#fff;font-family:inherit;">Continue</button>
+    </div>
+  </div>
+
+  <div id="sw-screen-guided2" style="display:none;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Step 2 of 3 — Your background</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;">A little rental history.</h1>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">Landlords appreciate context. This is your chance to set the record straight in your own words.</p>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">How long have you been renting, and what's your rental history been like?</label>
+      <textarea id="sw-q3" style="width:100%;min-height:80px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.5;" placeholder="e.g. I've been renting for 6 years across two apartments. I always pay on time and left both places in great condition."></textarea>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">Is there anything about your situation a landlord might have questions about?</label>
+      <textarea id="sw-q4" style="width:100%;min-height:80px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.5;" placeholder="e.g. My credit score took a hit after a medical emergency in 2022. I've been rebuilding since."></textarea>
+      <p style="font-size:12px;color:#7a8a96;margin-top:4px;">This is optional — but being upfront here often opens more doors than it closes.</p>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button onclick="swGoTo('guided')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Back</button>
+      <button onclick="swNextGuided2()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#0d2d4e;color:#fff;font-family:inherit;">Continue</button>
+    </div>
+  </div>
+
+  <div id="sw-screen-guided3" style="display:none;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Step 3 of 3 — The right fit</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;">What makes you a good tenant?</h1>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">This is the part that makes a landlord want to reach out. Be specific.</p>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">What would your ideal landlord relationship look like?</label>
+      <textarea id="sw-q5" style="width:100%;min-height:70px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.5;" placeholder="e.g. I like clear communication, respect boundaries, and take care of the property like it's my own."></textarea>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">Anything else you'd want a landlord to know about you?</label>
+      <textarea id="sw-q6" style="width:100%;min-height:70px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.5;" placeholder="e.g. I work remotely, so my schedule is flexible. I'm clean, responsible, and genuinely love where I live."></textarea>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;align-items:center;">
+      <button onclick="swGoTo('guided2')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Back</button>
+      <button onclick="swGenerateStory()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#3a9e8f;color:#fff;font-family:inherit;">Write my story ✨</button>
+    </div>
+  </div>
+
+  <div id="sw-screen-self" style="display:none;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Your story</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;">Say what a form never could.</h1>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">Write directly to the landlord who's going to read this. Be honest, be specific, be yourself.</p>
+    <div style="margin-bottom:8px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">Who are you, what are you looking for, and why should a landlord choose you?</label>
+      <textarea id="sw-self-story" style="width:100%;min-height:220px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.6;" placeholder="Start writing here..." oninput="document.getElementById('sw-self-char').textContent = this.value.length + ' characters'"></textarea>
+      <p id="sw-self-char" style="font-size:12px;color:#7a8a96;text-align:right;margin-top:4px;">0 characters</p>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:12px;">
+      <button onclick="swGoTo('welcome')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Back</button>
+      <button onclick="swCopySelfStory()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#3a9e8f;color:#fff;font-family:inherit;">Copy my story</button>
+    </div>
+    <p id="sw-self-copied" style="display:none;font-size:14px;color:#3a9e8f;margin-top:10px;">✓ Copied! Paste it into the box below on your profile page.</p>
+  </div>
+
+  <div id="sw-screen-result" style="display:none;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Your story — review and edit</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;">Here's your draft.</h1>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">We've written this based on what you shared. Edit anything that doesn't sound like you.</p>
+    <div id="sw-loading" style="display:flex;align-items:center;gap:10px;color:#4a5a6a;font-size:14px;padding:20px 0;">
+      <span>Writing your story...</span>
+    </div>
+    <div id="sw-result-content" style="display:none;">
+      <textarea id="sw-story-output" style="width:100%;min-height:200px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.6;" oninput="document.getElementById('sw-result-char').textContent = this.value.length + ' characters'"></textarea>
+      <p id="sw-result-char" style="font-size:12px;color:#7a8a96;text-align:right;margin-top:4px;">0 characters</p>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button onclick="swGoTo('guided3')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Start over</button>
+        <button onclick="swCopyResult()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#3a9e8f;color:#fff;font-family:inherit;">Copy my story ✓</button>
+      </div>
+      <p id="sw-result-copied" style="display:none;font-size:14px;color:#3a9e8f;margin-top:10px;">✓ Copied! Paste it into the box below on your profile page.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function swGoTo(id) {
+  ['welcome','guided','guided2','guided3','result','self'].forEach(function(s) {
+    document.getElementById('sw-screen-' + s).style.display = 'none';
+  });
+  document.getElementById('sw-screen-' + id).style.display = 'block';
+  var pipMap = { welcome: 0, guided: 1, guided2: 2, guided3: 3, result: 3, self: 1 };
+  var active = pipMap[id] || 0;
+  for (var i = 0; i < 4; i++) {
+    document.getElementById('sw-pip' + i).style.background = i <= active ? '#0d2d4e' : '#e8eceb';
+  }
+}
+
+function swNextGuided1() {
+  if (!document.getElementById('sw-q1').value.trim()) { document.getElementById('sw-q1').focus(); return; }
+  swGoTo('guided2');
+}
+function swNextGuided2() {
+  if (!document.getElementById('sw-q3').value.trim()) { document.getElementById('sw-q3').focus(); return; }
+  swGoTo('guided3');
+}
+
+async function swGenerateStory() {
+  var q1 = document.getElementById('sw-q1').value.trim();
+  var q2 = document.getElementById('sw-q2').value.trim();
+  var q3 = document.getElementById('sw-q3').value.trim();
+  var q4 = document.getElementById('sw-q4').value.trim();
+  var q5 = document.getElementById('sw-q5').value.trim();
+  var q6 = document.getElementById('sw-q6').value.trim();
+
+  swGoTo('result');
+  document.getElementById('sw-loading').style.display = 'flex';
+  document.getElementById('sw-result-content').style.display = 'none';
+
+  try {
+    var response = await fetch('/.netlify/functions/generate-story', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q1: q1, q2: q2, q3: q3, q4: q4, q5: q5, q6: q6 })
+    });
+    var data = await response.json();
+    var text = data.story || '';
+    if (!text) { throw new Error('No story returned'); }
+    document.getElementById('sw-story-output').value = text;
+    document.getElementById('sw-result-char').textContent = text.length + ' characters';
+  } catch (e) {
+    document.getElementById('sw-story-output').value = 'Something went wrong generating your story. Please go back and try again.';
+  }
+  document.getElementById('sw-loading').style.display = 'none';
+  document.getElementById('sw-result-content').style.display = 'block';
+}
+
+function swCopyResult() {
+  var text = document.getElementById('sw-story-output').value;
+  navigator.clipboard.writeText(text).then(function() {
+    document.getElementById('sw-result-copied').style.display = 'block';
+  });
+}
+function swCopySelfStory() {
+  var text = document.getElementById('sw-self-story').value;
+  if (!text.trim()) { document.getElementById('sw-self-story').focus(); return; }
+  navigator.clipboard.writeText(text).then(function() {
+    document.getElementById('sw-self-copied').style.display = 'block';
+  });
+}
+</script>
+
+</body>
+</html>
