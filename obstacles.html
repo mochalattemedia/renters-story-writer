@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>My Obstacles - Renters.com</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #ffffff; }
+  button:hover { opacity: 0.92; }
+</style>
+</head>
+<body>
+
+<div style="max-width:680px;margin:0 auto;padding:24px 20px;font-family:'Open Sans',sans-serif;">
+
+  <div id="ow-progress" style="display:flex;gap:6px;margin-bottom:24px;">
+    <div id="ow-pip0" style="height:3px;flex:1;border-radius:2px;background:#0d2d4e;"></div>
+    <div id="ow-pip1" style="height:3px;flex:1;border-radius:2px;background:#e8eceb;"></div>
+    <div id="ow-pip2" style="height:3px;flex:1;border-radius:2px;background:#e8eceb;"></div>
+  </div>
+
+  <div id="ow-screen-welcome" style="display:block;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Private &mdash; for our team only</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;line-height:1.3;">Tell us what's making this harder than it should be.</h1>
+    <div style="background:#f4f7f6;border-radius:10px;padding:20px 24px;margin-bottom:20px;border:1px solid #e8eceb;">
+      <p style="font-size:15px;color:#0d2d4e;margin:0 0 8px;line-height:1.6;">Maybe you don't have time to search properly. Maybe you've been scammed before and don't trust the process. Maybe you're going through a divorce, caring for a family member, or just can't find anything close enough to work.</p>
+      <p style="font-size:15px;color:#0d2d4e;margin:0;line-height:1.6;">This stays private. It never appears on your public profile. We use it to actually go to work for you &mdash; not just hand you a search bar.</p>
+    </div>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">The more we understand, the more we can actually help.</p>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 16px;">How would you like to share this?</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <button onclick="owGoTo('guided')" style="border:1px solid #e8eceb;border-radius:10px;padding:20px;cursor:pointer;background:#fff;text-align:left;font-family:inherit;">
+        <div style="font-size:22px;color:#3a9e8f;margin-bottom:8px;">💬</div>
+        <p style="font-size:15px;font-weight:600;color:#0d2d4e;margin:0 0 4px;">Walk me through it</p>
+        <p style="font-size:13px;color:#4a5a6a;margin:0;line-height:1.5;">A couple quick questions to help us understand your situation.</p>
+      </button>
+      <button onclick="owGoTo('self')" style="border:1px solid #e8eceb;border-radius:10px;padding:20px;cursor:pointer;background:#fff;text-align:left;font-family:inherit;">
+        <div style="font-size:22px;color:#3a9e8f;margin-bottom:8px;">✏️</div>
+        <p style="font-size:15px;font-weight:600;color:#0d2d4e;margin:0 0 4px;">I'll just tell you myself</p>
+        <p style="font-size:13px;color:#4a5a6a;margin:0;line-height:1.5;">Write it in your own words, no prompts needed.</p>
+      </button>
+    </div>
+  </div>
+
+  <div id="ow-screen-guided" style="display:none;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Step 1 of 2</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;">What's getting in the way?</h1>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">Could be one thing, could be a few. There's no wrong answer.</p>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">What's making your housing search difficult right now? (time, technology, trust, life circumstances, location, type of rental &mdash; anything)</label>
+      <textarea id="ow-q1" style="width:100%;min-height:100px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.5;" placeholder="e.g. I don't have a lot of time to search properly. I'm also caring for a disabled family member, so I need something close to specific services. I've been scammed once before so I'm cautious about online listings."></textarea>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">How long have you been searching, and what have you tried so far?</label>
+      <textarea id="ow-q2" style="width:100%;min-height:80px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.5;" placeholder="e.g. About two months. I've looked at a few listing sites but most things near my work are long-term only, and I really need something mid-term."></textarea>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button onclick="owGoTo('welcome')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Back</button>
+      <button onclick="owGoTo('guided2')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#0d2d4e;color:#fff;font-family:inherit;">Continue</button>
+    </div>
+  </div>
+
+  <div id="ow-screen-guided2" style="display:none;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Step 2 of 2</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;">What would actually help?</h1>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">This is the part that tells us how to go to work for you.</p>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">If we could take one thing off your plate, what would it be?</label>
+      <textarea id="ow-q3" style="width:100%;min-height:90px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.5;" placeholder="e.g. Just find me a few real options near my work that allow a mid-term stay, so I'm not scrolling through hundreds of listings myself."></textarea>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">Anything else you'd want us to know, just between us?</label>
+      <textarea id="ow-q4" style="width:100%;min-height:70px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.5;" placeholder="Optional &mdash; anything that would help us understand your situation better."></textarea>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <button onclick="owGoTo('guided')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Back</button>
+      <button onclick="owGenerateSummary()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#3a9e8f;color:#fff;font-family:inherit;">Put this together ✨</button>
+    </div>
+  </div>
+
+  <div id="ow-screen-self" style="display:none;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Private &mdash; for our team only</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;">In your own words.</h1>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">Tell us what's going on. This is just for us &mdash; it never shows up on your public profile.</p>
+    <div style="margin-bottom:8px;">
+      <label style="display:block;font-size:13px;font-weight:600;color:#4a5a6a;margin-bottom:6px;">What should we know about your situation?</label>
+      <textarea id="ow-self-text" style="width:100%;min-height:220px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.6;" placeholder="Start writing here..." oninput="document.getElementById('ow-self-char').textContent = this.value.length + ' characters'"></textarea>
+      <p id="ow-self-char" style="font-size:12px;color:#7a8a96;text-align:right;margin-top:4px;">0 characters</p>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:12px;">
+      <button onclick="owGoTo('welcome')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Back</button>
+      <button onclick="owCopySelf()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#3a9e8f;color:#fff;font-family:inherit;">Copy what I wrote</button>
+    </div>
+    <p id="ow-self-copied" style="display:none;font-size:14px;color:#3a9e8f;margin-top:10px;">&check; Copied! Paste it into the box below on your profile page.</p>
+  </div>
+
+  <div id="ow-screen-result" style="display:none;">
+    <p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#4a5a6a;margin:0 0 6px;">Review and edit</p>
+    <h1 style="font-size:22px;font-weight:600;color:#0d2d4e;margin:0 0 6px;">Here's a draft.</h1>
+    <p style="font-size:14px;color:#4a5a6a;margin:0 0 20px;line-height:1.6;">Edit anything that doesn't sound right, or doesn't feel like the full picture.</p>
+    <div id="ow-loading" style="display:flex;align-items:center;gap:10px;color:#4a5a6a;font-size:14px;padding:20px 0;">
+      <span>Putting this together...</span>
+    </div>
+    <div id="ow-result-content" style="display:none;">
+      <textarea id="ow-output" style="width:100%;min-height:200px;font-size:15px;padding:10px 12px;box-sizing:border-box;border-radius:8px;border:1px solid #e8eceb;font-family:inherit;line-height:1.6;" oninput="document.getElementById('ow-result-char').textContent = this.value.length + ' characters'"></textarea>
+      <p id="ow-result-char" style="font-size:12px;color:#7a8a96;text-align:right;margin-top:4px;">0 characters</p>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button onclick="owGoTo('guided2')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Start over</button>
+        <button onclick="owCopyResult()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#3a9e8f;color:#fff;font-family:inherit;">Copy this &check;</button>
+      </div>
+      <p id="ow-result-copied" style="display:none;font-size:14px;color:#3a9e8f;margin-top:10px;">&check; Copied! Paste it into the box below on your profile page.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function owGoTo(id) {
+  ['welcome','guided','guided2','result','self'].forEach(function(s) {
+    document.getElementById('ow-screen-' + s).style.display = 'none';
+  });
+  document.getElementById('ow-screen-' + id).style.display = 'block';
+  var pipMap = { welcome: 0, guided: 1, guided2: 2, result: 2, self: 1 };
+  var active = pipMap[id] || 0;
+  for (var i = 0; i < 3; i++) {
+    document.getElementById('ow-pip' + i).style.background = i <= active ? '#0d2d4e' : '#e8eceb';
+  }
+}
+
+async function owGenerateSummary() {
+  var q1 = document.getElementById('ow-q1').value.trim();
+  var q2 = document.getElementById('ow-q2').value.trim();
+  var q3 = document.getElementById('ow-q3').value.trim();
+  var q4 = document.getElementById('ow-q4').value.trim();
+
+  owGoTo('result');
+  document.getElementById('ow-loading').style.display = 'flex';
+  document.getElementById('ow-result-content').style.display = 'none';
+
+  try {
+    var response = await fetch('/.netlify/functions/generate-obstacles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q1: q1, q2: q2, q3: q3, q4: q4 })
+    });
+    var data = await response.json();
+    var text = data.summary || '';
+    if (!text) { throw new Error('No summary returned'); }
+    document.getElementById('ow-output').value = text;
+    document.getElementById('ow-result-char').textContent = text.length + ' characters';
+  } catch (e) {
+    document.getElementById('ow-output').value = 'Something went wrong putting this together. Please go back and try again, or write it yourself instead.';
+  }
+  document.getElementById('ow-loading').style.display = 'none';
+  document.getElementById('ow-result-content').style.display = 'block';
+}
+
+function owCopyResult() {
+  var text = document.getElementById('ow-output').value;
+  navigator.clipboard.writeText(text).then(function() {
+    document.getElementById('ow-result-copied').style.display = 'block';
+  });
+}
+function owCopySelf() {
+  var text = document.getElementById('ow-self-text').value;
+  if (!text.trim()) { document.getElementById('ow-self-text').focus(); return; }
+  navigator.clipboard.writeText(text).then(function() {
+    document.getElementById('ow-self-copied').style.display = 'block';
+  });
+}
+</script>
+
+</body>
+</html>
