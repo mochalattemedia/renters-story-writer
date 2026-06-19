@@ -203,7 +203,6 @@ async function owGenerateSummary() {
     checked.push(cb.getAttribute('data-label'));
   });
   var q1 = document.getElementById('ow-q1').value.trim();
-  var q2 = document.getElementById('ow-q2').value.trim();
   var q3 = document.getElementById('ow-q3').value.trim();
   var q4 = document.getElementById('ow-q4').value.trim();
   var consentEl = document.querySelector('input[name="ow-consent"]:checked');
@@ -217,7 +216,7 @@ async function owGenerateSummary() {
     var response = await fetch('/.netlify/functions/generate-obstacles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ checked: checked, q1: q1, q2: q2, q3: q3, q4: q4 })
+      body: JSON.stringify({ checked: checked, q1: q1, q2: q3, q3: q4 })
     });
     var data = await response.json();
     var text = data.summary || '';
