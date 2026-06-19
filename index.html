@@ -113,7 +113,7 @@
     </div>
     <div style="display:flex;gap:10px;margin-top:12px;">
       <button onclick="swGoTo('welcome')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Back</button>
-      <button onclick="swCopySelfStory()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#3a9e8f;color:#fff;font-family:inherit;">Copy my story</button>
+      <button onclick="swCopySelfStory()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#3a9e8f;color:#fff;font-family:inherit;">Use my story</button>
     </div>
     <p id="sw-self-copied" style="display:none;font-size:14px;color:#3a9e8f;margin-top:10px;">✓ Copied! Paste it into the box below on your profile page.</p>
   </div>
@@ -130,7 +130,7 @@
       <p id="sw-result-char" style="font-size:12px;color:#7a8a96;text-align:right;margin-top:4px;">0 characters</p>
       <div style="display:flex;gap:10px;margin-top:16px;">
         <button onclick="swGoTo('guided3')" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #e8eceb;background:#fff;color:#0d2d4e;font-family:inherit;">Start over</button>
-        <button onclick="swCopyResult()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#3a9e8f;color:#fff;font-family:inherit;">Copy my story ✓</button>
+        <button onclick="swCopyResult()" style="padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;border:none;background:#3a9e8f;color:#fff;font-family:inherit;">Use this story ✓</button>
       </div>
       <p id="sw-result-copied" style="display:none;font-size:14px;color:#3a9e8f;margin-top:10px;">✓ Copied! Paste it into the box below on your profile page.</p>
     </div>
@@ -192,16 +192,20 @@ async function swGenerateStory() {
 
 function swCopyResult() {
   var text = document.getElementById('sw-story-output').value;
-  navigator.clipboard.writeText(text).then(function() {
-    document.getElementById('sw-result-copied').style.display = 'block';
-  });
+  if (window.parent) {
+    window.parent.postMessage({ type: 'renters_story_text', text: text }, '*');
+  }
+  document.getElementById('sw-result-copied').textContent = '✓ Sent to your profile! Check the box below.';
+  document.getElementById('sw-result-copied').style.display = 'block';
 }
 function swCopySelfStory() {
   var text = document.getElementById('sw-self-story').value;
   if (!text.trim()) { document.getElementById('sw-self-story').focus(); return; }
-  navigator.clipboard.writeText(text).then(function() {
-    document.getElementById('sw-self-copied').style.display = 'block';
-  });
+  if (window.parent) {
+    window.parent.postMessage({ type: 'renters_story_text', text: text }, '*');
+  }
+  document.getElementById('sw-self-copied').textContent = '✓ Sent to your profile! Check the box below.';
+  document.getElementById('sw-self-copied').style.display = 'block';
 }
 </script>
 
