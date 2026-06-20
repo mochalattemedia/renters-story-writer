@@ -121,7 +121,7 @@ var COLORS = ['#3a9e8f','#0d2d4e','#e67e22','#9b59b6','#e74c3c','#1abc9c','#2980
 function initMap() {
   map = new google.maps.Map(document.getElementById('zp-map'), {
     center: { lat: 39.5, lng: -98.35 },
-    zoom: 4,
+    zoom: 5,
     mapTypeControl: false,
     streetViewControl: false,
     fullscreenControl: true
@@ -131,7 +131,9 @@ function initMap() {
 
   // Search autocomplete
   var input = document.getElementById('zp-search');
-  var autocomplete = new google.maps.places.Autocomplete(input);
+  var autocomplete = new google.maps.places.Autocomplete(input, {
+    componentRestrictions: { country: 'us' }
+  });
   autocomplete.bindTo('bounds', map);
   autocomplete.addListener('place_changed', function() {
     var place = autocomplete.getPlace();
@@ -273,7 +275,7 @@ function finishZone() {
     polygon: polygon,
     color: color,
     zips: [],
-    name: 'Zone ' + (zoneIndex + 1),
+    name: 'Area ' + (zoneIndex + 1),
     loading: true
   };
   zones.push(zone);
@@ -281,7 +283,8 @@ function finishZone() {
 
   resetDrawingUI();
   renderZoneList();
-  setStatus('Zone ' + (zoneIndex + 1) + ' drawn — calculating zip codes...');
+  setStatus('Zone drawn — identifying location and zip codes...');
+  autoNameZone(polygon, zoneIndex);
   getZipCodesForPolygon(polygon, zoneIndex);
 }
 
@@ -291,6 +294,76 @@ function resetDrawingUI() {
   document.getElementById('zp-cancel-btn').style.display = 'none';
   document.getElementById('zp-finish-btn').style.display = 'none';
   document.getElementById('zp-instructions').classList.remove('visible');
+}
+
+function autoNameZone(polygon, zoneIndex) {
+  var path = polygon.getPath();
+  var bounds = new google.maps.LatLngBounds();
+  path.forEach(function(point) { bounds.extend(point); });
+
+  var ne = bounds.getNorthEast();
+  var sw = bounds.getSouthWest();
+  var latStep = (ne.lat() - sw.lat()) / 4;
+  var lngStep = (ne.lng() - sw.lng()) / 4;
+  if (latStep === 0) latStep = 0.005;
+  if (lngStep === 0) lngStep = 0.005;
+
+  var pointsToName = [];
+  for (var lat = sw.lat(); lat <= ne.lat(); lat += latStep) {
+    for (var lng = sw.lng(); lng <= ne.lng(); lng += lngStep) {
+      var point = new google.maps.LatLng(lat, lng);
+      if (google.maps.geometry.poly.containsLocation(point, polygon)) {
+        pointsToName.push(point);
+      }
+    }
+  }
+  // Always include centroid
+  pointsToName.push(new google.maps.LatLng(
+    (ne.lat() + sw.lat()) / 2,
+    (ne.lng() + sw.lng()) / 2
+  ));
+
+  var foundNeighborhoods = {};
+  var foundZipsForName = {};
+  var stateCode = '';
+  var completed = 0;
+
+  pointsToName.forEach(function(point, i) {
+    setTimeout(function() {
+      geocoder.geocode({ location: point }, function(results, status) {
+        if (status === 'OK' && results && results[0]) {
+          results[0].address_components.forEach(function(component) {
+            if (component.types.indexOf('neighborhood') >= 0 ||
+                component.types.indexOf('sublocality') >= 0 ||
+                component.types.indexOf('sublocality_level_1') >= 0) {
+              foundNeighborhoods[component.long_name] = true;
+            }
+            if (component.types.indexOf('postal_code') >= 0) {
+              foundZipsForName[component.long_name] = true;
+            }
+            if (component.types.indexOf('administrative_area_level_1') >= 0 && !stateCode) {
+              stateCode = component.short_name;
+            }
+          });
+        }
+        completed++;
+        if (completed === pointsToName.length) {
+          var neighborhoods = Object.keys(foundNeighborhoods).slice(0, 3);
+          var zips = Object.keys(foundZipsForName).slice(0, 3);
+          var name = '';
+          if (neighborhoods.length > 0) {
+            name = neighborhoods.join(', ');
+            if (stateCode) name += ', ' + stateCode;
+          } else if (stateCode) {
+            name = 'Area in ' + stateCode;
+          }
+          zones[zoneIndex].name = name || ('Area ' + (zoneIndex + 1));
+          zones[zoneIndex].displayZips = zips;
+          renderZoneList();
+        }
+      });
+    }, i * 120);
+  });
 }
 
 function getZipCodesForPolygon(polygon, zoneIndex) {
@@ -349,7 +422,7 @@ function getZipCodesForPolygon(polygon, zoneIndex) {
           zones[zoneIndex].loading = false;
           renderZoneList();
           var zipCount = Object.keys(foundZips).length;
-          setStatus('Zone ' + (zoneIndex + 1) + ' ready — ' + zipCount + ' zip code' + (zipCount !== 1 ? 's' : '') + ' identified.');
+          setStatus(zones[zoneIndex].name + ' saved — ' + zipCount + ' zip code' + (zipCount !== 1 ? 's' : '') + ' identified.');
         }
       });
     }, i * 150);
@@ -370,12 +443,14 @@ function renderZoneList() {
     html += '<div>';
     html += '<div class="zp-zone-name">' + zone.name + '</div>';
     if (zone.loading) {
-      html += '<div class="zp-zone-zips">Calculating zip codes...</div>';
+      html += '<div class="zp-zone-zips">Identifying neighborhoods and zip codes...</div>';
     } else {
-      var msg = zone.zips.length > 0
-        ? zone.zips.length + ' zip code' + (zone.zips.length !== 1 ? 's' : '') + ' — ' + zone.zips.slice(0,4).join(', ') + (zone.zips.length > 4 ? '...' : '')
+      var displayZips = (zone.displayZips || zone.zips.slice(0, 3));
+      var zipStr = displayZips.length > 0 ? ' — ' + displayZips.join(', ') + (zone.zips.length > displayZips.length ? '...' : '') : '';
+      var totalStr = zone.zips.length > 0
+        ? zone.zips.length + ' zip code' + (zone.zips.length !== 1 ? 's' : '') + zipStr
         : 'No zip codes found — try a larger zone';
-      html += '<div class="zp-zone-zips">' + msg + '</div>';
+      html += '<div class="zp-zone-zips">' + totalStr + '</div>';
     }
     html += '</div></div>';
     html += '<button class="zp-zone-delete" onclick="deleteZone(' + i + ')">&times;</button>';
