@@ -252,27 +252,32 @@ function initMap() {
 
   // Search box
   var input = document.getElementById('zp-search');
-  var searchBoxObj = new google.maps.places.SearchBox(input);
-  map.addListener('bounds_changed', function() {
-    searchBoxObj.setBounds(map.getBounds());
-  });
-  searchBoxObj.addListener('places_changed', function() {
-    var places = searchBoxObj.getPlaces();
-    if (!places || places.length === 0) return;
-    var bounds = new google.maps.LatLngBounds();
-    places.forEach(function(place) {
-      if (!place.geometry) return;
-      if (place.geometry.viewport) {
-        bounds.union(place.geometry.viewport);
-      } else {
-        bounds.extend(place.geometry.location);
-      }
-    });
-    map.fitBounds(bounds);
+  var autocomplete = new google.maps.places.Autocomplete(input);
+  autocomplete.bindTo('bounds', map);
+  autocomplete.addListener('place_changed', function() {
+    var place = autocomplete.getPlace();
+    if (!place.geometry) return;
+    if (place.geometry.viewport) {
+      map.fitBounds(place.geometry.viewport);
+    } else {
+      map.setCenter(place.geometry.location);
+      map.setZoom(12);
+    }
   });
 }
 
+var mapReady = false;
+var originalInitMap = initMap;
+window.initMap = function() {
+  originalInitMap();
+  mapReady = true;
+}
+
 function startDrawing() {
+  if (!mapReady || !drawingManager) {
+    setStatus('Map is still loading — please wait a moment and try again.');
+    return;
+  }
   isDrawing = true;
   drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
   document.getElementById('zp-draw-btn').style.display = 'none';
