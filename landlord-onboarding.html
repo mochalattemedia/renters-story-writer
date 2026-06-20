@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Before You List — Renters.com</title>
+<link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
+
+.wrap { max-width: 640px; margin: 0 auto; padding: 24px 20px; }
+
+.pips { display: flex; gap: 6px; margin-bottom: 24px; }
+.pip { height: 3px; flex: 1; border-radius: 2px; background: #e8eceb; transition: background 0.3s; }
+.pip.active { background: #0d2d4e; }
+
+.slide { display: none; }
+.slide.visible { display: block; }
+
+.step-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #4a5a6a; margin: 0 0 6px; }
+.slide h1 { font-size: 22px; font-weight: 600; color: #0d2d4e; margin: 0 0 8px; }
+.slide .intro { font-size: 15px; color: #4a5a6a; line-height: 1.7; margin: 0 0 24px; }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+.four-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+
+.card { background: #f4f7f6; border-radius: 10px; padding: 20px; border: 1px solid #e8eceb; }
+.card-center { text-align: center; }
+
+.card-label-good { font-size: 12px; font-weight: 600; color: #27ae60; margin: 0 0 12px; }
+.card-label-bad { font-size: 12px; font-weight: 600; color: #c0392b; margin: 0 0 12px; }
+
+.avatar { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+.avatar-good { background: #d4efdf; }
+.avatar-bad { background: #fadbd8; }
+
+.card ul { font-size: 13px; color: #4a5a6a; padding-left: 16px; line-height: 2; }
+
+.icon-card { text-align: center; }
+.icon-card .icon { font-size: 32px; margin-bottom: 8px; display: block; }
+.icon-card .icon-title { font-size: 13px; font-weight: 600; color: #0d2d4e; margin: 0 0 4px; }
+.icon-card .icon-sub { font-size: 12px; color: #4a5a6a; }
+
+.checklist { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+.check-item { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #f4f7f6; border-radius: 8px; border: 1px solid #e8eceb; font-size: 13px; color: #0d2d4e; }
+.check-icon { font-size: 18px; flex-shrink: 0; }
+
+.notice { padding: 12px 16px; margin-bottom: 24px; border-radius: 0 8px 8px 0; font-size: 13px; line-height: 1.6; }
+.notice-warning { background: #fef9e7; border-left: 3px solid #f39c12; color: #7d6608; }
+.notice-info { background: #eaf4fb; border-left: 3px solid #2980b9; color: #1a5276; }
+.notice-success { background: #eafaf1; border-left: 3px solid #27ae60; color: #1e8449; }
+
+.steps { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.step-item { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: #f4f7f6; border-radius: 8px; border: 1px solid #e8eceb; }
+.step-item.featured { border: 2px solid #3a9e8f; }
+.step-num { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 13px; font-weight: 600; color: #fff; }
+.step-num.navy { background: #0d2d4e; }
+.step-num.teal { background: #3a9e8f; }
+.step-title { font-size: 13px; font-weight: 600; color: #0d2d4e; margin: 0 0 2px; }
+.step-sub { font-size: 12px; color: #4a5a6a; }
+
+.btn-row { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+.btn-row.end { justify-content: flex-end; }
+
+.btn { padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.btn-navy { background: #0d2d4e; color: #fff; border: none; }
+.btn-teal { background: #3a9e8f; color: #fff; border: none; }
+.btn-outline { background: #fff; color: #0d2d4e; border: 1px solid #e8eceb; }
+.btn:hover { opacity: 0.9; }
+
+.identity-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.id-card { text-align: center; background: #f4f7f6; border-radius: 10px; padding: 20px; border: 1px solid #e8eceb; }
+.id-icon { font-size: 40px; margin-bottom: 10px; display: block; }
+.id-title { font-size: 13px; font-weight: 600; color: #0d2d4e; margin: 0 0 4px; }
+.id-sub { font-size: 12px; color: #4a5a6a; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="pips">
+    <div class="pip active" id="pip0"></div>
+    <div class="pip" id="pip1"></div>
+    <div class="pip" id="pip2"></div>
+    <div class="pip" id="pip3"></div>
+    <div class="pip" id="pip4"></div>
+  </div>
+
+  <!-- Slide 1: Profile Photo -->
+  <div class="slide visible" id="s0">
+    <p class="step-label">Step 1 of 5</p>
+    <h1>Your profile photo</h1>
+    <p class="intro">Renters want to know who they're dealing with before they ever send a message. A clear, real photo builds immediate trust.</p>
+    <div class="two-col">
+      <div class="card card-center">
+        <p class="card-label-good">✓ Do this</p>
+        <div class="avatar avatar-good">🙂</div>
+        <ul>
+          <li>Clear face, good lighting</li>
+          <li>Close-up, recent photo</li>
+          <li>Natural, approachable</li>
+          <li>Just you</li>
+        </ul>
+      </div>
+      <div class="card card-center">
+        <p class="card-label-bad">✗ Not this</p>
+        <div class="avatar avatar-bad">🏠</div>
+        <ul>
+          <li>Logo or property image</li>
+          <li>Blurry or dark photo</li>
+          <li>Group photo</li>
+          <li>Stock photo or avatar</li>
+        </ul>
+      </div>
+    </div>
+    <div class="btn-row end">
+      <button class="btn btn-navy" onclick="go(1)">Next →</button>
+    </div>
+  </div>
+
+  <!-- Slide 2: Property Photos -->
+  <div class="slide" id="s1">
+    <p class="step-label">Step 2 of 5</p>
+    <h1>Property photos</h1>
+    <p class="intro">Photos are the single biggest factor in whether a renter reaches out. Show everything — no exceptions.</p>
+    <div class="four-col">
+      <div class="card icon-card">
+        <span class="icon">🏠</span>
+        <p class="icon-title">Exterior</p>
+        <p class="icon-sub">Front, back, street view</p>
+      </div>
+      <div class="card icon-card">
+        <span class="icon">🛋️</span>
+        <p class="icon-title">Every room</p>
+        <p class="icon-sub">Living, bedroom, kitchen, bath</p>
+      </div>
+      <div class="card icon-card">
+        <span class="icon">🧺</span>
+        <p class="icon-title">Shared spaces</p>
+        <p class="icon-sub">Laundry, yard, garage, hallways</p>
+      </div>
+      <div class="card icon-card">
+        <span class="icon">☀️</span>
+        <p class="icon-title">Good lighting</p>
+        <p class="icon-sub">Natural light, daytime only</p>
+      </div>
+    </div>
+    <div class="notice notice-warning">
+      Listings with fewer than 6 photos receive significantly less interest. We recommend 10 or more.
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="go(0)">← Back</button>
+      <button class="btn btn-navy" onclick="go(2)">Next →</button>
+    </div>
+  </div>
+
+  <!-- Slide 3: Complete Listing -->
+  <div class="slide" id="s2">
+    <p class="step-label">Step 3 of 5</p>
+    <h1>Complete your listing</h1>
+    <p class="intro">Every empty field is a question a renter has to ask before they can say yes. Fill everything out — no exceptions.</p>
+    <div class="checklist">
+      <div class="check-item"><span class="check-icon" style="color:#27ae60;">✓</span> Monthly rent — exact amount, no "contact for price"</div>
+      <div class="check-item"><span class="check-icon" style="color:#27ae60;">✓</span> Availability date — when can someone move in?</div>
+      <div class="check-item"><span class="check-icon" style="color:#27ae60;">✓</span> Lease terms — month-to-month, 6 months, 1 year?</div>
+      <div class="check-item"><span class="check-icon" style="color:#27ae60;">✓</span> Pets, parking, utilities — what's included or allowed?</div>
+      <div class="check-item"><span class="check-icon" style="color:#27ae60;">✓</span> A real description — tell the story of the space</div>
+      <div class="check-item"><span class="check-icon" style="color:#27ae60;">✓</span> Number of bedrooms, bathrooms, and square footage</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="go(1)">← Back</button>
+      <button class="btn btn-navy" onclick="go(3)">Next →</button>
+    </div>
+  </div>
+
+  <!-- Slide 4: Verification -->
+  <div class="slide" id="s3">
+    <p class="step-label">Step 4 of 5</p>
+    <h1>Verify your identity</h1>
+    <p class="intro">Renters on this platform share vulnerable personal information with you. Verification protects them — and builds your credibility as a landlord they can trust.</p>
+    <div class="identity-grid">
+      <div class="id-card">
+        <span class="id-icon">🪪</span>
+        <p class="id-title">Government ID</p>
+        <p class="id-sub">Driver's license, passport, or state ID</p>
+      </div>
+      <div class="id-card">
+        <span class="id-icon">🤳</span>
+        <p class="id-title">Selfie with ID</p>
+        <p class="id-sub">Hold your ID next to your face in the photo</p>
+      </div>
+    </div>
+    <div class="notice notice-info">
+      Your listing won't go live until verification is complete. This usually takes less than 24 hours.
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="go(2)">← Back</button>
+      <button class="btn btn-navy" onclick="go(4)">Next →</button>
+    </div>
+  </div>
+
+  <!-- Slide 5: Pricing -->
+  <div class="slide" id="s4">
+    <p class="step-label">Step 5 of 5</p>
+    <h1>How it works</h1>
+    <p class="intro">You shouldn't pay to list. You should only pay when we actually deliver a renter who signs a lease.</p>
+    <div class="steps">
+      <div class="step-item">
+        <div class="step-num navy">1</div>
+        <div>
+          <p class="step-title">Post your listing — free</p>
+          <p class="step-sub">No upfront cost. Your listing stays live as long as the property is available.</p>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-num navy">2</div>
+        <div>
+          <p class="step-title">We match you with the right renter</p>
+          <p class="step-sub">We review renter profiles and hand-deliver candidates who are a genuine fit for your property and situation.</p>
+        </div>
+      </div>
+      <div class="step-item featured">
+        <div class="step-num teal">3</div>
+        <div>
+          <p class="step-title">Lease signed — placement fee applies</p>
+          <p class="step-sub">If a renter we introduced signs a lease, we collect 50% of the first month's rent as a placement fee. You only pay when we deliver.</p>
+        </div>
+      </div>
+    </div>
+    <div class="notice notice-success">
+      Right now, Renters.com is completely free to list. The placement fee model will apply once we formally launch our matching service in your area.
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-outline" onclick="go(3)">← Back</button>
+      <button class="btn btn-teal" onclick="finish()">✓ I understand — post my listing</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function go(n) {
+  for (var i = 0; i < 5; i++) {
+    document.getElementById('s' + i).className = 'slide' + (i === n ? ' visible' : '');
+    document.getElementById('pip' + i).className = 'pip' + (i <= n ? ' active' : '');
+  }
+  window.scrollTo(0, 0);
+}
+
+function finish() {
+  if (window.parent) {
+    window.parent.postMessage({ type: 'landlord_onboarding_complete' }, '*');
+  }
+  document.querySelector('.wrap').innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:16px;">✓</div><h2 style="font-size:22px;font-weight:600;color:#0d2d4e;margin-bottom:8px;">You\'re all set</h2><p style="font-size:15px;color:#4a5a6a;line-height:1.7;">You\'ll be redirected to your listing form now.</p></div>';
+  setTimeout(function() {
+    if (window.parent) {
+      window.parent.postMessage({ type: 'landlord_onboarding_redirect' }, '*');
+    }
+  }, 2000);
+}
+</script>
+</body>
+</html>
