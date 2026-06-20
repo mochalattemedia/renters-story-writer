@@ -432,7 +432,23 @@ function setStatus(msg) {
 }
 </script>
 
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAGzleQmHTqIfEEQ7J9Rq4zSpaOBluzXf0&libraries=drawing,places,geometry&callback=initMap" async defer></script>
+<script>
+async function loadGoogleMaps() {
+  try {
+    var response = await fetch('/.netlify/functions/maps-key');
+    var data = await response.json();
+    if (!data.key) throw new Error('No key returned');
+    var script = document.createElement('script');
+    script.src = 'https://maps.googleapis.com/maps/api/js?key=' + data.key + '&libraries=drawing,places,geometry&callback=initMap';
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+  } catch (e) {
+    document.getElementById('zp-map').innerHTML = '<div style="padding:40px;text-align:center;color:#c0392b;">Map failed to load. Please refresh and try again.</div>';
+  }
+}
+loadGoogleMaps();
+</script>
 
 </body>
 </html>
