@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>My Areas - Renters.com</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
+
+#zp-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e8eceb;
+}
+#zp-header h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0d2d4e;
+  margin-bottom: 4px;
+}
+#zp-header p {
+  font-size: 13px;
+  color: #4a5a6a;
+  line-height: 1.5;
+}
+
+#zp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: #f4f7f6;
+  border-bottom: 1px solid #e8eceb;
+  flex-wrap: wrap;
+}
+
+#zp-search {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  border: 1px solid #e8eceb;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+#zp-search:focus { border-color: #3a9e8f; }
+
+.zp-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border: none;
+  white-space: nowrap;
+}
+.zp-btn-teal { background: #3a9e8f; color: #fff; }
+.zp-btn-navy { background: #0d2d4e; color: #fff; }
+.zp-btn-outline { background: #fff; color: #0d2d4e; border: 1px solid #e8eceb; }
+.zp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+#zp-map {
+  width: 100%;
+  height: 420px;
+}
+
+#zp-zones {
+  padding: 16px 20px;
+  border-top: 1px solid #e8eceb;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+#zp-zones-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4a5a6a;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.zp-zone-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f4f7f6;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.zp-zone-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.zp-zone-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #3a9e8f;
+  flex-shrink: 0;
+}
+.zp-zone-name { color: #0d2d4e; font-weight: 500; }
+.zp-zone-zips { color: #4a5a6a; font-size: 12px; }
+.zp-zone-delete {
+  background: none;
+  border: none;
+  color: #c0392b;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  font-family: inherit;
+}
+
+#zp-empty {
+  text-align: center;
+  padding: 20px;
+  color: #4a5a6a;
+  font-size: 13px;
+}
+
+#zp-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #e8eceb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+#zp-status {
+  font-size: 13px;
+  color: #3a9e8f;
+  font-weight: 600;
+}
+#zp-instructions {
+  padding: 10px 20px;
+  background: #fff9e6;
+  border-left: 3px solid #f0a500;
+  font-size: 12px;
+  color: #4a5a6a;
+  line-height: 1.6;
+  display: none;
+}
+#zp-instructions.visible { display: block; }
+</style>
+</head>
+<body>
+
+<div id="zp-header">
+  <h1>My Areas</h1>
+  <p>Draw zones on the map to show where you're open to living. You can draw multiple zones — as small as a neighborhood or as large as an entire state.</p>
+</div>
+
+<div id="zp-toolbar">
+  <input type="text" id="zp-search" placeholder="Search for a city, neighborhood, or address...">
+  <button class="zp-btn zp-btn-teal" id="zp-draw-btn" onclick="startDrawing()">&#9998; Draw Zone</button>
+  <button class="zp-btn zp-btn-outline" id="zp-cancel-btn" onclick="cancelDrawing()" style="display:none;">Cancel</button>
+</div>
+
+<div id="zp-instructions">
+  Click on the map to place points around your zone. Double-click to finish drawing.
+</div>
+
+<div id="zp-map"></div>
+
+<div id="zp-zones">
+  <div id="zp-zones-title">Your Zones</div>
+  <div id="zp-zones-list">
+    <div id="zp-empty">No zones drawn yet. Click "Draw Zone" to get started.</div>
+  </div>
+</div>
+
+<div id="zp-footer">
+  <span id="zp-status"></span>
+  <div style="display:flex;gap:10px;">
+    <button class="zp-btn zp-btn-outline" onclick="clearAll()">Clear All</button>
+    <button class="zp-btn zp-btn-navy" id="zp-save-btn" onclick="saveZones()">Save My Areas</button>
+  </div>
+</div>
+
+<script>
+var map;
+var drawingManager;
+var zones = [];
+var geocoder;
+var searchBox;
+var isDrawing = false;
+
+var COLORS = ['#3a9e8f','#0d2d4e','#8dc63f','#e67e22','#9b59b6','#e74c3c','#1abc9c','#2980b9'];
+
+function initMap() {
+  map = new google.maps.Map(document.getElementById('zp-map'), {
+    center: { lat: 39.5, lng: -98.35 },
+    zoom: 4,
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: true,
+    zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER }
+  });
+
+  geocoder = new google.maps.Geocoder();
+
+  drawingManager = new google.maps.drawing.DrawingManager({
+    drawingMode: null,
+    drawingControl: false,
+    polygonOptions: {
+      fillColor: '#3a9e8f',
+      fillOpacity: 0.3,
+      strokeColor: '#3a9e8f',
+      strokeWeight: 2,
+      clickable: true,
+      editable: false,
+      zIndex: 1
+    }
+  });
+  drawingManager.setMap(map);
+
+  google.maps.event.addListener(drawingManager, 'polygoncomplete', function(polygon) {
+    stopDrawing();
+    var zoneIndex = zones.length;
+    var color = COLORS[zoneIndex % COLORS.length];
+
+    polygon.setOptions({
+      fillColor: color,
+      strokeColor: color
+    });
+
+    var zone = {
+      polygon: polygon,
+      color: color,
+      zips: [],
+      name: 'Zone ' + (zoneIndex + 1),
+      loading: true
+    };
+    zones.push(zone);
+    renderZoneList();
+    setStatus('Calculating zip codes for Zone ' + (zoneIndex + 1) + '...');
+    getZipCodesForPolygon(polygon, zoneIndex);
+
+    google.maps.event.addListener(polygon, 'click', function() {
+      // future: highlight zone
+    });
+  });
+
+  // Search box
+  var input = document.getElementById('zp-search');
+  var searchBoxObj = new google.maps.places.SearchBox(input);
+  map.addListener('bounds_changed', function() {
+    searchBoxObj.setBounds(map.getBounds());
+  });
+  searchBoxObj.addListener('places_changed', function() {
+    var places = searchBoxObj.getPlaces();
+    if (!places || places.length === 0) return;
+    var bounds = new google.maps.LatLngBounds();
+    places.forEach(function(place) {
+      if (!place.geometry) return;
+      if (place.geometry.viewport) {
+        bounds.union(place.geometry.viewport);
+      } else {
+        bounds.extend(place.geometry.location);
+      }
+    });
+    map.fitBounds(bounds);
+  });
+}
+
+function startDrawing() {
+  isDrawing = true;
+  drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
+  document.getElementById('zp-draw-btn').style.display = 'none';
+  document.getElementById('zp-cancel-btn').style.display = 'block';
+  document.getElementById('zp-instructions').classList.add('visible');
+  setStatus('Drawing mode active — click to place points, double-click to finish');
+}
+
+function stopDrawing() {
+  isDrawing = false;
+  drawingManager.setDrawingMode(null);
+  document.getElementById('zp-draw-btn').style.display = 'block';
+  document.getElementById('zp-cancel-btn').style.display = 'none';
+  document.getElementById('zp-instructions').classList.remove('visible');
+}
+
+function cancelDrawing() {
+  stopDrawing();
+  setStatus('');
+}
+
+function getZipCodesForPolygon(polygon, zoneIndex) {
+  var path = polygon.getPath();
+  var bounds = new google.maps.LatLngBounds();
+  path.forEach(function(point) { bounds.extend(point); });
+
+  // Sample points within the bounding box and check if they're inside the polygon
+  var ne = bounds.getNorthEast();
+  var sw = bounds.getSouthWest();
+  var latStep = (ne.lat() - sw.lat()) / 8;
+  var lngStep = (ne.lng() - sw.lng()) / 8;
+
+  var pointsToGeocode = [];
+  for (var lat = sw.lat(); lat <= ne.lat(); lat += latStep) {
+    for (var lng = sw.lng(); lng <= ne.lng(); lng += lngStep) {
+      var point = new google.maps.LatLng(lat, lng);
+      if (google.maps.geometry.poly.containsLocation(point, polygon)) {
+        pointsToGeocode.push(point);
+      }
+    }
+  }
+
+  // Also add centroid
+  var centroidLat = (ne.lat() + sw.lat()) / 2;
+  var centroidLng = (ne.lng() + sw.lng()) / 2;
+  pointsToGeocode.push(new google.maps.LatLng(centroidLat, centroidLng));
+
+  if (pointsToGeocode.length === 0) {
+    pointsToGeocode.push(new google.maps.LatLng(centroidLat, centroidLng));
+  }
+
+  var foundZips = {};
+  var completed = 0;
+
+  pointsToGeocode.forEach(function(point, i) {
+    setTimeout(function() {
+      geocoder.geocode({ location: point }, function(results, status) {
+        if (status === 'OK' && results) {
+          results.forEach(function(result) {
+            result.address_components.forEach(function(component) {
+              if (component.types.indexOf('postal_code') >= 0) {
+                foundZips[component.long_name] = true;
+              }
+            });
+          });
+        }
+        completed++;
+        if (completed === pointsToGeocode.length) {
+          zones[zoneIndex].zips = Object.keys(foundZips);
+          zones[zoneIndex].loading = false;
+          renderZoneList();
+          setStatus('Zone ' + (zoneIndex + 1) + ' saved — ' + Object.keys(foundZips).length + ' zip codes identified.');
+        }
+      });
+    }, i * 150); // stagger requests to avoid rate limits
+  });
+}
+
+function renderZoneList() {
+  var list = document.getElementById('zp-zones-list');
+  if (zones.length === 0) {
+    list.innerHTML = '<div id="zp-empty">No zones drawn yet. Click "Draw Zone" to get started.</div>';
+    return;
+  }
+  var html = '';
+  zones.forEach(function(zone, i) {
+    html += '<div class="zp-zone-item">';
+    html += '<div class="zp-zone-item-left">';
+    html += '<div class="zp-zone-dot" style="background:' + zone.color + '"></div>';
+    html += '<div>';
+    html += '<div class="zp-zone-name">' + zone.name + '</div>';
+    if (zone.loading) {
+      html += '<div class="zp-zone-zips">Calculating zip codes...</div>';
+    } else {
+      html += '<div class="zp-zone-zips">' + (zone.zips.length > 0 ? zone.zips.length + ' zip code' + (zone.zips.length !== 1 ? 's' : '') : 'No zip codes found — try drawing a larger zone') + '</div>';
+    }
+    html += '</div></div>';
+    html += '<button class="zp-zone-delete" onclick="deleteZone(' + i + ')" title="Delete this zone">&times;</button>';
+    html += '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function deleteZone(index) {
+  zones[index].polygon.setMap(null);
+  zones.splice(index, 1);
+  // Rename remaining zones
+  zones.forEach(function(zone, i) { zone.name = 'Zone ' + (i + 1); });
+  renderZoneList();
+  setStatus('Zone deleted.');
+}
+
+function clearAll() {
+  zones.forEach(function(zone) { zone.polygon.setMap(null); });
+  zones = [];
+  renderZoneList();
+  setStatus('All zones cleared.');
+}
+
+function saveZones() {
+  var loading = zones.some(function(z) { return z.loading; });
+  if (loading) {
+    setStatus('Please wait — still calculating zip codes...');
+    return;
+  }
+  if (zones.length === 0) {
+    setStatus('No zones to save — draw at least one zone first.');
+    return;
+  }
+
+  var allZips = {};
+  zones.forEach(function(zone) {
+    zone.zips.forEach(function(zip) { allZips[zip] = true; });
+  });
+
+  var zipList = Object.keys(allZips);
+
+  if (zipList.length === 0) {
+    setStatus('No zip codes found in your zones — try drawing larger zones.');
+    return;
+  }
+
+  // Send to parent BD page via postMessage
+  if (window.parent) {
+    window.parent.postMessage({
+      type: 'renters_areas_zips',
+      zips: zipList,
+      zones: zones.map(function(z) { return { name: z.name, zips: z.zips }; })
+    }, '*');
+  }
+
+  setStatus('✓ ' + zipList.length + ' areas saved to your profile!');
+}
+
+function setStatus(msg) {
+  document.getElementById('zp-status').textContent = msg;
+}
+</script>
+
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAGzleQmHTqIfEEQ7J9Rq4zSpaOBluzXf0&libraries=drawing,places,geometry&callback=initMap" async defer></script>
+
+</body>
+</html>
