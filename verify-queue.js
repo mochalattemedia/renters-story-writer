@@ -168,6 +168,19 @@
     });
   }
 
+  function sendApprovalEmail(email, name) {
+    var subject = encodeURIComponent('Your Renters.com verification is approved');
+    var body = encodeURIComponent(
+      'Hi ' + name + ',\n\n' +
+      'Your identity verification has been approved. Your profile is now verified on Renters.com.\n\n' +
+      'You can view your verified status by logging into your dashboard at:\n' +
+      'https://www.renters.com/account/home\n\n' +
+      'Thank you for taking the time to verify your identity. It helps build trust across our entire community.\n\n' +
+      'Renters.com Support'
+    );
+    window.open('mailto:' + email + '?subject=' + subject + '&body=' + body);
+  }
+
   function sendRejectionEmail(email, name) {
     var subject = encodeURIComponent('Your Renters.com verification needs a resubmission');
     var body = encodeURIComponent(
@@ -204,6 +217,7 @@
     }).then(function() {
       card.status = 'approved';
       renderCards();
+      sendApprovalEmail(card.email, card.name);
     }).catch(function(err) {
       alert('Error approving. Try manually in BD admin.\n' + err);
     });
