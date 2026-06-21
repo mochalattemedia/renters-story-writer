@@ -331,19 +331,47 @@
         var fileMatch = html.match(/\/uploads\/forms\/comments\/[^"'\s]+\.jpg/i);
         if (!fileMatch) fileMatch = html.match(/\/uploads\/forms\/comments\/[^"'\s]+\.(jpg|jpeg|png|gif)/i);
         
-        /* Parse Account Type from inquiry HTML */
-        var accountTypeMatch = html.match(/Account\s+Type[\s\S]*?<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
-        if (accountTypeMatch) {
-          var accountType = accountTypeMatch[1].replace(/<[^>]+>/g, '').trim();
-          if (accountType) {
-            card.memberType = accountType;
-            var cardEl = document.getElementById('rq-card-' + card.inquiryId);
-            if (cardEl) {
-              var badge = cardEl.querySelector('.rq-badge');
-              if (badge) {
-                badge.textContent = accountType;
-                badge.className = 'rq-badge ' + (accountType === 'Renter' ? 'rq-badge-renter' : accountType === 'Landlord' ? 'rq-badge-landlord' : 'rq-badge-other');
-              }
+        /* Parse all form fields from inquiry HTML */
+        var fieldMatches = html.matchAll(/<b>([^<]+)<\/b><br>([\s\S]*?)<\/p>/gi);
+        var fields = {};
+        for (var match of fieldMatches) {
+          var label = match[1].trim();
+          var value = match[2].replace(/<[^>]+>/g, '').trim();
+          fields[label] = value;
+        }
+
+        /* Extract specific fields */
+        var accountType = fields['Account Type'] || fields['account type'] || '';
+        var phone = fields['Phone Number'] || fields['Phone'] || '';
+        var location = fields['Your Location'] || fields['Location'] || '';
+        var emailFromForm = fields['Your Email'] || fields['Email'] || '';
+
+        if (accountType) {
+          card.memberType = accountType;
+          var cardEl = document.getElementById('rq-card-' + card.inquiryId);
+          if (cardEl) {
+            var badge = cardEl.querySelector('.rq-badge');
+            if (badge) {
+              badge.textContent = accountType;
+              badge.className = 'rq-badge ' + (accountType === 'Renter' ? 'rq-badge-renter' : accountType === 'Landlord' ? 'rq-badge-landlord' : 'rq-badge-other');
+            }
+          }
+        }
+
+        /* Update card with additional fields */
+        if (phone || location || emailFromForm) {
+          card.phone = phone;
+          card.location = location;
+          if (emailFromForm && !card.email) card.email = emailFromForm;
+          var metaDiv = document.querySelector('#rq-card-' + card.inquiryId + ' .rq-extra-fields');
+          if (!metaDiv) {
+            var infoDiv = document.querySelector('#rq-card-' + card.inquiryId + ' .rq-meta:last-of-type');
+            if (infoDiv) {
+              var extraHtml = '';
+              if (phone) extraHtml += '<p class="rq-meta rq-extra-fields">📞 ' + phone + '</p>';
+              if (location) extraHtml += '<p class="rq-meta">📍 ' + location + '</p>';
+              if (emailFromForm) extraHtml += '<p class="rq-meta">📧 ' + emailFromForm + '</p>';
+              infoDiv.insertAdjacentHTML('afterend', extraHtml);
             }
           }
         }
