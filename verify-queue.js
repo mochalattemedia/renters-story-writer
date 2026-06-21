@@ -331,6 +331,23 @@
         var fileMatch = html.match(/\/uploads\/forms\/comments\/[^"'\s]+\.jpg/i);
         if (!fileMatch) fileMatch = html.match(/\/uploads\/forms\/comments\/[^"'\s]+\.(jpg|jpeg|png|gif)/i);
         
+        /* Parse Account Type from inquiry HTML */
+        var accountTypeMatch = html.match(/Account\s+Type[\s\S]*?<\/td>\s*<td[^>]*>(.*?)<\/td>/i);
+        if (accountTypeMatch) {
+          var accountType = accountTypeMatch[1].replace(/<[^>]+>/g, '').trim();
+          if (accountType) {
+            card.memberType = accountType;
+            var cardEl = document.getElementById('rq-card-' + card.inquiryId);
+            if (cardEl) {
+              var badge = cardEl.querySelector('.rq-badge');
+              if (badge) {
+                badge.textContent = accountType;
+                badge.className = 'rq-badge ' + (accountType === 'Renter' ? 'rq-badge-renter' : accountType === 'Landlord' ? 'rq-badge-landlord' : 'rq-badge-other');
+              }
+            }
+          }
+        }
+
         card.photoLoading = false;
         if (fileMatch) {
           card.photoPath = fileMatch[0];
@@ -349,31 +366,6 @@
           }
           var cardEl = document.getElementById('rq-card-' + card.inquiryId);
           if (cardEl) cardEl.classList.add('no-photo');
-        }
-
-        /* Also fetch member type */
-        if (card.memberId && card.memberType === 'Unknown') {
-          fetch('https://www.renters.com/api/members/get/json/' + card.memberId, {
-            credentials: 'include'
-          })
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            if (data && data.subscription_title) {
-              card.memberType = data.subscription_title;
-            } else if (data && data.subscription) {
-              card.memberType = data.subscription;
-            }
-            /* Update the badge in the card */
-            var cardEl = document.getElementById('rq-card-' + card.inquiryId);
-            if (cardEl) {
-              var badge = cardEl.querySelector('.rq-badge');
-              if (badge) {
-                badge.textContent = card.memberType;
-                badge.className = 'rq-badge ' + (card.memberType === 'Renter' ? 'rq-badge-renter' : card.memberType === 'Landlord' ? 'rq-badge-landlord' : 'rq-badge-other');
-              }
-            }
-          })
-          .catch(function() {});
         }
 
         /* Check if all photos loaded */
