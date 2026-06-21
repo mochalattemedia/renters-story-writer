@@ -326,7 +326,7 @@
     if (!card.memberId) return;
     setTimeout(function() {
       /* Try to find the file link by fetching the inquiry detail */
-      fetch('https://ww2.managemydirectory.com/admin/go.php?widget=Admin-Module-Form-Inquiries&noheader=val&action=view_inquiry&inquiry_id=' + card.inquiryId, {
+      fetch('https://ww2.managemydirectory.com/admin/go.php?widget=Admin-Module-Form-Inquiries&noheader=1&external_action=previewInquiry&inquiry_id=' + card.inquiryId, {
         credentials: 'include'
       })
       .then(function(r) { return r.text(); })
