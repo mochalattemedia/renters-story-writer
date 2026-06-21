@@ -168,36 +168,19 @@
     });
   }
 
-  function sendApprovalEmail(email, name) {
-    var subject = encodeURIComponent('Your Renters.com verification is approved');
-    var body = encodeURIComponent(
-      'Hi ' + name + ',\n\n' +
-      'Your identity verification has been approved. Your profile is now verified on Renters.com.\n\n' +
-      'You can view your verified status by logging into your dashboard at:\n' +
-      'https://www.renters.com/account/home\n\n' +
-      'Thank you for taking the time to verify your identity. It helps build trust across our entire community.\n\n' +
-      'Renters.com Support'
-    );
-    window.open('mailto:' + email + '?subject=' + subject + '&body=' + body);
-  }
-
-  function sendRejectionEmail(email, name) {
-    var subject = encodeURIComponent('Your Renters.com verification needs a resubmission');
-    var body = encodeURIComponent(
-      'Hi ' + name + ',\n\n' +
-      'Thank you for submitting your verification. Unfortunately we weren\'t able to approve it because the photo didn\'t meet our requirements.\n\n' +
-      'We need one single photo showing:\n' +
-      '- Your face, clearly visible\n' +
-      '- Your government-issued ID held next to your face\n\n' +
-      'Common reasons for rejection:\n' +
-      '- Photo of ID only, no face visible\n' +
-      '- No photo submitted at all\n' +
-      '- Photo of something unrelated\n\n' +
-      'Please resubmit by logging into your dashboard and clicking "Verify Your Profile" under Account Details.\n\n' +
-      'If you have any questions just reply to this email.\n\n' +
-      'Renters.com Support'
-    );
-    window.open('mailto:' + email + '?subject=' + subject + '&body=' + body);
+  function sendVerificationEmail(type, email, name) {
+    fetch('/.netlify/functions/send-verification-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: type, email: email, name: name })
+    }).then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (!data.success) {
+        console.error('Email send failed:', data.error);
+      }
+    }).catch(function(err) {
+      console.error('Email function error:', err);
+    });
   }
 
   window.rqApprove = function(inquiryId) {
@@ -217,7 +200,7 @@
     }).then(function() {
       card.status = 'approved';
       renderCards();
-      sendApprovalEmail(card.email, card.name);
+      sendVerificationEmail('approved', card.email, card.name);
     }).catch(function(err) {
       alert('Error approving. Try manually in BD admin.\n' + err);
     });
@@ -235,7 +218,7 @@
     deletePhoto(card.photoPath).then(function() {
       card.status = 'rejected';
       renderCards();
-      sendRejectionEmail(card.email, card.name);
+      sendVerificationEmail('rejected', card.email, card.name);
     }).catch(function(err) {
       alert('Error processing rejection.\n' + err);
     });
