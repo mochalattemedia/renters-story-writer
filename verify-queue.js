@@ -351,6 +351,31 @@
           if (cardEl) cardEl.classList.add('no-photo');
         }
 
+        /* Also fetch member type */
+        if (card.memberId && card.memberType === 'Unknown') {
+          fetch('https://www.renters.com/api/members/get/json/' + card.memberId, {
+            credentials: 'include'
+          })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data && data.subscription_title) {
+              card.memberType = data.subscription_title;
+            } else if (data && data.subscription) {
+              card.memberType = data.subscription;
+            }
+            /* Update the badge in the card */
+            var cardEl = document.getElementById('rq-card-' + card.inquiryId);
+            if (cardEl) {
+              var badge = cardEl.querySelector('.rq-badge');
+              if (badge) {
+                badge.textContent = card.memberType;
+                badge.className = 'rq-badge ' + (card.memberType === 'Renter' ? 'rq-badge-renter' : card.memberType === 'Landlord' ? 'rq-badge-landlord' : 'rq-badge-other');
+              }
+            }
+          })
+          .catch(function() {});
+        }
+
         /* Check if all photos loaded */
         var stillLoading = allCards.some(function(c) { return c.photoLoading; });
         if (!stillLoading) {
