@@ -192,9 +192,22 @@
     document.getElementById('approve-' + inquiryId).textContent = 'Processing...';
     document.getElementById('reject-' + inquiryId).disabled = true;
 
-    /* Verify the member in BD */
-    fetch('https://ww2.managemydirectory.com/admin/go.php?widget=Admin-Module-Members&action=update_member&user_id=' + card.memberId + '&verified=1&noheader=val', {
-      credentials: 'include'
+    /* Verify the member in BD using the correct bulk action endpoint */
+    var formData = new URLSearchParams();
+    formData.append('faction', 'bulkmemberactions');
+    formData.append('newsite', '38748');
+    formData.append('total_records', '1');
+    formData.append('bulk_action_type', 'selected_rows');
+    formData.append('selected_rows', card.memberId);
+    formData.append('bulk_action', 'update-verified-status');
+    formData.append('new_value', '1');
+    formData.append('apply_subaccounts', '');
+
+    fetch('https://ww2.managemydirectory.com/admin/viewMembers.php', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString()
     }).then(function() {
       return deletePhoto(card.photoPath);
     }).then(function() {
