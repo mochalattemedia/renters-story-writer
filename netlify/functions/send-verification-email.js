@@ -8,27 +8,34 @@ const ses = new SESClient({
   },
 });
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+};
+
 exports.handler = async function (event) {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
+  // Handle preflight OPTIONS request
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: corsHeaders, body: "" };
   }
 
-  const headers = {
-    "Access-Control-Allow-Origin": "*",
-    "Content-Type": "application/json",
-  };
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, headers: corsHeaders, body: "Method Not Allowed" };
+  }
 
   let body;
   try {
     body = JSON.parse(event.body);
   } catch (e) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid JSON" }) };
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) };
   }
 
   const { type, email, name } = body;
 
   if (!type || !email || !name) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: "Missing required fields: type, email, name" }) };
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Missing required fields: type, email, name" }) };
   }
 
   let subject, bodyText;
@@ -68,7 +75,7 @@ If you have any questions just reply to this email.
 Renters.com Support`;
 
   } else {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid type — must be 'approved' or 'rejected'" }) };
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid type — must be 'approved' or 'rejected'" }) };
   }
 
   const command = new SendEmailCommand({
@@ -88,14 +95,14 @@ Renters.com Support`;
     await ses.send(command);
     return {
       statusCode: 200,
-      headers,
+      headers: corsHeaders,
       body: JSON.stringify({ success: true, type, email }),
     };
   } catch (err) {
     console.error("SES error:", err);
     return {
       statusCode: 500,
-      headers,
+      headers: corsHeaders,
       body: JSON.stringify({ error: "Failed to send email", details: err.message }),
     };
   }
