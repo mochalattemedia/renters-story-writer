@@ -169,7 +169,7 @@
   }
 
   function sendVerificationEmail(type, email, name) {
-    fetch('/.netlify/functions/send-verification-email', {
+    fetch('https://renters-story-writer.netlify.app/.netlify/functions/send-verification-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: type, email: email, name: name })
