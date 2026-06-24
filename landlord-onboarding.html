@@ -50,7 +50,7 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
 .notice { padding: 12px 16px; margin-bottom: 24px; border-radius: 0 8px 8px 0; font-size: 13px; line-height: 1.6; }
 .notice-warning { background: #fef9e7; border-left: 3px solid #f39c12; color: #7d6608; }
 .notice-info { background: #eaf4fb; border-left: 3px solid #2980b9; color: #1a5276; }
-.notice-success { background: #eafaf1; border-left: 3px solid #27ae60; color: #1e8449; }
+.notice-success { background: #eafaf1; border-left: 3px solid #3a9e8f; color: #1e8449; }
 
 .steps { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .step-item { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; background: #f4f7f6; border-radius: 8px; border: 1px solid #e8eceb; }
@@ -124,7 +124,7 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
   <div class="slide" id="s1">
     <p class="step-label">Step 2 of 5</p>
     <h1>Property photos</h1>
-    <p class="intro">Photos are the single biggest factor in whether a renter reaches out. Show everything — no exceptions.</p>
+    <p class="intro">We require comprehensive photos of the inside and outside of your rental, including all rooms and any shared spaces, if applicable.</p>
     <div class="four-col">
       <div class="card icon-card">
         <span class="icon">🏠</span>
@@ -147,9 +147,6 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
         <p class="icon-sub">Natural light, daytime only</p>
       </div>
     </div>
-    <div class="notice notice-warning">
-      Listings with fewer than 6 photos receive significantly less interest. We recommend 10 or more.
-    </div>
     <div class="btn-row">
       <button class="btn btn-outline" onclick="go(0)">← Back</button>
       <button class="btn btn-navy" onclick="go(2)">Next →</button>
@@ -160,7 +157,7 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
   <div class="slide" id="s2">
     <p class="step-label">Step 3 of 5</p>
     <h1>Complete your listing</h1>
-    <p class="intro">Every empty field is a question a renter has to ask before they can say yes. Fill everything out — no exceptions.</p>
+    <p class="intro">Every empty field is a question a renter has to ask before they can say yes. Please fill everything out so renters have a clear understanding of your rental.</p>
     <div class="checklist">
       <div class="check-item"><span class="check-icon" style="color:#27ae60;">✓</span> Monthly rent — exact amount, no "contact for price"</div>
       <div class="check-item"><span class="check-icon" style="color:#27ae60;">✓</span> Availability date — when can someone move in?</div>
@@ -179,7 +176,7 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
   <div class="slide" id="s3">
     <p class="step-label">Step 4 of 5</p>
     <h1>Verify your identity</h1>
-    <p class="intro">Renters on this platform share vulnerable personal information with you. Verification protects them — and builds your credibility as a landlord they can trust.</p>
+    <p class="intro">Before you submit your first listing, please use the Verify Your Profile link in your dashboard — it builds trust with renters and shows them you're a real, accountable landlord.</p>
     <div class="identity-grid">
       <div class="id-card">
         <span class="id-icon">🪪</span>
@@ -192,46 +189,46 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
         <p class="id-sub">Hold your ID next to your face in the photo</p>
       </div>
     </div>
-    <div class="notice notice-info">
-      Your listing won't go live until verification is complete. This usually takes less than 24 hours.
-    </div>
     <div class="btn-row">
       <button class="btn btn-outline" onclick="go(2)">← Back</button>
       <button class="btn btn-navy" onclick="go(4)">Next →</button>
     </div>
   </div>
 
-  <!-- Slide 5: Pricing -->
+  <!-- Slide 5: How It Works & Pricing -->
   <div class="slide" id="s4">
     <p class="step-label">Step 5 of 5</p>
     <h1>How it works</h1>
-    <p class="intro">You shouldn't pay to list. You should only pay when we actually deliver a renter who signs a lease.</p>
+    <p class="intro">Listing on Renters.com is always free. But if you want us to do the work of finding, screening, and delivering the right renter — that's our matching service, and it's worth it.</p>
+
+    <div class="checklist">
+      <div class="check-item"><span class="check-icon" style="color:#3a9e8f;">✓</span> Verified identity — real person, confirmed</div>
+      <div class="check-item"><span class="check-icon" style="color:#3a9e8f;">✓</span> Known income and credit range — no surprises</div>
+      <div class="check-item"><span class="check-icon" style="color:#3a9e8f;">✓</span> Rental history and known obstacles — upfront, not discovered later</div>
+      <div class="check-item"><span class="check-icon" style="color:#3a9e8f;">✓</span> Their story in their own words — who they are and why they want your property</div>
+      <div class="check-item"><span class="check-icon" style="color:#3a9e8f;">✓</span> Showing coordination — we help schedule and confirm so no one wastes time</div>
+      <div class="check-item"><span class="check-icon" style="color:#3a9e8f;">✓</span> You only pay if a matched renter signs a lease — 50% of first month's rent</div>
+    </div>
+
+    <p style="font-size:13px;font-weight:600;color:#0d2d4e;margin:0 0 10px;">How would you like to list?</p>
+
     <div class="steps">
-      <div class="step-item">
-        <div class="step-num navy">1</div>
+      <div class="step-item" id="opt-free" onclick="selectOpt('free')" style="cursor:pointer;">
+        <div class="step-num navy">A</div>
         <div>
-          <p class="step-title">Post your listing — free</p>
-          <p class="step-sub">No upfront cost. Your listing stays live as long as the property is available.</p>
+          <p class="step-title">List freely — find renters yourself</p>
+          <p class="step-sub">Your listing is live and renters can contact you directly. No screening, no matching, no placement fee.</p>
         </div>
       </div>
-      <div class="step-item">
-        <div class="step-num navy">2</div>
+      <div class="step-item featured" id="opt-match" onclick="selectOpt('match')" style="cursor:pointer;">
+        <div class="step-num teal">B</div>
         <div>
-          <p class="step-title">We match you with the right renter</p>
-          <p class="step-sub">We review renter profiles and hand-deliver candidates who are a genuine fit for your property and situation.</p>
-        </div>
-      </div>
-      <div class="step-item featured">
-        <div class="step-num teal">3</div>
-        <div>
-          <p class="step-title">Lease signed — placement fee applies</p>
-          <p class="step-sub">If a renter we introduced signs a lease, we collect 50% of the first month's rent as a placement fee. You only pay when we deliver.</p>
+          <p class="step-title">Opt into matching — we find your renter</p>
+          <p class="step-sub">We hand-deliver pre-screened, verified candidates who are genuinely ready to rent. 50% of first month's rent — only if we place a tenant.</p>
         </div>
       </div>
     </div>
-    <div class="notice notice-success">
-      Right now, Renters.com is completely free to list. The placement fee model will apply once we formally launch our matching service in your area.
-    </div>
+
     <div class="btn-row">
       <button class="btn btn-outline" onclick="go(3)">← Back</button>
       <button class="btn btn-teal" onclick="finish()">✓ I understand — post my listing</button>
@@ -241,6 +238,8 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
 </div>
 
 <script>
+var selectedOpt = 'match'; // default to matching opted in
+
 function go(n) {
   for (var i = 0; i < 5; i++) {
     document.getElementById('s' + i).className = 'slide' + (i === n ? ' visible' : '');
@@ -249,16 +248,54 @@ function go(n) {
   window.scrollTo(0, 0);
 }
 
-function finish() {
-  if (window.parent) {
-    window.parent.postMessage({ type: 'landlord_onboarding_complete' }, '*');
+function selectOpt(opt) {
+  selectedOpt = opt;
+  var freeEl = document.getElementById('opt-free');
+  var matchEl = document.getElementById('opt-match');
+  if (opt === 'free') {
+    freeEl.style.border = '2px solid #0d2d4e';
+    matchEl.style.border = '1px solid #e8eceb';
+    matchEl.classList.remove('featured');
+  } else {
+    matchEl.style.border = '2px solid #3a9e8f';
+    matchEl.classList.add('featured');
+    freeEl.style.border = '1px solid #e8eceb';
   }
-  document.querySelector('.wrap').innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:16px;">✓</div><h2 style="font-size:22px;font-weight:600;color:#0d2d4e;margin-bottom:8px;">You\'re all set</h2><p style="font-size:15px;color:#4a5a6a;line-height:1.7;">You\'ll be redirected to your listing form now.</p></div>';
+}
+
+function finish() {
+  localStorage.setItem('landlord_onboarding_complete', '1');
+  localStorage.setItem('landlord_matching_opt', selectedOpt);
+
+  // Fire opt-in notification
+  var memberName = '';
+  var memberId = '';
+  try {
+    // Try to get member info from BD page if available
+    var nameEl = document.querySelector('.welcome-member-name');
+    if (nameEl) memberName = nameEl.textContent.trim();
+    var idEl = document.querySelector('.member-account-id');
+    if (idEl) memberId = idEl.textContent.replace('Member ID #','').trim();
+  } catch(e) {}
+
+  fetch('https://renters-story-writer.netlify.app/.netlify/functions/landlord-optin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      opt: selectedOpt,
+      memberName: memberName,
+      memberId: memberId,
+      timestamp: new Date().toISOString()
+    })
+  }).catch(function() {});
+
+  var message = selectedOpt === 'match'
+    ? 'You\'ve opted into matching. We\'ll be in touch with candidates.'
+    : 'Your listing will be live for renters to find directly.';
+  document.querySelector('.wrap').innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:16px;">✓</div><h2 style="font-size:22px;font-weight:600;color:#0d2d4e;margin-bottom:8px;">You\'re all set</h2><p style="font-size:15px;color:#4a5a6a;line-height:1.7;">' + message + '</p><p style="font-size:14px;color:#4a5a6a;margin-top:8px;">Taking you to your listing form now...</p></div>';
   setTimeout(function() {
-    if (window.parent) {
-      window.parent.postMessage({ type: 'landlord_onboarding_redirect' }, '*');
-    }
-  }, 2000);
+    window.location.href = 'https://www.renters.com/account/properties/add';
+  }, 2500);
 }
 </script>
 </body>
