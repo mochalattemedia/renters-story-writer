@@ -294,7 +294,7 @@ function finish() {
     : 'Your listing will be live for renters to find directly.';
   document.querySelector('.wrap').innerHTML = '<div style="text-align:center;padding:60px 20px;"><div style="font-size:48px;margin-bottom:16px;">✓</div><h2 style="font-size:22px;font-weight:600;color:#0d2d4e;margin-bottom:8px;">You\'re all set</h2><p style="font-size:15px;color:#4a5a6a;line-height:1.7;">' + message + '</p><p style="font-size:14px;color:#4a5a6a;margin-top:8px;">Taking you to your listing form now...</p></div>';
   setTimeout(function() {
-    window.location.href = 'https://www.renters.com/account/properties/add';
+    window.location.href = 'https://www.renters.com/account/properties/add?onboarding=complete';
   }, 2500);
 }
 </script>
