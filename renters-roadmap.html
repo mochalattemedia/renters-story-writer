@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>Lisa — Your Renter Coach | Renters.com</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -22,7 +22,7 @@
 }
 
 body {
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'Open Sans', sans-serif;
   background: var(--cream);
   color: var(--text);
   min-height: 100vh;
@@ -51,7 +51,7 @@ body {
 }
 
 .lisa-intro h1 {
-  font-family: 'DM Serif Display', serif;
+  font-family: 'Open Sans', sans-serif;
   font-size: 18px;
   color: var(--white);
   font-weight: 400;
@@ -184,7 +184,7 @@ body {
 }
 
 .section-title {
-  font-family: 'DM Serif Display', serif;
+  font-family: 'Open Sans', sans-serif;
   font-size: 28px;
   color: var(--navy);
   margin-bottom: 6px;
@@ -426,7 +426,7 @@ body {
 }
 
 .stat-value {
-  font-family: 'DM Serif Display', serif;
+  font-family: 'Open Sans', sans-serif;
   font-size: 24px;
   color: var(--navy);
   display: block;
@@ -487,11 +487,11 @@ body {
 }
 
 .complete-title {
-  font-family: 'DM Serif Display', serif;
+  font-family: 'Open Sans', sans-serif;
   font-size: 28px;
   color: var(--navy);
-  margin-bottom: 12px;
-  font-weight: 400;
+  margin-bottom: 6px;
+  font-weight: 700;
 }
 
 .complete-sub {
@@ -538,7 +538,7 @@ body {
   <div class="lisa-avatar">👩</div>
   <div class="lisa-intro">
     <h1>Hi, I'm Lisa.</h1>
-    <p>I help you lease a house more easily.</p>
+    <p>I help you <span style="color:#8dc63f;font-weight:600;">lease a</span> house more easily.</p>
   </div>
 </div>
 
@@ -635,7 +635,7 @@ var sections = [
   {
     id: 'budget',
     eyebrow: 'Section 3 of 6 · 5 min',
-    title: 'Getting In On a Tight Budget',
+    title: 'Renting on a Tight Budget',
     subtitle: 'Strategies most renters never think to try.',
     ai: false,
     content: function(city) {
@@ -728,7 +728,7 @@ var sections = [
   }
 ];
 
-var sectionNames = ['Know Your Market', 'Know Your Rights', 'Tight Budget', 'Your Profile', 'Resources', 'Next Steps'];
+var sectionNames = ['Know Your Market', 'Know Your Rights', 'Renting on a Budget', 'Your Profile', 'Resources', 'Next Steps'];
 
 function startRoadmap() {
   city = document.getElementById('city-input').value.trim();
