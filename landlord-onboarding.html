@@ -267,16 +267,11 @@ function finish() {
   localStorage.setItem('landlord_onboarding_complete', '1');
   localStorage.setItem('landlord_matching_opt', selectedOpt);
 
-  // Fire opt-in notification
-  var memberName = '';
-  var memberId = '';
-  try {
-    // Try to get member info from BD page if available
-    var nameEl = document.querySelector('.welcome-member-name');
-    if (nameEl) memberName = nameEl.textContent.trim();
-    var idEl = document.querySelector('.member-account-id');
-    if (idEl) memberId = idEl.textContent.replace('Member ID #','').trim();
-  } catch(e) {}
+  // Get member info from URL parameters passed by BD
+  var urlParams = new URLSearchParams(window.location.search);
+  var memberName = urlParams.get('name') || 'Unknown';
+  var memberId = urlParams.get('id') || 'Unknown';
+  var memberPlan = urlParams.get('plan') || 'Unknown';
 
   fetch('https://renters-story-writer.netlify.app/.netlify/functions/landlord-optin', {
     method: 'POST',
@@ -285,6 +280,7 @@ function finish() {
       opt: selectedOpt,
       memberName: memberName,
       memberId: memberId,
+      memberPlan: memberPlan,
       timestamp: new Date().toISOString()
     })
   }).catch(function() {});
@@ -299,4 +295,4 @@ function finish() {
 }
 </script>
 </body>
-</html>
+</html>c
