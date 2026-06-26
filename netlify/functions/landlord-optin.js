@@ -46,16 +46,31 @@ const KNOWN_TAGS = {
 
 // --- Small helper: call the BD API ---
 async function bd(path, { method = "GET", body = null } = {}) {
+  const url = `${BD_BASE}${path}`;
   const headers = { "X-Api-Key": process.env.BD_API_KEY };
-  const opts = { method, headers };
+  const opts = { method, headers, redirect: "follow" };
   if (body) {
     headers["Content-Type"] = "application/x-www-form-urlencoded";
     opts.body = new URLSearchParams(body).toString();
   }
-  const res = await fetch(`${BD_BASE}${path}`, opts);
-  let data = null;
-  try { data = await res.json(); } catch (e) { /* non-JSON */ }
-  return { ok: res.ok, status: res.status, data };
+  try {
+    const res = await fetch(url, opts);
+    let data = null;
+    let raw = "";
+    try {
+      raw = await res.text();
+      data = raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      // non-JSON response — keep raw for diagnostics
+    }
+    if (!res.ok) {
+      console.log(`BD ${method} ${url} -> HTTP ${res.status}; body(first 300): ${(raw || "").slice(0, 300)}`);
+    }
+    return { ok: res.ok, status: res.status, data, raw };
+  } catch (e) {
+    console.log(`BD ${method} ${url} -> FETCH THREW: ${e.name}: ${e.message}${e.cause ? " | cause: " + (e.cause.code || e.cause.message || e.cause) : ""}`);
+    return { ok: false, status: 0, data: null, raw: "", error: e.message };
+  }
 }
 
 // --- Read a member's full record ---
@@ -190,13 +205,13 @@ exports.handler = async function (event) {
       tagWriteResult = {
         ok: addRes.ok && addRes.data && addRes.data.status === "success",
         status: addRes.status,
-        note: addRes.ok ? "tag written" : "tag write failed",
+        note: addRes.ok ? "tag written" : "tag write failed: HTTP " + addRes.status + (addRes.error ? " " + addRes.error : "") + (addRes.raw ? " | " + String(addRes.raw).slice(0, 200) : ""),
       };
     } else {
       tagWriteResult = { ok: false, status: 0, note: `tag "${wantTagName}" not found in library` };
     }
   } catch (e) {
-    tagWriteResult = { ok: false, status: 0, note: "tag write error: " + e.message };
+    tagWriteResult = { ok: false, status: 0, note: "tag write error: " + e.name + ": " + e.message + (e.cause ? " | cause: " + (e.cause.code || e.cause.message || e.cause) : "") };
   }
 
   // Verification status: prefer live "verified" flag; note submission too.
