@@ -1,7 +1,7 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v6  (2026-06-26, https + diagnostic mode)
-//  If the console test shows "version":"v6", you have THIS file deployed.
-//  Send { "diag": true } to probe the BD API auth directly.
+//  landlord-optin.js   ·   VERSION: v7  (2026-06-26, https + GET diagnostic)
+//  Browser test:  open  <function-url>?diag=1  to probe BD API auth.
+//  If output shows "version":"v7", you have THIS file deployed.
 // ============================================================
 // landlord-optin.js
 // Receives a landlord's opt-in/opt-out matching choice from the dashboard wizard.
@@ -36,7 +36,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://ww2.managemydirectory.com/api/v2";
-const FUNCTION_VERSION = "v6";
+const FUNCTION_VERSION = "v7";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -198,6 +198,29 @@ exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers: corsHeaders, body: "" };
   }
+
+  // --- GET diagnostic: visit ...?diag=1 in a browser to probe BD API auth ---
+  if (event.httpMethod === "GET") {
+    const q = event.queryStringParameters || {};
+    if (q.diag === "1") {
+      const verify = await bd(`/token/verify`);
+      const userRead = await bd(`/user/get/3650`);
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: FUNCTION_VERSION,
+          keyPresent: !!process.env.BD_API_KEY,
+          keyLength: (process.env.BD_API_KEY || "").length,
+          base: BD_BASE,
+          tokenVerify: { ok: verify.ok, status: verify.status, error: verify.error || null, rawHead: (verify.raw || "").slice(0, 300) },
+          userGet: { ok: userRead.ok, status: userRead.status, error: userRead.error || null, rawHead: (userRead.raw || "").slice(0, 300) },
+        }, null, 2),
+      };
+    }
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ version: FUNCTION_VERSION, hint: "add ?diag=1 to run the API probe" }) };
+  }
+
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: corsHeaders, body: "Method Not Allowed" };
   }
