@@ -1,3 +1,7 @@
+// ============================================================
+//  landlord-optin.js   ·   VERSION: v5  (2026-06-26, https-based)
+//  If the console test shows "version":"v5", you have THIS file deployed.
+// ============================================================
 // landlord-optin.js
 // Receives a landlord's opt-in/opt-out matching choice from the dashboard wizard.
 // 1. Reads the member's full record from the Brilliant Directories (BD) API.
@@ -31,6 +35,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://ww2.managemydirectory.com/api/v2";
+const FUNCTION_VERSION = "v5";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -44,33 +49,68 @@ const KNOWN_TAGS = {
   "matching-opted-out": { tag_id: "2", tag_type_id: "1" },
 };
 
-// --- Small helper: call the BD API ---
-async function bd(path, { method = "GET", body = null } = {}) {
-  const url = `${BD_BASE}${path}`;
-  const headers = { "X-Api-Key": process.env.BD_API_KEY };
-  const opts = { method, headers, redirect: "follow" };
-  if (body) {
-    headers["Content-Type"] = "application/x-www-form-urlencoded";
-    opts.body = new URLSearchParams(body).toString();
-  }
-  try {
-    const res = await fetch(url, opts);
-    let data = null;
-    let raw = "";
-    try {
-      raw = await res.text();
-      data = raw ? JSON.parse(raw) : null;
-    } catch (e) {
-      // non-JSON response — keep raw for diagnostics
+const https = require("https");
+const { URL } = require("url");
+
+// --- Small helper: call the BD API using Node's built-in https (no fetch dependency) ---
+function bd(path, { method = "GET", body = null } = {}) {
+  return new Promise((resolve) => {
+    let urlStr = `${BD_BASE}${path}`;
+    let payload = null;
+    const headers = { "X-Api-Key": process.env.BD_API_KEY, "Accept": "application/json" };
+    if (body) {
+      payload = new URLSearchParams(body).toString();
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+      headers["Content-Length"] = Buffer.byteLength(payload);
     }
-    if (!res.ok) {
-      console.log(`BD ${method} ${url} -> HTTP ${res.status}; body(first 300): ${(raw || "").slice(0, 300)}`);
+
+    function doRequest(targetUrl, redirectsLeft) {
+      let u;
+      try { u = new URL(targetUrl); } catch (e) {
+        return resolve({ ok: false, status: 0, data: null, raw: "", error: "bad url: " + targetUrl });
+      }
+      const options = {
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method,
+        headers,
+      };
+      const req = https.request(options, (res) => {
+        // Follow redirects manually (preserve method for our simple cases).
+        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
+          const next = res.headers.location.startsWith("http")
+            ? res.headers.location
+            : `${u.protocol}//${u.host}${res.headers.location}`;
+          console.log(`BD redirect ${res.statusCode} -> ${next}`);
+          res.resume();
+          return doRequest(next, redirectsLeft - 1);
+        }
+        let raw = "";
+        res.on("data", (c) => (raw += c));
+        res.on("end", () => {
+          let data = null;
+          try { data = raw ? JSON.parse(raw) : null; } catch (e) { /* non-JSON */ }
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            console.log(`BD ${method} ${targetUrl} -> HTTP ${res.statusCode}; body(first 300): ${raw.slice(0, 300)}`);
+          }
+          resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data, raw });
+        });
+      });
+      req.on("error", (e) => {
+        console.log(`BD ${method} ${targetUrl} -> REQ ERROR: ${e.code || e.name}: ${e.message}`);
+        resolve({ ok: false, status: 0, data: null, raw: "", error: (e.code || e.name) + ": " + e.message });
+      });
+      req.setTimeout(10000, () => {
+        req.destroy();
+        resolve({ ok: false, status: 0, data: null, raw: "", error: "timeout after 10s" });
+      });
+      if (payload) req.write(payload);
+      req.end();
     }
-    return { ok: res.ok, status: res.status, data, raw };
-  } catch (e) {
-    console.log(`BD ${method} ${url} -> FETCH THREW: ${e.name}: ${e.message}${e.cause ? " | cause: " + (e.cause.code || e.cause.message || e.cause) : ""}`);
-    return { ok: false, status: 0, data: null, raw: "", error: e.message };
-  }
+
+    doRequest(urlStr, 5);
+  });
 }
 
 // --- Read a member's full record ---
@@ -290,6 +330,7 @@ exports.handler = async function (event) {
     headers: corsHeaders,
     body: JSON.stringify({
       success: true,
+      version: FUNCTION_VERSION,
       tagWritten: tagWriteResult.ok,
       tagNote: tagWriteResult.note,
       verified: verifiedText || "unknown",
