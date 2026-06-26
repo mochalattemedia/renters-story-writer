@@ -1,3 +1,18 @@
+// landlord-optin.js
+// Receives a landlord's opt-in/opt-out matching choice from the dashboard wizard.
+// 1. Reads the member's full record from the Brilliant Directories (BD) API.
+// 2. Resolves the matching-opted-in / matching-opted-out tag IDs by name.
+// 3. Writes the chosen tag to the member (and removes the opposite tag if present — handles "change").
+// 4. Emails Kenny a notification (enriched with real member data), marked initial vs. change.
+//
+// Required Netlify env vars:
+//   BD_API_KEY            - Brilliant Directories API key (X-Api-Key header)
+//   SES_ACCESS_KEY_ID     - AWS SES access key (already set)
+//   SES_SECRET_ACCESS_KEY - AWS SES secret (already set)
+//   SES_REGION            - defaults to us-east-2
+// Optional:
+//   BD_API_BASE           - defaults to https://ww2.managemydirectory.com/api/v2
+
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 
 const ses = new SESClient({
@@ -15,11 +30,113 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
+const BD_BASE = process.env.BD_API_BASE || "https://ww2.managemydirectory.com/api/v2";
+
+// Tag names we manage. IDs are resolved at runtime by name, but we keep
+// confirmed known IDs as a fallback so a write can never fail on resolution.
+//   matching-opted-in  = tag id 1  (confirmed via API user record)
+//   matching-opted-out = tag id 2  (confirmed via admin form capture)
+//   both live in tag group/type 1
+const TAG_IN = "matching-opted-in";
+const TAG_OUT = "matching-opted-out";
+const KNOWN_TAGS = {
+  "matching-opted-in":  { tag_id: "1", tag_type_id: "1" },
+  "matching-opted-out": { tag_id: "2", tag_type_id: "1" },
+};
+
+// --- Small helper: call the BD API ---
+async function bd(path, { method = "GET", body = null } = {}) {
+  const headers = { "X-Api-Key": process.env.BD_API_KEY };
+  const opts = { method, headers };
+  if (body) {
+    headers["Content-Type"] = "application/x-www-form-urlencoded";
+    opts.body = new URLSearchParams(body).toString();
+  }
+  const res = await fetch(`${BD_BASE}${path}`, opts);
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* non-JSON */ }
+  return { ok: res.ok, status: res.status, data };
+}
+
+// --- Read a member's full record ---
+async function getMember(userId) {
+  const { ok, data } = await bd(`/user/get/${encodeURIComponent(userId)}`);
+  if (!ok || !data || data.status !== "success") return null;
+  // The API returns message as an array with one member object.
+  const arr = Array.isArray(data.message) ? data.message : [data.message];
+  return arr[0] || null;
+}
+
+// --- Resolve a tag's numeric id + group/type id by its name ---
+// We read the full tag list and match on tag_name.
+async function resolveTags() {
+  // Start from confirmed known IDs so resolution can never come back empty.
+  const map = { ...KNOWN_TAGS };
+  // Try the live list endpoint to pick up the true IDs (in case they ever change).
+  try {
+    const { ok, data } = await bd(`/tags/get`);
+    if (ok && data && Array.isArray(data.message)) {
+      for (const t of data.message) {
+        if (t && t.tag_name) {
+          map[t.tag_name] = {
+            tag_id: String(t.id),
+            tag_type_id: String(t.group_tag_id || t.tag_type_id || "1"),
+          };
+        }
+      }
+    }
+  } catch (e) { /* fall back to KNOWN_TAGS */ }
+  return map;
+}
+
+// --- Find an existing tag relationship on the member for a given tag_id ---
+// member.tags is an array of { id, tag_name, group_tag_id, ... } where `id` is the TAG id,
+// not the relationship id. To delete a relationship we need the rel_tags row id, which the
+// member payload may not expose. We therefore look it up via rel_tags filtered by object_id.
+async function getRelationships(userId) {
+  // Best effort: read tag relationships for this object. If the endpoint shape differs,
+  // we degrade gracefully (no delete, just add).
+  const { ok, data } = await bd(`/rel_tags/get?object_id=${encodeURIComponent(userId)}`);
+  if (ok && data && Array.isArray(data.message)) return data.message;
+  return [];
+}
+
+// --- Create a tag relationship (attach tag to member) ---
+async function addTag(userId, tag, actorId) {
+  const body = {
+    tag_id: tag.tag_id,
+    object_id: String(userId),
+    tag_type_id: tag.tag_type_id,
+  };
+  if (actorId) body.added_by = String(actorId);
+  return bd(`/rel_tags/create`, { method: "POST", body });
+}
+
+// --- Delete a tag relationship by its relationship row id ---
+async function removeRelationship(relId) {
+  return bd(`/rel_tags/delete`, { method: "POST", body: { id: String(relId) } });
+}
+
+// --- Has the member submitted the verify_business form? ---
+async function hasSubmittedVerification(userId) {
+  const { ok, data } = await bd(
+    `/user_submitted_forms/get?user_id=${encodeURIComponent(userId)}`
+  );
+  if (!ok || !data || !Array.isArray(data.message)) return null; // unknown
+  return data.message.some((f) => {
+    const name = (f.form_name || f.formname || f.form || "").toLowerCase();
+    return name.includes("verify");
+  });
+}
+
+function has(v) {
+  return v && String(v).trim() !== "" && String(v).trim().toLowerCase() !== "unknown";
+}
+
 exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers: corsHeaders, body: "" };
   }
-
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: corsHeaders, body: "Method Not Allowed" };
   }
@@ -31,85 +148,136 @@ exports.handler = async function (event) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) };
   }
 
-  const { opt, memberId, memberName, memberPlan, timestamp } = body;
-
-  const optLabel = opt === "match"
-    ? "✅ Opted INTO matching — placement fee applies on success"
-    : "☑️ Opted OUT of matching — listing freely, no placement fee";
-
-  const profileLink = memberId
-    ? `https://ww2.managemydirectory.com/admin/viewMembers.php?faction=view&userid=${memberId}&newsite=38748`
-    : "Unknown";
-
-  // Fetch additional member data from BD API
-  let email = 'Unknown';
-  let phone = 'Unknown';
-  let location = 'Unknown';
-  let verified = 'Unknown';
-
-  if (memberId) {
-    try {
-      const bdResponse = await fetch(`https://www.renters.com/api/members/get/json/${memberId}`);
-      if (bdResponse.ok) {
-        const bdData = await bdResponse.json();
-        email = bdData.email || bdData.user_email || 'Unknown';
-        phone = bdData.phone || bdData.user_phone || 'Unknown';
-        location = bdData.city ? `${bdData.city}, ${bdData.state_sn || ''}`.trim() : (bdData.location || 'Unknown');
-        verified = bdData.verified == 1 ? 'Yes' : 'No';
-      }
-    } catch (e) {
-      // continue with unknowns
-    }
+  // opt: "match" / "in"  => opted IN ; anything else => opted OUT
+  const { opt, memberId, isChange, timestamp } = body;
+  const userId = memberId;
+  if (!has(userId)) {
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "memberId required" }) };
   }
 
-  const emailBody = `
-New landlord completed onboarding on Renters.com.
+  const optedIn = opt === "match" || opt === "in" || opt === "opted-in";
+  const wantTagName = optedIn ? TAG_IN : TAG_OUT;
+  const dropTagName = optedIn ? TAG_OUT : TAG_IN;
 
-Name: ${memberName || "Unknown"}
-Member ID: ${memberId || "Unknown"}
-Plan: ${memberPlan || "Unknown"}
-Email: ${email}
-Phone: ${phone}
-Location: ${location}
-Verified: ${verified}
-Option selected: ${optLabel}
-Time: ${timestamp || new Date().toISOString()}
+  // Read member (for email enrichment + verified status).
+  let member = null;
+  try { member = await getMember(userId); } catch (e) { /* continue */ }
 
-View profile in BD admin:
-${profileLink}
+  // Resolve tag IDs by name.
+  let tagWriteResult = { ok: false, status: 0, note: "" };
+  try {
+    const tags = await resolveTags();
+    const wantTag = tags[wantTagName];
 
----
-Renters.com Landlord Onboarding Notification
-  `.trim();
+    if (wantTag && wantTag.tag_id) {
+      // If this is a change, remove the opposite relationship first.
+      if (isChange) {
+        try {
+          const rels = await getRelationships(userId);
+          const dropTag = tags[dropTagName];
+          if (dropTag) {
+            const toDrop = rels.filter(
+              (r) => String(r.tag_id) === String(dropTag.tag_id)
+            );
+            for (const r of toDrop) {
+              if (r.id) await removeRelationship(r.id);
+            }
+          }
+        } catch (e) { /* non-fatal: still add the new tag */ }
+      }
+
+      const addRes = await addTag(userId, wantTag, userId);
+      tagWriteResult = {
+        ok: addRes.ok && addRes.data && addRes.data.status === "success",
+        status: addRes.status,
+        note: addRes.ok ? "tag written" : "tag write failed",
+      };
+    } else {
+      tagWriteResult = { ok: false, status: 0, note: `tag "${wantTagName}" not found in library` };
+    }
+  } catch (e) {
+    tagWriteResult = { ok: false, status: 0, note: "tag write error: " + e.message };
+  }
+
+  // Verification status: prefer live "verified" flag; note submission too.
+  let submitted = null;
+  try { submitted = await hasSubmittedVerification(userId); } catch (e) { /* unknown */ }
+
+  // --- Build enriched values from the member record ---
+  const memberName = member ? (member.full_name || `${member.first_name || ""} ${member.last_name || ""}`.trim()) : "";
+  const email = member ? member.email : "";
+  const phone = member ? member.phone_number : "";
+  const location = member ? member.user_location : "";
+  const plan = member && member.subscription_schema ? member.subscription_schema.subscription_name
+    : (member ? member.subscription_name : "");
+  const verifiedFlag = member ? String(member.verified) : "";
+  let verifiedText = "";
+  if (verifiedFlag === "1") verifiedText = "Yes (approved)";
+  else if (submitted === true) verifiedText = "Submitted, pending review";
+  else if (verifiedFlag === "0") verifiedText = "Not verified";
+
+  const optLabel = optedIn
+    ? "Opted INTO matching — placement fee applies on success"
+    : "Opted OUT of matching — listing freely, no placement fee";
+
+  // --- Compose email (skip empty fields) ---
+  const verb = isChange ? "CHANGED their matching preference" : "completed onboarding";
+  const lines = [`Landlord ${verb} on Renters.com.`, ""];
+  if (has(memberName)) lines.push(`Name: ${memberName}`);
+  if (has(userId))     lines.push(`Member ID: ${userId}`);
+  if (has(plan))       lines.push(`Plan: ${plan}`);
+  if (has(email))      lines.push(`Email: ${email}`);
+  if (has(phone))      lines.push(`Phone: ${phone}`);
+  if (has(location))   lines.push(`Location: ${location}`);
+  if (has(verifiedText)) lines.push(`Verification: ${verifiedText}`);
+  lines.push(`Choice: ${optLabel}`);
+  lines.push(`Tag write: ${tagWriteResult.ok ? "OK" : "FAILED — " + tagWriteResult.note}`);
+  lines.push(`Time: ${timestamp || new Date().toISOString()}`);
+  if (has(userId)) {
+    lines.push("");
+    lines.push("View in BD admin:");
+    lines.push(`https://ww2.managemydirectory.com/admin/viewMembers.php?faction=view&userid=${userId}&newsite=38748`);
+  }
+  lines.push("");
+  lines.push("---");
+  lines.push("Renters.com Landlord Matching Notification");
+  const emailBody = lines.join("\n");
+
+  const subjectName = has(memberName) ? memberName : "New landlord";
+  const subjectVerb = isChange
+    ? (optedIn ? "CHANGED → opted INTO matching" : "CHANGED → opted OUT")
+    : (optedIn ? "opted INTO matching" : "listed freely");
 
   try {
     await ses.send(new SendEmailCommand({
       Source: "verify@renters.com",
-      Destination: {
-        ToAddresses: ["kenny@renters.com"],
-      },
+      Destination: { ToAddresses: ["kenny@renters.com"] },
       Message: {
-        Subject: {
-          Data: opt === "match"
-            ? `🏠 New landlord opted into matching — ${memberName || "Unknown"}`
-            : `🏠 New landlord listed freely — ${memberName || "Unknown"}`,
-        },
-        Body: {
-          Text: { Data: emailBody },
-        },
+        Subject: { Data: `🏠 ${subjectName} ${subjectVerb}` },
+        Body: { Text: { Data: emailBody } },
       },
     }));
-
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({ success: true }),
-    };
   } catch (err) {
+    // Email failed, but the tag may have been written. Report both states.
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: "Failed to send email", details: err.message }),
+      body: JSON.stringify({
+        error: "Email failed",
+        details: err.message,
+        tagWritten: tagWriteResult.ok,
+      }),
     };
   }
+
+  return {
+    statusCode: 200,
+    headers: corsHeaders,
+    body: JSON.stringify({
+      success: true,
+      tagWritten: tagWriteResult.ok,
+      tagNote: tagWriteResult.note,
+      verified: verifiedText || "unknown",
+    }),
+  };
 };
