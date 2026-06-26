@@ -1,6 +1,7 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v5  (2026-06-26, https-based)
-//  If the console test shows "version":"v5", you have THIS file deployed.
+//  landlord-optin.js   ·   VERSION: v6  (2026-06-26, https + diagnostic mode)
+//  If the console test shows "version":"v6", you have THIS file deployed.
+//  Send { "diag": true } to probe the BD API auth directly.
 // ============================================================
 // landlord-optin.js
 // Receives a landlord's opt-in/opt-out matching choice from the dashboard wizard.
@@ -35,7 +36,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://ww2.managemydirectory.com/api/v2";
-const FUNCTION_VERSION = "v5";
+const FUNCTION_VERSION = "v6";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -77,14 +78,19 @@ function bd(path, { method = "GET", body = null } = {}) {
         headers,
       };
       const req = https.request(options, (res) => {
-        // Follow redirects manually (preserve method for our simple cases).
-        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location && redirectsLeft > 0) {
-          const next = res.headers.location.startsWith("http")
-            ? res.headers.location
-            : `${u.protocol}//${u.host}${res.headers.location}`;
-          console.log(`BD redirect ${res.statusCode} -> ${next}`);
+        // If the API redirects, DON'T blindly follow into the admin dashboard.
+        // A redirect here usually means auth was not accepted. Report it clearly.
+        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+          const loc = res.headers.location;
           res.resume();
-          return doRequest(next, redirectsLeft - 1);
+          console.log(`BD ${method} ${targetUrl} -> REDIRECT ${res.statusCode} to: ${loc}`);
+          return resolve({
+            ok: false,
+            status: res.statusCode,
+            data: null,
+            raw: "",
+            error: `redirected to ${loc} (auth likely not accepted)`,
+          });
         }
         let raw = "";
         res.on("data", (c) => (raw += c));
@@ -201,6 +207,24 @@ exports.handler = async function (event) {
     body = JSON.parse(event.body);
   } catch (e) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) };
+  }
+
+  // --- DIAGNOSTIC MODE: send { "diag": true } to probe the BD API directly ---
+  if (body && body.diag) {
+    const verify = await bd(`/token/verify`);
+    const userRead = await bd(`/user/get/3650`);
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        version: FUNCTION_VERSION,
+        keyPresent: !!process.env.BD_API_KEY,
+        keyLength: (process.env.BD_API_KEY || "").length,
+        base: BD_BASE,
+        tokenVerify: { ok: verify.ok, status: verify.status, error: verify.error || null, rawHead: (verify.raw || "").slice(0, 200) },
+        userGet: { ok: userRead.ok, status: userRead.status, error: userRead.error || null, rawHead: (userRead.raw || "").slice(0, 200) },
+      }),
+    };
   }
 
   // opt: "match" / "in"  => opted IN ; anything else => opted OUT
