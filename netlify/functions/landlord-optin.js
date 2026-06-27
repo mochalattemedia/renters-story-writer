@@ -1,8 +1,8 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v11  (2026-06-26, + reset endpoint)
+//  landlord-optin.js   ·   VERSION: v12  (2026-06-26, robust reset + diagnostics)
 //  POST  { memberId, opt:"match"|"out", isChange?, timestamp? }  -> write tag + email Kenny
 //  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted }  (wizard reads on load)
-//  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (reset to new)
+//  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (loops + diagnostics)
 //  API path confirmed working end-to-end: read + write member tags via www.renters.com/api/v2
 // ============================================================
 // landlord-optin.js
@@ -38,7 +38,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v11";
+const FUNCTION_VERSION = "v12";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -237,27 +237,44 @@ exports.handler = async function (event) {
     //     Use this to clear a test account so the full first-time wizard shows again.
     if (q.reset === "1" && q.memberId && q.key === "renters2026") {
       const tags = await resolveTags();
-      const rels = await getRelationships(q.memberId);
       const targetIds = [tags[TAG_IN] && tags[TAG_IN].tag_id, tags[TAG_OUT] && tags[TAG_OUT].tag_id].filter(Boolean);
       const removed = [];
-      for (const r of rels) {
-        if (r.id && targetIds.indexOf(String(r.tag_id)) !== -1) {
-          await removeRelationship(r.id);
-          removed.push({ relId: r.id, tag_id: r.tag_id });
+      const diag = [];
+
+      // Loop up to 5 passes: each pass reads relationships fresh and deletes matching rows.
+      for (let pass = 0; pass < 5; pass++) {
+        const relsRes = await bd(`/rel_tags/get?object_id=${encodeURIComponent(q.memberId)}`);
+        const rels = (relsRes.ok && relsRes.data && Array.isArray(relsRes.data.message)) ? relsRes.data.message : [];
+        diag.push({ pass, relCount: rels.length, relRaw: rels.map((r) => ({ id: r.id, tag_id: r.tag_id })) });
+
+        const toRemove = rels.filter((r) => r.id && targetIds.indexOf(String(r.tag_id)) !== -1);
+        if (toRemove.length === 0) break;
+        for (const r of toRemove) {
+          const delRes = await removeRelationship(r.id);
+          removed.push({ pass, relId: r.id, tag_id: r.tag_id, delStatus: delRes.status, delOk: delRes.ok });
         }
       }
+
+      // Final state from user/get (the trusted source).
       const after = await getMember(q.memberId);
       let tagsNow = [];
-      if (after && Array.isArray(after.tags)) tagsNow = after.tags.map((t) => t.id + ":" + t.tag_name);
+      let afterTagsRaw = [];
+      if (after && Array.isArray(after.tags)) {
+        tagsNow = after.tags.map((t) => t.id + ":" + t.tag_name);
+        afterTagsRaw = after.tags.map((t) => ({ id: t.id, tag_name: t.tag_name, rel_id: t.rel_id || t.relationship_id || t.id, keys: Object.keys(t) }));
+      }
       return {
         statusCode: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
           version: FUNCTION_VERSION,
           memberId: q.memberId,
+          targetIds,
           removed,
           tagsNow,
-          note: "Member reset to new-landlord state. Reload their dashboard to see the full wizard.",
+          afterTagsRaw,
+          diag,
+          note: tagsNow.length === 0 ? "Clean — reload the dashboard for the full wizard." : "Some tags persist — see afterTagsRaw/diag for the relationship id shape.",
         }, null, 2),
       };
     }
