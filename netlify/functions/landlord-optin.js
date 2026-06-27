@@ -1,8 +1,8 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v12  (2026-06-26, robust reset + diagnostics)
+//  landlord-optin.js   ·   VERSION: v13  (2026-06-26, DELETE-method fix)
 //  POST  { memberId, opt:"match"|"out", isChange?, timestamp? }  -> write tag + email Kenny
 //  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted }  (wizard reads on load)
-//  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (loops + diagnostics)
+//  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (multi-method delete)
 //  API path confirmed working end-to-end: read + write member tags via www.renters.com/api/v2
 // ============================================================
 // landlord-optin.js
@@ -38,7 +38,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v12";
+const FUNCTION_VERSION = "v13";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -176,8 +176,24 @@ async function addTag(userId, tag, actorId) {
 }
 
 // --- Delete a tag relationship by its relationship row id ---
+// BD's API marks delete endpoints with the HTTP DELETE verb, not POST.
+// We try the most likely shapes and return the first that succeeds.
 async function removeRelationship(relId) {
-  return bd(`/rel_tags/delete`, { method: "POST", body: { id: String(relId) } });
+  const attempts = [
+    { method: "DELETE", path: `/rel_tags/delete`, body: { id: String(relId) } },
+    { method: "DELETE", path: `/rel_tags/delete/${encodeURIComponent(relId)}`, body: null },
+    { method: "DELETE", path: `/rel_tags/delete?id=${encodeURIComponent(relId)}`, body: null },
+    { method: "POST",   path: `/rel_tags/delete/${encodeURIComponent(relId)}`, body: null },
+  ];
+  let last = null;
+  for (const a of attempts) {
+    const res = await bd(a.path, { method: a.method, body: a.body });
+    last = { tried: a.method + " " + a.path, status: res.status, ok: res.ok, raw: (res.raw || "").slice(0, 120) };
+    if (res.ok && res.data && (res.data.status === "success" || res.status === 200)) {
+      return { ok: true, status: res.status, how: last.tried };
+    }
+  }
+  return { ok: false, status: last ? last.status : 0, how: last ? last.tried : "none", detail: last };
 }
 
 // --- Has the member submitted the verify_business form? ---
@@ -251,8 +267,11 @@ exports.handler = async function (event) {
         if (toRemove.length === 0) break;
         for (const r of toRemove) {
           const delRes = await removeRelationship(r.id);
-          removed.push({ pass, relId: r.id, tag_id: r.tag_id, delStatus: delRes.status, delOk: delRes.ok });
+          removed.push({ pass, relId: r.id, tag_id: r.tag_id, delOk: delRes.ok, how: delRes.how, detail: delRes.detail || null });
         }
+        // If nothing succeeded this pass, stop looping (avoid 5x the same failure).
+        const anyOk = removed.some((x) => x.pass === pass && x.delOk);
+        if (!anyOk) break;
       }
 
       // Final state from user/get (the trusted source).
