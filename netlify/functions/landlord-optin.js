@@ -1,5 +1,5 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v9  (2026-06-26, PRODUCTION - test code removed)
+//  landlord-optin.js   ·   VERSION: v10  (2026-06-26, PRODUCTION - clean)
 //  POST  { memberId, opt:"match"|"out", isChange?, timestamp? }  -> write tag + email Kenny
 //  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted }  (wizard reads on load)
 //  API path confirmed working end-to-end: read + write member tags via www.renters.com/api/v2
@@ -17,7 +17,7 @@
 //   SES_SECRET_ACCESS_KEY - AWS SES secret (already set)
 //   SES_REGION            - defaults to us-east-2
 // Optional:
-//   BD_API_BASE           - defaults to https://ww2.managemydirectory.com/api/v2
+//   BD_API_BASE           - defaults to https://www.renters.com/api/v2
 
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 
@@ -36,8 +36,8 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
-const BD_BASE = process.env.BD_API_BASE || "https://ww2.managemydirectory.com/api/v2";
-const FUNCTION_VERSION = "v9";
+const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
+const FUNCTION_VERSION = "v10";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -245,24 +245,6 @@ exports.handler = async function (event) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) };
   }
 
-  // --- DIAGNOSTIC MODE: send { "diag": true } to probe the BD API directly ---
-  if (body && body.diag) {
-    const verify = await bd(`/token/verify`);
-    const userRead = await bd(`/user/get/3650`);
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        version: FUNCTION_VERSION,
-        keyPresent: !!process.env.BD_API_KEY,
-        keyLength: (process.env.BD_API_KEY || "").length,
-        base: BD_BASE,
-        tokenVerify: { ok: verify.ok, status: verify.status, error: verify.error || null, rawHead: (verify.raw || "").slice(0, 200) },
-        userGet: { ok: userRead.ok, status: userRead.status, error: userRead.error || null, rawHead: (userRead.raw || "").slice(0, 200) },
-      }),
-    };
-  }
-
   // opt: "match" / "in"  => opted IN ; anything else => opted OUT
   const { opt, memberId, isChange, timestamp } = body;
   const userId = memberId;
@@ -285,21 +267,19 @@ exports.handler = async function (event) {
     const wantTag = tags[wantTagName];
 
     if (wantTag && wantTag.tag_id) {
-      // If this is a change, remove the opposite relationship first.
-      if (isChange) {
-        try {
-          const rels = await getRelationships(userId);
-          const dropTag = tags[dropTagName];
-          if (dropTag) {
-            const toDrop = rels.filter(
-              (r) => String(r.tag_id) === String(dropTag.tag_id)
-            );
-            for (const r of toDrop) {
-              if (r.id) await removeRelationship(r.id);
-            }
+      // Always remove the opposite tag first so the record holds a single choice.
+      try {
+        const rels = await getRelationships(userId);
+        const dropTag = tags[dropTagName];
+        if (dropTag) {
+          const toDrop = rels.filter(
+            (r) => String(r.tag_id) === String(dropTag.tag_id)
+          );
+          for (const r of toDrop) {
+            if (r.id) await removeRelationship(r.id);
           }
-        } catch (e) { /* non-fatal: still add the new tag */ }
-      }
+        }
+      } catch (e) { /* non-fatal: still add the new tag */ }
 
       const addRes = await addTag(userId, wantTag, userId);
       tagWriteResult = {
