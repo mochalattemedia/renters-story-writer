@@ -1,7 +1,9 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v7  (2026-06-26, https + GET diagnostic)
-//  Browser test:  open  <function-url>?diag=1  to probe BD API auth.
-//  If output shows "version":"v7", you have THIS file deployed.
+//  landlord-optin.js   ·   VERSION: v8  (2026-06-26, member read CONFIRMED working)
+//  Browser tests:
+//    <function-url>?diag=1         -> probe BD API auth
+//    <function-url>?testtag=out    -> write opted-out tag to member 3650 + show tags
+//  If output shows "version":"v8", you have THIS file deployed.
 // ============================================================
 // landlord-optin.js
 // Receives a landlord's opt-in/opt-out matching choice from the dashboard wizard.
@@ -36,7 +38,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://ww2.managemydirectory.com/api/v2";
-const FUNCTION_VERSION = "v7";
+const FUNCTION_VERSION = "v8";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -218,7 +220,33 @@ exports.handler = async function (event) {
         }, null, 2),
       };
     }
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ version: FUNCTION_VERSION, hint: "add ?diag=1 to run the API probe" }) };
+    // ...?testtag=out  or  ?testtag=in  -> writes that tag to member 3650 and reports result
+    if (q.testtag === "out" || q.testtag === "in") {
+      const testUser = q.user || "3650";
+      const tagName = q.testtag === "in" ? TAG_IN : TAG_OUT;
+      const tag = KNOWN_TAGS[tagName];
+      const addRes = await addTag(testUser, tag, testUser);
+      const after = await bd(`/user/get/${encodeURIComponent(testUser)}`);
+      let currentTags = [];
+      try {
+        const m = Array.isArray(after.data && after.data.message) ? after.data.message[0] : null;
+        if (m && Array.isArray(m.tags)) currentTags = m.tags.map((t) => `${t.id}:${t.tag_name}`);
+      } catch (e) { /* ignore */ }
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: FUNCTION_VERSION,
+          testUser,
+          wrote: tagName,
+          writeStatus: addRes.status,
+          writeOk: addRes.ok && addRes.data && addRes.data.status === "success",
+          writeResponse: (addRes.raw || "").slice(0, 300),
+          tagsNow: currentTags,
+        }, null, 2),
+      };
+    }
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ version: FUNCTION_VERSION, hint: "add ?diag=1 to probe auth, or ?testtag=out to test a tag write" }) };
   }
 
   if (event.httpMethod !== "POST") {
