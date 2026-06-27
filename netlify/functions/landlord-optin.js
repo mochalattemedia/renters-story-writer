@@ -1,7 +1,8 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v10  (2026-06-26, PRODUCTION - clean)
+//  landlord-optin.js   ·   VERSION: v11  (2026-06-26, + reset endpoint)
 //  POST  { memberId, opt:"match"|"out", isChange?, timestamp? }  -> write tag + email Kenny
 //  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted }  (wizard reads on load)
+//  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (reset to new)
 //  API path confirmed working end-to-end: read + write member tags via www.renters.com/api/v2
 // ============================================================
 // landlord-optin.js
@@ -37,7 +38,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v10";
+const FUNCTION_VERSION = "v11";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -231,9 +232,38 @@ exports.handler = async function (event) {
         }),
       };
     }
+    // --- RESET: remove BOTH matching tags from a member (sets them back to "new") ---
+    //     <function-url>?reset=1&memberId=3650&key=renters2026
+    //     Use this to clear a test account so the full first-time wizard shows again.
+    if (q.reset === "1" && q.memberId && q.key === "renters2026") {
+      const tags = await resolveTags();
+      const rels = await getRelationships(q.memberId);
+      const targetIds = [tags[TAG_IN] && tags[TAG_IN].tag_id, tags[TAG_OUT] && tags[TAG_OUT].tag_id].filter(Boolean);
+      const removed = [];
+      for (const r of rels) {
+        if (r.id && targetIds.indexOf(String(r.tag_id)) !== -1) {
+          await removeRelationship(r.id);
+          removed.push({ relId: r.id, tag_id: r.tag_id });
+        }
+      }
+      const after = await getMember(q.memberId);
+      let tagsNow = [];
+      if (after && Array.isArray(after.tags)) tagsNow = after.tags.map((t) => t.id + ":" + t.tag_name);
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: FUNCTION_VERSION,
+          memberId: q.memberId,
+          removed,
+          tagsNow,
+          note: "Member reset to new-landlord state. Reload their dashboard to see the full wizard.",
+        }, null, 2),
+      };
+    }
+
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ version: FUNCTION_VERSION }) };
   }
-
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: corsHeaders, body: "Method Not Allowed" };
   }
