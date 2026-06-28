@@ -1,5 +1,4 @@
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
-
 const ses = new SESClient({
   region: process.env.SES_REGION || "us-east-1",
   credentials: {
@@ -7,77 +6,54 @@ const ses = new SESClient({
     secretAccessKey: process.env.SES_SECRET_ACCESS_KEY,
   },
 });
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json",
 };
-
 exports.handler = async function (event) {
   // Handle preflight OPTIONS request
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers: corsHeaders, body: "" };
   }
-
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: corsHeaders, body: "Method Not Allowed" };
   }
-
   let body;
   try {
     body = JSON.parse(event.body);
   } catch (e) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) };
   }
-
   const { type, email, name } = body;
-
   if (!type || !email || !name) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Missing required fields: type, email, name" }) };
   }
-
   let subject, bodyText;
-
   if (type === "approved") {
     subject = "Your Renters.com verification is approved";
     bodyText = `Hi ${name},
-
-Your identity verification has been approved. Your profile is now verified on Renters.com.
-
+Your identity has been verified. Your profile is now verified on Renters.com.
 You can view your verified status by logging into your dashboard at:
 https://www.renters.com/account/home
-
 Thank you for taking the time to verify your identity. It helps build trust across our entire community.
-
 Renters.com Support`;
-
   } else if (type === "rejected") {
-    subject = "Your Renters.com verification needs a resubmission";
+    subject = "Your Renters.com verification needs another look";
     bodyText = `Hi ${name},
-
-Thank you for submitting your verification. Unfortunately we weren't able to approve it because the photo didn't meet our requirements.
-
-We need one single photo showing:
-- Your face, clearly visible
-- Your government-issued ID held next to your face
-
-Common reasons for rejection:
-- Photo of ID only, no face visible
-- No photo submitted at all
-- Photo of something unrelated
-
-Please resubmit by logging into your dashboard and clicking "Verify Your Profile" under Account Details.
-
-If you have any questions just reply to this email.
-
+Thank you for submitting your verification. We weren't able to approve it yet, because we couldn't clearly match your ID to your profile photo.
+Here's how verification works: we compare the photo on your valid ID to the profile photo on your account. For that to work, both need to clearly show your face.
+To get verified, please make sure:
+- Your profile photo is a clear, front-facing, close-up of your face — like an ID photo. Just you, no group photos, hats, or sunglasses.
+- Your ID is a valid government-issued ID (driver's license, passport, or state ID) with your photo and name clearly visible.
+- The two photos are of the same person and easy to compare.
+To resubmit: log into your dashboard, make sure your profile photo under My Photo is a clear headshot, then click "Verify Your Profile" under Account Details to upload your ID.
+If you have any questions, just reply to this email.
 Renters.com Support`;
-
   } else {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid type — must be 'approved' or 'rejected'" }) };
   }
-
   const command = new SendEmailCommand({
     Source: "verify@renters.com",
     Destination: {
@@ -90,7 +66,6 @@ Renters.com Support`;
       },
     },
   });
-
   try {
     await ses.send(command);
     return {
