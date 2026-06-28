@@ -97,7 +97,8 @@ exports.handler = async function (event) {
 
     // ---- RECORD: upsert a submission (idempotent by memberId) ----
     if (action === "record") {
-      const memberId = body.memberId;
+      const src = Object.keys(body).length ? body : q; // body in prod, query for URL testing
+      const memberId = src.memberId;
       if (!memberId) return bad(400, "memberId required");
       const k = memberKey(memberId);
       const existing = await store.get(k, { type: "json" });
@@ -106,10 +107,10 @@ exports.handler = async function (event) {
         // Already logged — update intake fields but DO NOT clobber a decision.
         // Track resubmissions for duplicate awareness.
         existing.lastSeen = new Date().toISOString();
-        existing.submitCount = (existing.submitCount || 1) + (body.countResubmit ? 1 : 0);
+        existing.submitCount = (existing.submitCount || 1) + (src.countResubmit ? 1 : 0);
         // Refresh contact/intake details if newer ones were parsed
         ["name", "email", "phone", "location", "accountType", "inquiryId", "photoPath", "submitted"].forEach((f) => {
-          if (body[f]) existing[f] = body[f];
+          if (src[f]) existing[f] = src[f];
         });
         await store.setJSON(k, existing);
         return ok({ upserted: false, duplicate: true, entry: existing });
@@ -117,14 +118,14 @@ exports.handler = async function (event) {
 
       const entry = {
         memberId: String(memberId),
-        name: body.name || "",
-        email: body.email || "",
-        phone: body.phone || "",
-        location: body.location || "",
-        accountType: body.accountType || "Unknown",
-        inquiryId: body.inquiryId || "",
-        photoPath: body.photoPath || "",
-        submitted: body.submitted || new Date().toISOString(),
+        name: src.name || "",
+        email: src.email || "",
+        phone: src.phone || "",
+        location: src.location || "",
+        accountType: src.accountType || "Unknown",
+        inquiryId: src.inquiryId || "",
+        photoPath: src.photoPath || "",
+        submitted: src.submitted || new Date().toISOString(),
         status: "pending",
         decidedAt: "",
         decidedBy: "",
@@ -138,15 +139,16 @@ exports.handler = async function (event) {
 
     // ---- UPDATE: set a decision (approved/denied/notice-sent) ----
     if (action === "update") {
-      const memberId = body.memberId;
+      const src = Object.keys(body).length ? body : q;
+      const memberId = src.memberId;
       if (!memberId) return bad(400, "memberId required");
       const k = memberKey(memberId);
       const existing = await store.get(k, { type: "json" });
       if (!existing) return bad(404, "no log entry for member " + memberId);
 
-      if (body.status) existing.status = body.status; // approved | denied | notice-sent | pending
-      existing.decidedAt = body.decidedAt || new Date().toISOString();
-      existing.decidedBy = body.decidedBy || "admin";
+      if (src.status) existing.status = src.status; // approved | denied | notice-sent | pending
+      existing.decidedAt = src.decidedAt || new Date().toISOString();
+      existing.decidedBy = src.decidedBy || "admin";
       await store.setJSON(k, existing);
       return ok({ updated: true, entry: existing });
     }
