@@ -164,13 +164,6 @@ async function shapeMember(memberId) {
     profilePhoto: profilePhoto || "",
     hasProfilePhoto: !!(profilePhoto && String(profilePhoto).trim()),
     profileCompletePct: completeness(m, accountType),
-    completenessParts: {
-      hasProfile: !!(m.first_name && m.last_name && m.email && (m.phone_number || m.city || m.address1)),
-      hasPhoto: !!((m.filename || m.image_main_file) && String(m.filename || m.image_main_file).trim()),
-      hasStory: !!(m.my_story && String(m.my_story).trim()),
-      hasObstacles: !!(m.my_obstacles && String(m.my_obstacles).trim()),
-      areasRaw: { geo_state: m.geo_state, user_location: m.user_location, nationwide: m.nationwide, search_description: m.search_description },
-    },
     optStatus: optStatus(m),
     signupDate: m.signup_date || "",
   };
