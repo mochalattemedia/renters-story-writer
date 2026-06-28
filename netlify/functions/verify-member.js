@@ -58,12 +58,16 @@ function memberFrom(data) {
   return m;
 }
 
-// Estimate profile completeness from key fields being filled.
-function completeness(m) {
+// Estimate profile completeness. Two profile shapes:
+//  - Renter: includes an about/story field
+//  - Landlord / Property Manager / Realtor: identical setup, no about-me
+function completeness(m, accountType) {
+  const isRenter = String(accountType || "").toLowerCase().includes("renter");
   const checks = [
     m.first_name, m.last_name, m.email, m.phone_number,
-    m.city, m.about_me || m.about_me_1, (m.filename || m.image_main_file),
+    m.city, (m.filename || m.image_main_file),
   ];
+  if (isRenter) checks.push(m.about_me || m.about_me_1 || m.my_story);
   const filled = checks.filter((v) => v && String(v).trim() && String(v).trim() !== "0").length;
   return Math.round((filled / checks.length) * 100);
 }
@@ -89,28 +93,18 @@ async function shapeMember(memberId) {
   const verifyPhoto = m.image_verification_1_url || m.image_verification_1 || "";
   const profilePhoto = m.image_main_file || m.filename || "";
 
-  // Account type can live in several BD fields depending on setup. Try them in order.
-  const acctCandidates = {
-    member_type: m.member_type,
-    i_am_a: m.i_am_a,
-    seeking: m.seeking,
-    listing_type: m.listing_type,
-    service: m.service,
-    member_level: m.subscription_name || m.member_level_name,
-    profession: m.profession_id,
-  };
-  // Completeness: look for BD's own value, and show which of our checks are empty.
-  const completenessDebug = {
-    bd_fields_checked: {
-      first_name: !!m.first_name, last_name: !!m.last_name, email: !!m.email,
-      phone_number: !!m.phone_number, city: !!m.city,
-      about: !!(m.about_me || m.about_me_1), photo: !!(m.filename || m.image_main_file),
-    },
-    possible_bd_value: m.profile_completeness || m.completeness || m.profile_progress || null,
-  };
+  // Account type lives in member_level (subscription/level name): Renter / Landlord / etc.
   let accountType = "Unknown";
-  for (const v of [m.member_type, m.i_am_a, m.seeking, m.listing_type, m.service, m.subscription_name]) {
+  for (const v of [m.subscription_name, m.member_level_name, m.member_type]) {
     if (v && String(v).trim() && String(v).trim() !== "0") { accountType = String(v).trim(); break; }
+  }
+
+  // What a renter is seeking (useful queue context). Tidy the raw value:
+  // "long_term_rental_" -> "Long Term Rental"
+  let seeking = "";
+  if (m.seeking && String(m.seeking).trim()) {
+    seeking = String(m.seeking).replace(/_+$/,"").replace(/_/g," ").trim()
+      .replace(/\b\w/g, function(c){ return c.toUpperCase(); });
   }
 
   return {
@@ -121,13 +115,12 @@ async function shapeMember(memberId) {
     phone: m.phone_number || "",
     location,
     accountType,
-    acctCandidates,
-    completenessDebug,
+    seeking,
     verified: String(m.verified || "0") === "1",
     verifyPhotoUrl: verifyPhoto ? (verifyPhoto.startsWith("http") ? verifyPhoto : "https://www.renters.com" + verifyPhoto) : "",
     profilePhoto: profilePhoto || "",
     hasProfilePhoto: !!(profilePhoto && String(profilePhoto).trim()),
-    profileCompletePct: completeness(m),
+    profileCompletePct: completeness(m, accountType),
     optStatus: optStatus(m),
     signupDate: m.signup_date || "",
   };
@@ -137,6 +130,23 @@ exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
   const q = event.queryStringParameters || {};
   if (q.key !== KEY) return { statusCode: 403, headers: corsHeaders, body: JSON.stringify({ error: "bad key" }) };
+
+  // DEBUG: dump renter-context candidate fields to see what's populated
+  if (q.debug === "1" && q.memberId) {
+    const r = await bd(`/user/get/${encodeURIComponent(q.memberId)}`);
+    const m = memberFrom(r.data) || {};
+    const fields = [
+      "monthly_budget", "number_of_peop", "type_of_income", "co_signer",
+      "do_you_have_pets", "credit_range", "credit_balance", "my_obstacles",
+      "my_story", "ideal_rental", "property_type_preference", "seeking",
+      "i_want_to_relocate", "describe_your_rent", "h_rentals_youve_had",
+      "any_evictions", "clean_background", "do_you_know_your_cr",
+      "do_you_have_a_clean", "do_you_have_any_evi", "signup_date", "modtime",
+    ];
+    const dump = {};
+    fields.forEach((f) => { dump[f] = m[f] !== undefined ? m[f] : "(field absent)"; });
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ memberId: q.memberId, dump }, null, 2) };
+  }
 
   try {
     // Batch mode
