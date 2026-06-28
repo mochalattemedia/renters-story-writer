@@ -58,18 +58,31 @@ function memberFrom(data) {
   return m;
 }
 
-// Estimate profile completeness. Two profile shapes:
-//  - Renter: includes an about/story field
-//  - Landlord / Property Manager / Realtor: identical setup, no about-me
+// Profile completeness matched to BD's own elements.
+//  Renter (5): My Profile, My Photo, My Story, My Obstacles, My Areas
+//  Landlord/PM/Realtor (2): My Profile, My Photo
 function completeness(m, accountType) {
   const isRenter = String(accountType || "").toLowerCase().includes("renter");
-  const checks = [
-    m.first_name, m.last_name, m.email, m.phone_number,
-    m.city, (m.filename || m.image_main_file),
-  ];
-  if (isRenter) checks.push(m.about_me || m.about_me_1 || m.my_story);
-  const filled = checks.filter((v) => v && String(v).trim() && String(v).trim() !== "0").length;
-  return Math.round((filled / checks.length) * 100);
+  const hasPhoto = !!((m.filename || m.image_main_file) && String(m.filename || m.image_main_file).trim());
+  // "My Profile" = core identity/contact filled in
+  const hasProfile = !!(m.first_name && m.last_name && m.email &&
+    (m.phone_number || m.city || m.address1));
+
+  if (!isRenter) {
+    // Landlord-type: only Profile + Photo
+    const parts = [hasProfile, hasPhoto];
+    return Math.round((parts.filter(Boolean).length / parts.length) * 100);
+  }
+
+  // Renter: Profile, Photo, Story, Obstacles, Areas
+  const hasStory = !!(m.my_story && String(m.my_story).trim());
+  const hasObstacles = !!(m.my_obstacles && String(m.my_obstacles).trim());
+  // "My Areas" — renter's searched locations. Try common fields.
+  const areasVal = m.geo_state || m.user_location || m.nationwide || m.search_description;
+  const hasAreas = !!(areasVal && String(areasVal).trim() && String(areasVal).trim() !== "0");
+
+  const parts = [hasProfile, hasPhoto, hasStory, hasObstacles, hasAreas];
+  return Math.round((parts.filter(Boolean).length / parts.length) * 100);
 }
 
 // Read opted-in / opted-out from the member's tags array.
@@ -151,6 +164,13 @@ async function shapeMember(memberId) {
     profilePhoto: profilePhoto || "",
     hasProfilePhoto: !!(profilePhoto && String(profilePhoto).trim()),
     profileCompletePct: completeness(m, accountType),
+    completenessParts: {
+      hasProfile: !!(m.first_name && m.last_name && m.email && (m.phone_number || m.city || m.address1)),
+      hasPhoto: !!((m.filename || m.image_main_file) && String(m.filename || m.image_main_file).trim()),
+      hasStory: !!(m.my_story && String(m.my_story).trim()),
+      hasObstacles: !!(m.my_obstacles && String(m.my_obstacles).trim()),
+      areasRaw: { geo_state: m.geo_state, user_location: m.user_location, nationwide: m.nationwide, search_description: m.search_description },
+    },
     optStatus: optStatus(m),
     signupDate: m.signup_date || "",
   };
