@@ -190,7 +190,7 @@
           + "<img class='rp-photo' src='" + esc(url) + "' onclick=\"rpZoom('" + esc(url).replace(/'/g, "%27") + "')\" onerror=\"this.outerHTML='<div class=rp-photo-x>" + label + "<br>gone</div>'\">"
           + "<span class='rp-plabel'>" + label + "</span></div>";
       }
-      var photo = "<div class='rp-photos'>" + photoBox(vp, "License") + photoBox(sp, "Selfie") + "</div>";
+      var photo = "<div class='rp-photos'>" + photoBox(vp, "Verify") + photoBox(sp, "Profile") + "</div>";
 
       var typeBadge = "<span class='rp-badge " + badgeClass(m.accountType) + "'>" + esc(m.accountType || "?") + "</span>";
       var vbadge = m.verified ? "<span class='rp-vbadge'>&#10003; verified</span>" : "";
@@ -218,13 +218,13 @@
         acts = "<button class='rp-btn rp-ap' id='ap-" + c.inquiryId + "' onclick=\"rpApprove('" + c.inquiryId + "')\">&#10003; Approve</button>"
           + "<button class='rp-btn rp-dn' id='dn-" + c.inquiryId + "' onclick=\"rpDeny('" + c.inquiryId + "')\">&#10005; Deny</button>"
           + (c.profileUrl ? "<a class='rp-btn rp-vw' href='" + c.profileUrl + "' target='_blank'>BD Profile</a>" : "")
-          + "<button class='rp-btn rp-del' onclick=\"rpDelete('" + c.inquiryId + "')\">&#128465; Remove</button>";
+          + "<button class='rp-btn rp-del' onclick=\"rpDelete('" + c.inquiryId + "')\">&#128465; Delete</button>";
       } else {
         var sc = c.status === "approved" ? "s-approved" : "s-denied";
         var lbl = c.status === "approved" ? "&#10003; Approved" : "&#10005; Denied";
         acts = "<div class='rp-stat " + sc + "'>" + lbl + (c.decidedAt ? "<small>" + fmtDate(c.decidedAt) + "</small>" : "") + "</div>"
           + (c.profileUrl ? "<a class='rp-btn rp-vw' href='" + c.profileUrl + "' target='_blank' style='margin-top:6px;'>BD Profile</a>" : "")
-          + "<button class='rp-btn rp-del' onclick=\"rpDelete('" + c.inquiryId + "')\">&#128465; Remove</button>";
+          + "<button class='rp-btn rp-del' onclick=\"rpDelete('" + c.inquiryId + "')\">&#128465; Delete</button>";
       }
 
       return "<div class='rp-card " + c.status + (c.duplicate ? " dup" : "") + "' id='card-" + c.inquiryId + "'>"
@@ -251,13 +251,23 @@
     document.body.appendChild(z);
   };
 
-  /* ---------- delete a redundant submission from the view ---------- */
+  /* ---------- permanently delete a submission (BD mark_delete) ---------- */
   window.rpDelete = function (id) {
     var c = cards.find(function (x) { return x.inquiryId === id; });
     if (!c) return;
-    if (!confirm("Remove this submission from the queue?\n\n" + (c.member && c.member.name || c.name) + " (Inquiry #" + c.inquiryId + ")\n\nThis hides the redundant request from your view. It does not change their verification status or delete their account.")) return;
-    cards = cards.filter(function (x) { return x.inquiryId !== id; });
-    render();
+    if (!confirm("Delete this verification request?\n\n" + (c.member && c.member.name || c.name) + " (Inquiry #" + c.inquiryId + ")\n\nThis permanently removes the request from your Forms Inbox (same as BD's delete). It does NOT change their verification status or delete their account.")) return;
+    var card = document.getElementById("card-" + id);
+    if (card) card.style.opacity = "0.5";
+    var url = "https://ww2.managemydirectory.com/admin/go.php?widget=Admin-Module-Form-Inquiries&apitype=json&noheader=1&external_action=inquiryAction&inquiry_action=mark_delete&inquiry_id=" + encodeURIComponent(c.inquiryId);
+    fetch(url, { credentials: "include" })
+      .then(function () {
+        cards = cards.filter(function (x) { return x.inquiryId !== id; });
+        render();
+      })
+      .catch(function (e) {
+        if (card) card.style.opacity = "1";
+        alert("Delete error. Try in BD admin.\n" + e);
+      });
   };
 
 
