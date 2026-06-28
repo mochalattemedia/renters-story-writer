@@ -58,7 +58,17 @@ exports.handler = async function (event) {
 
   let store;
   try {
-    store = getStore(STORE_NAME);
+    // Prefer automatic config; fall back to explicit siteID/token env vars
+    // (needed when Netlify doesn't auto-inject the Blobs context).
+    if (process.env.NETLIFY_SITE_ID && process.env.NETLIFY_BLOBS_TOKEN) {
+      store = getStore({
+        name: STORE_NAME,
+        siteID: process.env.NETLIFY_SITE_ID,
+        token: process.env.NETLIFY_BLOBS_TOKEN,
+      });
+    } else {
+      store = getStore(STORE_NAME);
+    }
   } catch (e) {
     return bad(500, "Blobs store unavailable: " + e.message);
   }
