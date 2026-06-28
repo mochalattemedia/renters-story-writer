@@ -59,12 +59,13 @@ function bd(path, { method = "GET", body = null } = {}) {
 
 async function readMember(id) {
   const r = await bd(`/user/get/${encodeURIComponent(id)}`);
-  const m = r.data && r.data.message ? r.data.message : (r.data || null);
+  let m = r.data && r.data.message ? r.data.message : (r.data || null);
+  if (Array.isArray(m)) m = m[0] || null; // BD returns message as an array
   return {
     status: r.status,
     verified: m ? m.verified : null,
-    keys: m ? Object.keys(m).filter((k) => /verif|status|approv/i.test(k)) : [],
     name: m ? (m.full_name || m.first_name) : null,
+    allKeys: m ? Object.keys(m) : [],
   };
 }
 
@@ -100,21 +101,20 @@ exports.handler = async function (event) {
     out.attempts = [];
     for (const a of attempts) {
       const r = await bd(a.path, { method: a.method, body: a.body });
-      out.attempts.push({
+      const rec = {
         tried: a.label,
         status: r.status,
         ok: r.ok,
         error: r.error || null,
         raw: (r.raw || "").slice(0, 160),
-      });
-      // If something succeeded, check whether it actually changed the flag.
-      if (r.ok) {
-        const check = await readMember(id);
-        out.attempts[out.attempts.length - 1].verifiedAfter = check.verified;
-        if (String(check.verified) === String(to)) {
-          out.WINNER = a.label;
-          break;
-        }
+      };
+      // Always read back so we can see whether the flag actually moved.
+      const check = await readMember(id);
+      rec.verifiedAfter = check.verified;
+      out.attempts.push(rec);
+      if (r.ok && String(check.verified) === String(to) && String(out.before.verified) !== String(to)) {
+        out.WINNER = a.label;
+        break;
       }
     }
     out.after = await readMember(id);
