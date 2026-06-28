@@ -36,13 +36,20 @@
     + ".rp-fbtn.on{background:#0d2d4e;color:#fff;border-color:#0d2d4e;}"
     + ".rp-spacer{flex:1;}"
     + "#rp-count{font-size:12px;color:#4a5a6a;}"
-    + ".rp-card{border:1px solid #e8eceb;border-radius:11px;padding:14px;margin-bottom:11px;display:grid;grid-template-columns:88px 1fr 230px 150px;gap:14px;align-items:start;}"
+    + ".rp-card{border:1px solid #e8eceb;border-radius:11px;padding:14px;margin-bottom:11px;display:grid;grid-template-columns:200px 1fr 230px 150px;gap:14px;align-items:start;}"
     + ".rp-card.dup{border-left:4px solid #e67e22;}"
     + ".rp-card.pending{border-left:4px solid #f1c40f;}"
     + ".rp-card.approved{border-left:4px solid #27ae60;}"
     + ".rp-card.denied{border-left:4px solid #c0392b;}"
-    + ".rp-photo{width:88px;height:88px;border-radius:9px;object-fit:cover;border:1px solid #e8eceb;display:block;}"
-    + ".rp-photo-x{width:88px;height:88px;border-radius:9px;border:2px dashed #f1c40f;display:flex;align-items:center;justify-content:center;font-size:10px;color:#9a7d0a;text-align:center;background:#fefcf3;padding:6px;box-sizing:border-box;}"
+    + ".rp-photos{display:flex;gap:8px;}"
+    + ".rp-pcol{display:flex;flex-direction:column;align-items:center;gap:3px;}"
+    + ".rp-photo{width:92px;height:120px;border-radius:8px;object-fit:cover;border:1px solid #e8eceb;display:block;cursor:zoom-in;transition:transform .1s;}"
+    + ".rp-photo:hover{transform:scale(1.03);border-color:#3a9e8f;}"
+    + ".rp-plabel{font-size:10px;font-weight:700;color:#566573;text-transform:uppercase;letter-spacing:.3px;}"
+    + ".rp-photo-x{width:92px;height:120px;border-radius:8px;border:2px dashed #f1c40f;display:flex;align-items:center;justify-content:center;font-size:10px;color:#9a7d0a;text-align:center;background:#fefcf3;padding:6px;box-sizing:border-box;line-height:1.4;}"
+    + "#rp-zoom{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:100000;display:flex;align-items:center;justify-content:center;cursor:zoom-out;padding:30px;}"
+    + "#rp-zoom img{max-width:95%;max-height:95%;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.5);}"
+    + "#rp-zoom .rp-zclose{position:absolute;top:18px;right:24px;color:#fff;font-size:34px;cursor:pointer;font-weight:300;}"
     + ".rp-name{font-size:15px;font-weight:700;margin:0 0 4px;}"
     + ".rp-row{font-size:12px;color:#4a5a6a;margin:0 0 2px;line-height:1.5;}"
     + ".rp-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;margin-right:5px;}"
@@ -60,6 +67,7 @@
     + ".rp-ap{background:#3a9e8f;color:#fff;}"
     + ".rp-dn{background:#c0392b;color:#fff;}"
     + ".rp-vw{background:#f4f7f6;color:#0d2d4e;border:1px solid #e8eceb;font-size:11px;}"
+    + ".rp-del{background:#fff;color:#c0392b;border:1px solid #f5c6cb;font-size:11px;}"
     + ".rp-btn:disabled{opacity:.5;cursor:not-allowed;}"
     + ".rp-stat{font-size:12px;font-weight:700;padding:6px;border-radius:6px;text-align:center;}"
     + ".s-approved{background:#d4efdf;color:#1e8449;}"
@@ -172,9 +180,17 @@
     if (!vis.length) { list.innerHTML = "<div class='rp-load'>No matching submissions.</div>"; return; }
     list.innerHTML = vis.map(function (c) {
       var m = c.member || {};
-      var photo = c.photoUrl
-        ? "<img class='rp-photo' src='" + c.photoUrl + "' onerror=\"this.outerHTML='<div class=rp-photo-x>photo gone</div>'\">"
-        : (m.profilePhoto ? "<img class='rp-photo' src='" + esc(m.profilePhoto) + "'>" : "<div class='rp-photo-x'>no photo</div>");
+      // Two photos for identity matching: verification (license/ID) + profile selfie.
+      // Both clickable to open full-size.
+      var vp = c.photoUrl || (m.verifyPhotoUrl || "");
+      var sp = m.profilePhoto || "";
+      function photoBox(url, label) {
+        if (!url) return "<div class='rp-photo-x'>" + label + "<br>none</div>";
+        return "<div class='rp-pcol'>"
+          + "<img class='rp-photo' src='" + esc(url) + "' onclick=\"rpZoom('" + esc(url).replace(/'/g, "%27") + "')\" onerror=\"this.outerHTML='<div class=rp-photo-x>" + label + "<br>gone</div>'\">"
+          + "<span class='rp-plabel'>" + label + "</span></div>";
+      }
+      var photo = "<div class='rp-photos'>" + photoBox(vp, "License") + photoBox(sp, "Selfie") + "</div>";
 
       var typeBadge = "<span class='rp-badge " + badgeClass(m.accountType) + "'>" + esc(m.accountType || "?") + "</span>";
       var vbadge = m.verified ? "<span class='rp-vbadge'>&#10003; verified</span>" : "";
@@ -201,12 +217,14 @@
       if (c.status === "pending") {
         acts = "<button class='rp-btn rp-ap' id='ap-" + c.inquiryId + "' onclick=\"rpApprove('" + c.inquiryId + "')\">&#10003; Approve</button>"
           + "<button class='rp-btn rp-dn' id='dn-" + c.inquiryId + "' onclick=\"rpDeny('" + c.inquiryId + "')\">&#10005; Deny</button>"
-          + (c.profileUrl ? "<a class='rp-btn rp-vw' href='" + c.profileUrl + "' target='_blank'>BD Profile</a>" : "");
+          + (c.profileUrl ? "<a class='rp-btn rp-vw' href='" + c.profileUrl + "' target='_blank'>BD Profile</a>" : "")
+          + "<button class='rp-btn rp-del' onclick=\"rpDelete('" + c.inquiryId + "')\">&#128465; Remove</button>";
       } else {
         var sc = c.status === "approved" ? "s-approved" : "s-denied";
         var lbl = c.status === "approved" ? "&#10003; Approved" : "&#10005; Denied";
         acts = "<div class='rp-stat " + sc + "'>" + lbl + (c.decidedAt ? "<small>" + fmtDate(c.decidedAt) + "</small>" : "") + "</div>"
-          + (c.profileUrl ? "<a class='rp-btn rp-vw' href='" + c.profileUrl + "' target='_blank' style='margin-top:6px;'>BD Profile</a>" : "");
+          + (c.profileUrl ? "<a class='rp-btn rp-vw' href='" + c.profileUrl + "' target='_blank' style='margin-top:6px;'>BD Profile</a>" : "")
+          + "<button class='rp-btn rp-del' onclick=\"rpDelete('" + c.inquiryId + "')\">&#128465; Remove</button>";
       }
 
       return "<div class='rp-card " + c.status + (c.duplicate ? " dup" : "") + "' id='card-" + c.inquiryId + "'>"
@@ -222,6 +240,26 @@
         + "</div>";
     }).join("");
   }
+
+  /* ---------- photo lightbox ---------- */
+  window.rpZoom = function (url) {
+    var u = decodeURIComponent(url);
+    var z = document.createElement("div");
+    z.id = "rp-zoom";
+    z.innerHTML = "<span class='rp-zclose'>&#10005;</span><img src='" + u + "'>";
+    z.onclick = function () { z.remove(); };
+    document.body.appendChild(z);
+  };
+
+  /* ---------- delete a redundant submission from the view ---------- */
+  window.rpDelete = function (id) {
+    var c = cards.find(function (x) { return x.inquiryId === id; });
+    if (!c) return;
+    if (!confirm("Remove this submission from the queue?\n\n" + (c.member && c.member.name || c.name) + " (Inquiry #" + c.inquiryId + ")\n\nThis hides the redundant request from your view. It does not change their verification status or delete their account.")) return;
+    cards = cards.filter(function (x) { return x.inquiryId !== id; });
+    render();
+  };
+
 
   /* ---------- actions ---------- */
   function deletePhoto(p) {
