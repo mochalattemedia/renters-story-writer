@@ -89,6 +89,30 @@ async function shapeMember(memberId) {
   const verifyPhoto = m.image_verification_1_url || m.image_verification_1 || "";
   const profilePhoto = m.image_main_file || m.filename || "";
 
+  // Account type can live in several BD fields depending on setup. Try them in order.
+  const acctCandidates = {
+    member_type: m.member_type,
+    i_am_a: m.i_am_a,
+    seeking: m.seeking,
+    listing_type: m.listing_type,
+    service: m.service,
+    member_level: m.subscription_name || m.member_level_name,
+    profession: m.profession_id,
+  };
+  // Completeness: look for BD's own value, and show which of our checks are empty.
+  const completenessDebug = {
+    bd_fields_checked: {
+      first_name: !!m.first_name, last_name: !!m.last_name, email: !!m.email,
+      phone_number: !!m.phone_number, city: !!m.city,
+      about: !!(m.about_me || m.about_me_1), photo: !!(m.filename || m.image_main_file),
+    },
+    possible_bd_value: m.profile_completeness || m.completeness || m.profile_progress || null,
+  };
+  let accountType = "Unknown";
+  for (const v of [m.member_type, m.i_am_a, m.seeking, m.listing_type, m.service, m.subscription_name]) {
+    if (v && String(v).trim() && String(v).trim() !== "0") { accountType = String(v).trim(); break; }
+  }
+
   return {
     memberId: String(memberId),
     found: true,
@@ -96,7 +120,9 @@ async function shapeMember(memberId) {
     email: m.email || "",
     phone: m.phone_number || "",
     location,
-    accountType: m.member_type || m.i_am_a || "Unknown",
+    accountType,
+    acctCandidates,
+    completenessDebug,
     verified: String(m.verified || "0") === "1",
     verifyPhotoUrl: verifyPhoto ? (verifyPhoto.startsWith("http") ? verifyPhoto : "https://www.renters.com" + verifyPhoto) : "",
     profilePhoto: profilePhoto || "",
