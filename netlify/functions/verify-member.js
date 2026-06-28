@@ -81,6 +81,30 @@ function optStatus(m) {
   return "none";
 }
 
+// Tidy BD's lowercase_underscore values into readable labels.
+// "long_term_rental_" -> "Long Term Rental", "selfemployed_1099" -> "Selfemployed 1099"
+function tidy(v) {
+  if (!v || String(v).trim() === "" || String(v).trim() === "0") return "";
+  return String(v).replace(/_+$/,"").replace(/_/g," ").trim()
+    .replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+}
+
+// Budget is stored mashed, e.g. "10002000_" = $1000–$2000. Try to split into a range.
+function tidyBudget(v) {
+  if (!v) return "";
+  const digits = String(v).replace(/[^0-9]/g, "");
+  if (digits.length === 8) {
+    const lo = parseInt(digits.slice(0, 4), 10);
+    const hi = parseInt(digits.slice(4), 10);
+    return "$" + lo.toLocaleString() + "–$" + hi.toLocaleString();
+  }
+  if (digits.length === 7) {
+    // e.g. 1000200 ambiguous; fall back to showing raw-ish
+    return "$" + parseInt(digits, 10).toLocaleString();
+  }
+  return tidy(v);
+}
+
 async function shapeMember(memberId) {
   const r = await bd(`/user/get/${encodeURIComponent(memberId)}`);
   const m = memberFrom(r.data);
@@ -99,13 +123,8 @@ async function shapeMember(memberId) {
     if (v && String(v).trim() && String(v).trim() !== "0") { accountType = String(v).trim(); break; }
   }
 
-  // What a renter is seeking (useful queue context). Tidy the raw value:
-  // "long_term_rental_" -> "Long Term Rental"
-  let seeking = "";
-  if (m.seeking && String(m.seeking).trim()) {
-    seeking = String(m.seeking).replace(/_+$/,"").replace(/_/g," ").trim()
-      .replace(/\b\w/g, function(c){ return c.toUpperCase(); });
-  }
+  // What a renter is seeking (useful queue context).
+  const seeking = tidy(m.seeking);
 
   return {
     memberId: String(memberId),
@@ -116,6 +135,17 @@ async function shapeMember(memberId) {
     location,
     accountType,
     seeking,
+    rentalInfo: {
+      budget: tidyBudget(m.monthly_budget),
+      timeline: tidy(m.i_want_to_relocate),
+      household: m.number_of_peop ? String(m.number_of_peop).trim() : "",
+      income: tidy(m.type_of_income),
+      coSigner: tidy(m.co_signer),
+      pets: tidy(m.do_you_have_pets),
+      propertyType: tidy(m.property_type_preference),
+      idealRental: (m.ideal_rental && String(m.ideal_rental).trim()) ? String(m.ideal_rental).trim() : "",
+      creditRange: tidy(m.credit_range),
+    },
     verified: String(m.verified || "0") === "1",
     verifyPhotoUrl: verifyPhoto ? (verifyPhoto.startsWith("http") ? verifyPhoto : "https://www.renters.com" + verifyPhoto) : "",
     profilePhoto: profilePhoto || "",
@@ -130,23 +160,6 @@ exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
   const q = event.queryStringParameters || {};
   if (q.key !== KEY) return { statusCode: 403, headers: corsHeaders, body: JSON.stringify({ error: "bad key" }) };
-
-  // DEBUG: dump renter-context candidate fields to see what's populated
-  if (q.debug === "1" && q.memberId) {
-    const r = await bd(`/user/get/${encodeURIComponent(q.memberId)}`);
-    const m = memberFrom(r.data) || {};
-    const fields = [
-      "monthly_budget", "number_of_peop", "type_of_income", "co_signer",
-      "do_you_have_pets", "credit_range", "credit_balance", "my_obstacles",
-      "my_story", "ideal_rental", "property_type_preference", "seeking",
-      "i_want_to_relocate", "describe_your_rent", "h_rentals_youve_had",
-      "any_evictions", "clean_background", "do_you_know_your_cr",
-      "do_you_have_a_clean", "do_you_have_any_evi", "signup_date", "modtime",
-    ];
-    const dump = {};
-    fields.forEach((f) => { dump[f] = m[f] !== undefined ? m[f] : "(field absent)"; });
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ memberId: q.memberId, dump }, null, 2) };
-  }
 
   try {
     // Batch mode
