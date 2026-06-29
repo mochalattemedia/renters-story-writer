@@ -1,9 +1,6 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v14  (2026-06-28, renter opt-in added)
-//  LANDLORD: POST { memberId, opt:"match"|"out", isChange?, timestamp? } -> write tag + email Kenny
-//  RENTER:   POST { type:"renter", tier:"connect"|"match"|"concierge", memberId, isChange?, timestamp? }
-//            -> write renter tier tag + email Kenny (concierge flagged as PAID LEAD)
-//  GET status now also returns renterTier ("connect"|"match"|"concierge"|null)
+//  landlord-optin.js   ·   VERSION: v13  (2026-06-26, DELETE-method fix)
+//  POST  { memberId, opt:"match"|"out", isChange?, timestamp? }  -> write tag + email Kenny
 //  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted }  (wizard reads on load)
 //  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (multi-method delete)
 //  API path confirmed working end-to-end: read + write member tags via www.renters.com/api/v2
@@ -41,7 +38,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v14";
+const FUNCTION_VERSION = "v15";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -53,6 +50,12 @@ const TAG_OUT = "matching-opted-out";
 const KNOWN_TAGS = {
   "matching-opted-in":  { tag_id: "1", tag_type_id: "1" },
   "matching-opted-out": { tag_id: "2", tag_type_id: "1" },
+  // Renter tier tags — confirmed IDs from BD Members > Tags (Custom Tags group).
+  // Hardcoded here as a fallback so a write never depends on /tags/get resolving,
+  // exactly like the landlord tags above (which is why they always worked).
+  "renter-connect-self": { tag_id: "3", tag_type_id: "1" },
+  "renter-match":        { tag_id: "4", tag_type_id: "1" },
+  "renter-concierge":    { tag_id: "5", tag_type_id: "1" },
 };
 
 // Renter opt-in tiers (separate from the landlord in/out tags above).
