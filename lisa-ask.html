@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Ask Lisa | Renters.com</title>
+<link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700,800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --navy: #0d2d4e;
+  --teal: #3a9e8f;
+  --lime: #8dc63f;
+  --text: #1a2b3c;
+  --white: #ffffff;
+}
+html, body {
+  font-family: 'Open Sans', sans-serif;
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 860px; margin: 0 auto; }
+
+/* ── Lisa band (navy, self-contained) ── */
+#band {
+  background: var(--navy);
+  padding: 26px 30px 24px;
+  border-radius: 14px;
+}
+.lisa-wordmark {
+  font-size: 30px; font-weight: 800; letter-spacing: -0.01em;
+  color: var(--white); line-height: 1; margin: 0 0 7px;
+}
+.lisa-wordmark .dot { color: var(--lime); }
+.lisa-intro p {
+  font-size: 15px; color: rgba(255,255,255,0.72);
+  margin: 0; line-height: 1.5;
+}
+.lisa-intro p .leasea { color: var(--lime); font-weight: 600; }
+
+/* ── Ask Lisa conversation (text-message style) ── */
+#ask {
+  margin-top: 18px;
+  background: var(--white);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+}
+#thread {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 380px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+  padding-right: 4px;
+}
+#thread.show { display: flex; }
+.msg { font-size: 14px; line-height: 1.55; border-radius: 18px; padding: 10px 14px; max-width: 80%; }
+.msg.user {
+  align-self: flex-end;
+  background: #0b84fe;
+  color: #ffffff;
+  border-bottom-right-radius: 5px;
+}
+.msg.lisa {
+  align-self: flex-start;
+  background: #e9e9eb;
+  color: #1a1a1a;
+  border-bottom-left-radius: 5px;
+}
+.msg.lisa .who {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--teal); font-weight: 700; margin-bottom: 5px;
+}
+.msg.lisa p { margin: 0 0 9px; }
+.msg.lisa p:last-child { margin-bottom: 0; }
+.msg.lisa strong { font-weight: 700; }
+.msg.typing { color: #8a8a8e; font-style: italic; background: #e9e9eb; }
+.msg.error { background: #fdecec; color: #a13434; align-self: flex-start; }
+
+.ask-row { display: flex; gap: 10px; align-items: flex-end; }
+#ask textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid #d8dade;
+  border-radius: 20px;
+  padding: 12px 16px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text);
+  background: #f5f6f8;
+  min-height: 44px;
+  max-height: 130px;
+  outline: none;
+}
+#ask textarea:focus { border-color: #0b84fe; background: #fff; }
+#ask textarea::placeholder { color: #9aa6b0; }
+#ask textarea:disabled { opacity: .6; }
+.ask-hint { font-size: 11px; color: #9aa0a8; margin: 9px 2px 0; }
+.ask-disclaimer { font-size: 11px; color: #b0b4ba; margin: 4px 2px 0; line-height: 1.45; }
+
+.band-foot {
+  margin: 14px 2px 0; font-size: 12px; color: rgba(255,255,255,0.5);
+}
+.band-foot a { color: rgba(255,255,255,0.78); text-decoration: underline; }
+
+@media (max-width: 620px) {
+  #band { padding: 22px 18px 20px; border-radius: 0; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="band">
+    <p class="lisa-wordmark">Lisa<span class="dot">.</span></p>
+    <div class="lisa-intro">
+      <p><span class="leasea">Lease a</span> home more easily.</p>
+    </div>
+
+    <div id="ask">
+      <div id="thread"></div>
+      <div class="ask-row">
+        <textarea id="q" rows="1" placeholder="Ask me anything about renting. I&#39;m here to help&hellip;"></textarea>
+      </div>
+      <p class="ask-hint">Press Enter to send.</p>
+      <p class="ask-disclaimer">Lisa is AI and can be wrong. Verify anything important &mdash; especially legal, financial, or local rules &mdash; before acting on it.</p>
+    </div>
+
+    <p class="band-foot">Looking for guides and programs? <a href="https://www.renters.com/lisa">Visit the Lisa hub &rarr;</a></p>
+  </div>
+</div>
+
+<script>
+(function () {
+  var FN = 'https://renters-story-writer.netlify.app/.netlify/functions/roadmap-answer';
+  var thread = document.getElementById('thread');
+  var input = document.getElementById('q');
+  var history = [];
+  var busy = false;
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function toParas(text) {
+    var parts = text.split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
+    if (parts.length === 0) parts = [text.trim()];
+    return parts.map(function (p) {
+      var safe = escapeHtml(p).replace(/\n/g, '<br>');
+      safe = safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      return '<p>' + safe + '</p>';
+    }).join('');
+  }
+  function addUser(text) {
+    var d = document.createElement('div');
+    d.className = 'msg user';
+    d.textContent = text;
+    thread.appendChild(d);
+    scroll();
+  }
+  function addLisa(html) {
+    var d = document.createElement('div');
+    d.className = 'msg lisa';
+    d.innerHTML = '<div class="who">Lisa</div>' + html;
+    thread.appendChild(d);
+    scroll();
+    return d;
+  }
+  function addTyping() {
+    var d = document.createElement('div');
+    d.className = 'msg lisa typing';
+    d.textContent = 'Lisa is thinking...';
+    thread.appendChild(d);
+    scroll();
+    return d;
+  }
+  function scroll() { thread.scrollTop = thread.scrollHeight; }
+  function showThread() { if (!thread.classList.contains('show')) thread.classList.add('show'); }
+  function autoGrow() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 130) + 'px';
+  }
+  input.addEventListener('input', autoGrow);
+
+  async function ask(text) {
+    if (busy) return;
+    text = (text || '').trim();
+    if (!text) return;
+    busy = true;
+    input.disabled = true;
+    showThread();
+    addUser(text);
+    history.push({ role: 'user', content: text });
+    input.value = '';
+    autoGrow();
+    var typing = addTyping();
+    try {
+      var res = await fetch(FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: history })
+      });
+      var data = await res.json();
+      typing.remove();
+      if (!res.ok || !data.text) {
+        var e = document.createElement('div');
+        e.className = 'msg lisa error';
+        e.textContent = 'Something went wrong reaching Lisa. Please try again in a moment.';
+        thread.appendChild(e);
+        scroll();
+        history.pop();
+      } else {
+        addLisa(toParas(data.text));
+        history.push({ role: 'assistant', content: data.text });
+      }
+    } catch (err) {
+      typing.remove();
+      var e2 = document.createElement('div');
+      e2.className = 'msg lisa error';
+      e2.textContent = 'Could not connect. Check your connection and try again.';
+      thread.appendChild(e2);
+      scroll();
+      history.pop();
+    } finally {
+      busy = false;
+      input.disabled = false;
+      input.focus();
+    }
+  }
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      ask(input.value);
+    }
+  });
+})();
+</script>
+</body>
+</html>
