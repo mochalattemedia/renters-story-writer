@@ -38,7 +38,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v13";
+const FUNCTION_VERSION = "v14";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -50,6 +50,25 @@ const TAG_OUT = "matching-opted-out";
 const KNOWN_TAGS = {
   "matching-opted-in":  { tag_id: "1", tag_type_id: "1" },
   "matching-opted-out": { tag_id: "2", tag_type_id: "1" },
+};
+
+// Renter opt-in tiers (separate from the landlord in/out tags above).
+// IDs are resolved at runtime by name via /tags/get; if a tag does not yet
+// exist in the BD tag library it simply will not be found and the write is
+// skipped gracefully (the email to Kenny still goes out so no lead is lost).
+// Create these three tags in BD (Members > Tags) for tag writing to work:
+//   renter-connect-self  - "Connect on my own" (free, DIY)
+//   renter-match         - "Match me" (free, landlord pays placement)
+//   renter-concierge     - "Find it for me" ($500 concierge)
+const RENTER_TAGS = {
+  connect:   "renter-connect-self",
+  match:     "renter-match",
+  concierge: "renter-concierge",
+};
+const RENTER_TIER_LABEL = {
+  connect:   "Connect on my own (free, searching independently)",
+  match:     "Match me (free to renter — landlord pays placement)",
+  concierge: "Concierge $500 (we do the legwork + vouch — up to 5 intros/showings)",
 };
 
 const https = require("https");
@@ -226,12 +245,17 @@ exports.handler = async function (event) {
       const member = await getMember(q.memberId);
       let choice = null;
       let verified = false;
+      let renterTier = null;
       if (member) {
         verified = String(member.verified) === "1";
         if (Array.isArray(member.tags)) {
           const names = member.tags.map((t) => t.tag_name);
           if (names.includes(TAG_IN)) choice = "in";
           else if (names.includes(TAG_OUT)) choice = "out";
+          // Renter tier (independent of landlord in/out)
+          if (names.includes(RENTER_TAGS.concierge)) renterTier = "concierge";
+          else if (names.includes(RENTER_TAGS.match)) renterTier = "match";
+          else if (names.includes(RENTER_TAGS.connect)) renterTier = "connect";
         }
       }
       let submitted = null;
@@ -242,7 +266,8 @@ exports.handler = async function (event) {
         body: JSON.stringify({
           version: FUNCTION_VERSION,
           memberId: q.memberId,
-          choice,                      // "in" | "out" | null
+          choice,                      // "in" | "out" | null  (landlord)
+          renterTier,                  // "connect" | "match" | "concierge" | null  (renter)
           verified,                    // true once you approve them
           verifiedSubmitted: submitted // true once they submit the verify form
         }),
@@ -312,11 +337,141 @@ exports.handler = async function (event) {
   }
 
   // opt: "match" / "in"  => opted IN ; anything else => opted OUT
-  const { opt, memberId, isChange, timestamp } = body;
+  const { opt, memberId, isChange, timestamp, type, tier } = body;
   const userId = memberId;
   if (!has(userId)) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "memberId required" }) };
   }
+
+  // ============================================================
+  // RENTER opt-in branch. Triggered when type === "renter".
+  // Writes one of three renter tier tags and emails Kenny.
+  // The landlord path below is left completely unchanged.
+  // ============================================================
+  if (type === "renter") {
+    const tierKey = (tier === "concierge" || tier === "match" || tier === "connect") ? tier : null;
+    if (!tierKey) {
+      return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "renter tier required: connect | match | concierge" }) };
+    }
+
+    let member = null;
+    try { member = await getMember(userId); } catch (e) { /* continue */ }
+
+    // Write the chosen renter tag; remove the other two renter tags so a single tier holds.
+    let tagWriteResult = { ok: false, status: 0, note: "" };
+    try {
+      const tags = await resolveTags();
+      const wantName = RENTER_TAGS[tierKey];
+      const wantTag = tags[wantName];
+      const otherNames = Object.values(RENTER_TAGS).filter((n) => n !== wantName);
+
+      if (wantTag && wantTag.tag_id) {
+        // Remove the other two renter tier tags first.
+        try {
+          const rels = await getRelationships(userId);
+          for (const oName of otherNames) {
+            const oTag = tags[oName];
+            if (!oTag) continue;
+            const toDrop = rels.filter((r) => String(r.tag_id) === String(oTag.tag_id));
+            for (const r of toDrop) { if (r.id) await removeRelationship(r.id); }
+          }
+        } catch (e) { /* non-fatal */ }
+
+        const addRes = await addTag(userId, wantTag, userId);
+        tagWriteResult = {
+          ok: addRes.ok && addRes.data && addRes.data.status === "success",
+          status: addRes.status,
+          note: addRes.ok ? "renter tag written" : "renter tag write failed: HTTP " + addRes.status,
+        };
+      } else {
+        tagWriteResult = { ok: false, status: 0, note: `renter tag "${wantName}" not found — create it in BD Tags` };
+      }
+    } catch (e) {
+      tagWriteResult = { ok: false, status: 0, note: "renter tag write error: " + e.message };
+    }
+
+    // Verification status for the email.
+    let submitted = null;
+    try { submitted = await hasSubmittedVerification(userId); } catch (e) { /* unknown */ }
+
+    const memberName = member ? (member.full_name || `${member.first_name || ""} ${member.last_name || ""}`.trim()) : "";
+    const email = member ? member.email : "";
+    const phone = member ? member.phone_number : "";
+    const location = member ? member.user_location : "";
+    const verifiedFlag = member ? String(member.verified) : "";
+    let verifiedText = "";
+    if (verifiedFlag === "1") verifiedText = "Yes (approved)";
+    else if (submitted === true) verifiedText = "Submitted, pending review";
+    else if (verifiedFlag === "0") verifiedText = "Not verified";
+
+    const tierLabel = RENTER_TIER_LABEL[tierKey];
+    const verb = isChange ? "CHANGED their help preference" : "completed onboarding";
+    const lines = [`Renter ${verb} on Renters.com.`, ""];
+    if (has(memberName)) lines.push(`Name: ${memberName}`);
+    if (has(userId))     lines.push(`Member ID: ${userId}`);
+    if (has(email))      lines.push(`Email: ${email}`);
+    if (has(phone))      lines.push(`Phone: ${phone}`);
+    if (has(location))   lines.push(`Location: ${location}`);
+    if (has(verifiedText)) lines.push(`Verification: ${verifiedText}`);
+    lines.push(`Chose: ${tierLabel}`);
+    if (tierKey === "concierge") {
+      lines.push("");
+      lines.push(">>> PAID CONCIERGE LEAD ($500) — follow up to begin the search. <<<");
+    } else if (tierKey === "match") {
+      lines.push("");
+      lines.push(">>> Free match — add to the matching pool. <<<");
+    }
+    lines.push(`Tag write: ${tagWriteResult.ok ? "OK" : "FAILED — " + tagWriteResult.note}`);
+    lines.push(`Time: ${timestamp || new Date().toISOString()}`);
+    if (has(userId)) {
+      lines.push("");
+      lines.push("View in BD admin:");
+      lines.push(`https://ww2.managemydirectory.com/admin/viewMembers.php?faction=view&userid=${userId}&newsite=38748`);
+    }
+    lines.push("");
+    lines.push("---");
+    lines.push("Renters.com Renter Help Notification");
+    const emailBody = lines.join("\n");
+
+    const subjectName = has(memberName) ? memberName : "New renter";
+    const subjectTier = tierKey === "concierge" ? "wants CONCIERGE help ($500)"
+      : tierKey === "match" ? "wants free matching"
+      : "is searching on their own";
+    const subjectPrefix = isChange ? "CHANGED → " : "";
+
+    try {
+      await ses.send(new SendEmailCommand({
+        Source: "verify@renters.com",
+        Destination: { ToAddresses: ["kenny@renters.com"] },
+        Message: {
+          Subject: { Data: `🔑 ${subjectName} ${subjectPrefix}${subjectTier}` },
+          Body: { Text: { Data: emailBody } },
+        },
+      }));
+    } catch (err) {
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: "Email failed", details: err.message, tagWritten: tagWriteResult.ok }),
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        success: true,
+        version: FUNCTION_VERSION,
+        type: "renter",
+        tier: tierKey,
+        tagWritten: tagWriteResult.ok,
+        tagNote: tagWriteResult.note,
+      }),
+    };
+  }
+  // ============================================================
+  // END renter branch — landlord logic continues unchanged below.
+  // ============================================================
 
   const optedIn = opt === "match" || opt === "in" || opt === "opted-in";
   const wantTagName = optedIn ? TAG_IN : TAG_OUT;
