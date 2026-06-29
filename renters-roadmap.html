@@ -31,46 +31,45 @@ body {
 /* ── Lisa Header ── */
 #lisa-header {
   background: var(--navy);
-  padding: 24px 24px 0;
+  padding: 30px 28px;
   display: flex;
-  align-items: flex-end;
-  gap: 18px;
-  min-height: 96px;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.lisa-avatar {
-  width: 80px;
-  height: 48px;
-  border-radius: 80px 80px 0 0;
-  background: #e8f3d4;
-  position: relative;
-  flex-shrink: 0;
-}
-
-.lisa-avatar .lisa-emoji {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 64px;
+.lisa-wordmark {
+  font-family: 'Open Sans', sans-serif;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--white);
   line-height: 1;
+  margin: 0 0 8px;
+}
+.lisa-wordmark .dot {
+  color: #8dc63f;
 }
 
 .lisa-intro {
-  padding-bottom: 20px;
-}
-
-.lisa-intro h1 {
-  font-family: 'Open Sans', sans-serif;
-  font-size: 20px;
-  color: var(--white);
-  font-weight: 400;
-  margin-bottom: 2px;
+  margin: 0;
 }
 
 .lisa-intro p {
-  font-size: 13px;
-  color: rgba(255,255,255,0.6);
+  font-size: 15px;
+  color: rgba(255,255,255,0.72);
+  margin: 0;
+  line-height: 1.5;
+}
+.lisa-intro p .leasea {
+  color: #8dc63f;
+  font-weight: 600;
+}
+.lisa-tag {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  margin: 14px 0 0;
 }
 
 /* ── Progress ── */
@@ -545,11 +544,11 @@ body {
 
 <!-- Lisa Header -->
 <div id="lisa-header">
-  <div class="lisa-avatar"><span class="lisa-emoji">🙋🏽‍♀️</span></div>
+  <p class="lisa-wordmark">Lisa<span class="dot">.</span></p>
   <div class="lisa-intro">
-    <h1>Hi, I'm Lisa.</h1>
-    <p>I help you <span style="color:#8dc63f;font-weight:600;">lease a</span> house more easily.</p>
+    <p>I help you <span class="leasea">lease a</span> home more easily &mdash; the voice of reason between renters and landlords.</p>
   </div>
+  <p class="lisa-tag">Advocacy &middot; Transparency &middot; Local insight</p>
 </div>
 
 <!-- Progress Bar -->
