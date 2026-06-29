@@ -1,6 +1,9 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v13  (2026-06-26, DELETE-method fix)
-//  POST  { memberId, opt:"match"|"out", isChange?, timestamp? }  -> write tag + email Kenny
+//  landlord-optin.js   ·   VERSION: v14  (2026-06-28, renter opt-in added)
+//  LANDLORD: POST { memberId, opt:"match"|"out", isChange?, timestamp? } -> write tag + email Kenny
+//  RENTER:   POST { type:"renter", tier:"connect"|"match"|"concierge", memberId, isChange?, timestamp? }
+//            -> write renter tier tag + email Kenny (concierge flagged as PAID LEAD)
+//  GET status now also returns renterTier ("connect"|"match"|"concierge"|null)
 //  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted }  (wizard reads on load)
 //  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (multi-method delete)
 //  API path confirmed working end-to-end: read + write member tags via www.renters.com/api/v2
