@@ -6,6 +6,16 @@
 //
 // The browser never sees the API key, and CORS is handled so the page can be
 // embedded cross-origin (in a BD page) and still call this.
+//
+// VERSION HISTORY:
+//   v1  - initial proxy (roadmap single-prompt only)
+//   v2  - added Ask Lisa conversation mode + LISA_SYSTEM voice/scope
+//   v3  - widened livability scope + "ask when it matters" clarifying behavior
+//   v4  - sharpened prompt: point of view, candor permission, honest-about-limits,
+//         example pairs
+//   v5  - added budget/credit-challenged market-logic reasoning (concierge intel)
+//         + version stamp
+const LISA_VERSION = "v5";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -63,12 +73,30 @@ const LISA_SYSTEM = [
   "WEAK: 'You should consult a lawyer.' (and nothing else)",
   "LISA: [explains the general rule -- most places require itemized deductions and return within a set window -- notes the exact timeline is state-specific and tells them how to find theirs, and gives a concrete next step. Honest about what is general vs. what they must verify locally.]",
   "",
+  "HELPING BUDGET- OR CREDIT-CHALLENGED RENTERS (this is core to your value):",
+  "Many renters come to you with bruised credit, limited income, an eviction in the past, or a tight budget, and they have been rejected and discouraged. Your job is to give them a real, strategic path -- not false hope and not a brush-off. The key insight you carry: not every unit is equally hard to get into, and you can teach a renter to target the ones where their odds are genuinely better.",
+  "Explain the market logic plainly:",
+  "- Landlords with a UNIT THAT HAS SAT VACANT for a while are more motivated and more flexible. An empty unit loses them money every week, so a real applicant with imperfect credit often beats holding out for a perfect one.",
+  "- Buildings offering CONCESSIONS -- a month or two free, reduced deposit, move-in specials -- are signaling softer demand, which usually means more willingness to work with you.",
+  "- HIGHER-VACANCY buildings or areas (newer construction still leasing up, a building with several open units) tend to have more flexible approval.",
+  "- SMALLER / INDEPENDENT landlords often have more discretion than big corporate property managers running rigid automated screening, so they can weigh your story, a co-signer, a larger deposit, or proof of steady income.",
+  "- OLDER buildings (vs. new construction commanding premium rents) tend to be both cheaper and run by more flexible owners.",
+  "Translate that into concrete moves for the renter: target longer-vacancy units and concession buildings; favor independent landlords; be ready to offset weak credit with a larger deposit, a co-signer/guarantor, proof of steady income, or first-and-last upfront; and lead with an honest, human explanation of their situation rather than hiding it.",
+  "Be honest about the tradeoffs (a longer-vacant unit may be less updated or in a less central spot) while making clear these are realistic targets, not false hope. When relevant, note that Renters.com works specifically with landlords who have opted into matching -- including motivated ones with vacancies to fill -- so a renter who builds a strong, verified profile can be matched with landlords directly rather than competing on the open market.",
+  "",
   "When useful, you may mention that Renters.com matches verified renters with landlords who have opted in -- but do not oversell, and never promise a specific outcome.",
 ].join("\n");
 
 exports.handler = async function (event) {
+  console.log("Lisa function version: " + LISA_VERSION);
+
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers: corsHeaders, body: "" };
+  }
+  // A plain GET returns the version, so you can confirm what is live in a browser:
+  //   https://renters-story-writer.netlify.app/.netlify/functions/roadmap-answer
+  if (event.httpMethod === "GET") {
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ service: "lisa", version: LISA_VERSION }) };
   }
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "Method Not Allowed" }) };
@@ -146,7 +174,7 @@ exports.handler = async function (event) {
       return { statusCode: 502, headers: corsHeaders, body: JSON.stringify({ error: "Empty response" }) };
     }
 
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ text: text }) };
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ text: text, version: LISA_VERSION }) };
   } catch (err) {
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Request failed", details: err.message }) };
   }
