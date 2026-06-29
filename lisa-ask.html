@@ -28,7 +28,7 @@ html, body {
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   padding: 26px 30px 24px;
-  border-radius: 16px;
+  border-radius: 20px;
   border: 1px solid rgba(255,255,255,0.10);
   box-shadow: 0 10px 40px rgba(0,0,0,0.28);
 }
@@ -111,7 +111,26 @@ html, body {
 
 
 @media (max-width: 620px) {
-  #band { padding: 22px 18px 20px; border-radius: 0; }
+  .wrap { max-width: 100%; }
+  #band {
+    padding: 20px 16px 18px;
+    border-radius: 16px;
+  }
+  .lisa-wordmark { font-size: 26px; }
+  .lisa-intro p { font-size: 14px; }
+  #ask { padding: 13px; margin-top: 15px; }
+  #ask textarea {
+    min-height: 60px;
+    font-size: 16px;       /* >=16px prevents iOS zoom-on-focus */
+    padding: 13px 16px;
+  }
+  #thread { max-height: 320px; }
+  .msg { max-width: 88%; font-size: 14px; }
+  .ask-hint, .ask-disclaimer { font-size: 11px; }
+}
+@media (max-width: 400px) {
+  #band { padding: 18px 13px 16px; }
+  .lisa-wordmark { font-size: 24px; }
 }
 </style>
 </head>
