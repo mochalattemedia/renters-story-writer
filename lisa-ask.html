@@ -56,11 +56,7 @@ html, body {
   display: none;
   flex-direction: column;
   gap: 12px;
-  max-height: 380px;
-  overflow-y: auto;
   margin-bottom: 14px;
-  padding-right: 4px;
-  scrollbar-width: thin;
 }
 #thread.show { display: flex; }
 .msg { font-size: 14px; line-height: 1.55; border-radius: 18px; padding: 10px 14px; max-width: 80%; }
@@ -83,6 +79,14 @@ html, body {
 .msg.lisa p { margin: 0 0 9px; }
 .msg.lisa p:last-child { margin-bottom: 0; }
 .msg.lisa strong { font-weight: 700; }
+.msg.lisa a.rlink {
+  color: #2f8f7e;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-word;
+}
+.msg.lisa a.rlink:hover { color: #3a9e8f; }
 .msg.typing { color: #8a8a8e; font-style: italic; background: #e9e9eb; }
 .msg.error { background: #fdecec; color: #a13434; align-self: flex-start; }
 
@@ -124,7 +128,7 @@ html, body {
     font-size: 16px;       /* >=16px prevents iOS zoom-on-focus */
     padding: 13px 16px;
   }
-  #thread { max-height: 320px; }
+  #thread { }
   .msg { max-width: 88%; font-size: 14px; }
   .ask-hint, .ask-disclaimer { font-size: 11px; }
 }
@@ -164,12 +168,28 @@ html, body {
   function escapeHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
+  // Turn renters.com URLs (and ONLY renters.com URLs) into clickable links that
+  // open the top window. Runs on already-escaped text so it is injection-safe.
+  function linkifyRenters(safe) {
+    // Matches https://www.renters.com/... or renters.com/... up to whitespace/punctuation.
+    var re = /\b((?:https?:\/\/)?(?:www\.)?renters\.com(?:\/[A-Za-z0-9\-._~:\/?#\[\]@!$&'()*+,;=%]*)?)/g;
+    return safe.replace(re, function (match) {
+      var href = match;
+      if (!/^https?:\/\//i.test(href)) href = 'https://' + href.replace(/^www\./i, 'www.');
+      // strip a trailing period/comma that is likely sentence punctuation, not part of the URL
+      var trail = '';
+      var m2 = href.match(/[.,;:!?]+$/);
+      if (m2) { trail = m2[0]; href = href.slice(0, -trail.length); match = match.slice(0, -trail.length); }
+      return '<a class="rlink" href="' + href + '" target="_top" rel="noopener">' + match + '</a>' + trail;
+    });
+  }
   function toParas(text) {
     var parts = text.split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
     if (parts.length === 0) parts = [text.trim()];
     return parts.map(function (p) {
       var safe = escapeHtml(p).replace(/\n/g, '<br>');
       safe = safe.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      safe = linkifyRenters(safe);
       return '<p>' + safe + '</p>';
     }).join('');
   }
@@ -178,14 +198,14 @@ html, body {
     d.className = 'msg user';
     d.textContent = text;
     thread.appendChild(d);
-    scroll();
+    afterRender();
   }
   function addLisa(html) {
     var d = document.createElement('div');
     d.className = 'msg lisa';
     d.innerHTML = '<div class="who">Lisa</div>' + html;
     thread.appendChild(d);
-    scroll();
+    afterRender();
     return d;
   }
   function addTyping() {
@@ -193,16 +213,38 @@ html, body {
     d.className = 'msg lisa typing';
     d.textContent = 'Lisa is thinking...';
     thread.appendChild(d);
-    scroll();
+    afterRender();
     return d;
   }
-  function scroll() { thread.scrollTop = thread.scrollHeight; }
   function showThread() { if (!thread.classList.contains('show')) thread.classList.add('show'); }
   function autoGrow() {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 130) + 'px';
+    postHeight();
+  }
+  // Tell the parent page how tall the iframe should be, so it grows with the
+  // conversation and the PAGE scrolls naturally (no cramped inner scroll box).
+  function postHeight() {
+    var h = document.body.scrollHeight;
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ lisaHeight: h }, '*');
+      }
+    } catch (e) {}
+  }
+  // After new content: resize the iframe, then bring the newest message into view
+  // by scrolling the parent window to the bottom of the iframe.
+  function afterRender() {
+    postHeight();
+    setTimeout(postHeight, 60);   // catch reflow after images/fonts settle
+    try {
+      var last = thread.lastElementChild;
+      if (last && last.scrollIntoView) last.scrollIntoView({ block: 'nearest' });
+    } catch (e) {}
   }
   input.addEventListener('input', autoGrow);
+  window.addEventListener('load', postHeight);
+  window.addEventListener('resize', postHeight);
 
   async function ask(text) {
     if (busy) return;
@@ -229,7 +271,7 @@ html, body {
         e.className = 'msg lisa error';
         e.textContent = 'Something went wrong reaching Lisa. Please try again in a moment.';
         thread.appendChild(e);
-        scroll();
+        afterRender();
         history.pop();
       } else {
         addLisa(toParas(data.text));
@@ -241,12 +283,13 @@ html, body {
       e2.className = 'msg lisa error';
       e2.textContent = 'Could not connect. Check your connection and try again.';
       thread.appendChild(e2);
-      scroll();
+      afterRender();
       history.pop();
     } finally {
       busy = false;
       input.disabled = false;
       input.focus();
+      postHeight();
     }
   }
   input.addEventListener('keydown', function (e) {
