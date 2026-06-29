@@ -8,7 +8,6 @@
 <link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700,800&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-
 :root {
   --navy: #0d2d4e;
   --teal: #3a9e8f;
@@ -20,7 +19,6 @@
   --border: #e2ddd8;
   --white: #ffffff;
 }
-
 body {
   font-family: 'Open Sans', sans-serif;
   background: var(--cream);
@@ -28,198 +26,164 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
+.wrap { max-width: 860px; margin: 0 auto; background: var(--white); }
 
-.wrap {
-  max-width: 860px;
-  margin: 0 auto;
-  background: var(--white);
-}
-
-/* ── Lisa Header (matches roadmap) ── */
-#lisa-header {
+/* ── Lisa hero (navy) ── */
+#hero {
   background: var(--navy);
-  padding: 30px 32px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  padding: 30px 32px 28px;
 }
 .lisa-wordmark {
-  font-size: 32px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--white);
-  line-height: 1;
-  margin: 0 0 8px;
+  font-size: 32px; font-weight: 800; letter-spacing: -0.01em;
+  color: var(--white); line-height: 1; margin: 0 0 8px;
 }
 .lisa-wordmark .dot { color: var(--lime); }
 .lisa-intro p {
-  font-size: 15px;
-  color: rgba(255,255,255,0.72);
-  margin: 0;
-  line-height: 1.5;
+  font-size: 15px; color: rgba(255,255,255,0.72);
+  margin: 0; line-height: 1.5;
 }
 .lisa-intro p .leasea { color: var(--lime); font-weight: 600; }
 .lisa-tag {
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.45);
-  margin: 14px 0 0;
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: rgba(255,255,255,0.45); margin: 14px 0 0;
 }
 
-/* ── Ask Lisa band ── */
-.ask-lisa {
-  background: var(--navy);
-  border-top: 1px solid rgba(255,255,255,0.12);
-  padding: 22px 32px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+/* ── Ask Lisa conversation ── */
+#ask {
+  margin-top: 22px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 14px;
+  padding: 18px;
 }
-.ask-lisa .ask-copy {
-  color: rgba(255,255,255,0.82);
-  font-size: 14px;
-  line-height: 1.5;
-  max-width: 540px;
+
+#thread {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 380px;
+  overflow-y: auto;
+  margin-bottom: 14px;
+  padding-right: 4px;
 }
-.ask-lisa .ask-copy b { color: var(--white); font-weight: 700; }
-.ask-lisa a.ask-btn {
+#thread.show { display: flex; }
+.msg { font-size: 14px; line-height: 1.6; border-radius: 12px; padding: 12px 14px; max-width: 88%; }
+.msg.user {
+  align-self: flex-end;
   background: var(--lime);
   color: var(--navy);
-  font-weight: 700;
-  font-size: 14px;
-  text-decoration: none;
-  padding: 11px 22px;
-  border-radius: 8px;
-  white-space: nowrap;
-  transition: background 0.15s;
-}
-.ask-lisa a.ask-btn:hover { background: #7ab32f; }
-
-/* ── Programs ── */
-.programs {
-  padding: 28px 32px 36px;
-}
-.programs-lead {
-  font-size: 13px;
-  color: var(--muted);
-  margin: 0 0 22px;
-  line-height: 1.5;
-}
-.col-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 26px 28px;
-}
-.col h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--teal);
-  font-weight: 700;
-  margin: 0 0 12px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid var(--sand);
-}
-
-.prog {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 8px;
-  margin-bottom: 9px;
-  font-size: 14px;
-  border: 1px solid var(--border);
-}
-/* Live, clickable program */
-a.prog.live {
-  background: var(--white);
-  color: var(--navy);
   font-weight: 600;
-  text-decoration: none;
-  border-color: var(--teal);
-  transition: background 0.15s, box-shadow 0.15s;
+  border-bottom-right-radius: 4px;
 }
-a.prog.live:hover {
-  background: #f3faf8;
-  box-shadow: 0 2px 8px rgba(58,158,143,0.15);
-}
-a.prog.live .go {
-  color: var(--teal);
-  font-weight: 700;
-  font-size: 13px;
-}
-/* Coming soon, not clickable */
-.prog.soon {
-  background: var(--cream);
-  color: #9aa6b0;
-  cursor: default;
-}
-.prog.soon .tag {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #aab4bd;
+.msg.lisa {
+  align-self: flex-start;
   background: var(--white);
-  border: 1px solid var(--border);
-  padding: 3px 8px;
-  border-radius: 20px;
-  white-space: nowrap;
+  color: var(--text);
+  border-bottom-left-radius: 4px;
 }
-.prog .label { display: flex; align-items: center; gap: 9px; }
+.msg.lisa .who {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--teal); font-weight: 700; margin-bottom: 5px;
+}
+.msg.lisa p { margin: 0 0 9px; }
+.msg.lisa p:last-child { margin-bottom: 0; }
+.msg.typing { color: var(--muted); font-style: italic; }
+.msg.error { background: #fdecec; color: #a13434; align-self: flex-start; }
 
+.ask-row { display: flex; gap: 10px; align-items: flex-end; }
+#ask textarea {
+  flex: 1;
+  resize: none;
+  border: 0;
+  border-radius: 10px;
+  padding: 13px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text);
+  min-height: 48px;
+  max-height: 130px;
+  outline: none;
+}
+#ask textarea::placeholder { color: #9aa6b0; }
+#ask textarea:disabled { opacity: .6; }
+.ask-hint {
+  font-size: 11px; color: rgba(255,255,255,0.4);
+  margin: 9px 2px 0;
+}
+
+/* ── Programs (secondary) ── */
+.programs { padding: 24px 32px 34px; }
+.programs-head {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--muted); font-weight: 700; margin: 0 0 4px;
+}
+.programs-lead { font-size: 12.5px; color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
+.col-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 24px; }
+.col h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--teal); font-weight: 700; margin: 0 0 9px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--sand);
+}
+.prog {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 11px; border-radius: 7px; margin-bottom: 6px;
+  font-size: 13px; border: 1px solid var(--border);
+}
+a.prog.live {
+  background: var(--white); color: var(--navy); font-weight: 600;
+  text-decoration: none; border-color: var(--teal);
+  transition: background .15s;
+}
+a.prog.live:hover { background: #f3faf8; }
+a.prog.live .go { color: var(--teal); font-weight: 700; font-size: 12px; }
+.prog.soon { background: var(--cream); color: #9aa6b0; }
+.prog.soon .tag {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .04em;
+  color: #aab4bd; background: var(--white); border: 1px solid var(--border);
+  padding: 2px 7px; border-radius: 20px; white-space: nowrap;
+}
 .footer-note {
-  text-align: center;
-  font-size: 12px;
-  color: var(--muted);
-  padding: 0 32px 30px;
-  line-height: 1.6;
+  text-align: center; font-size: 12px; color: var(--muted);
+  padding: 0 32px 30px; line-height: 1.6;
 }
-
 @media (max-width: 620px) {
-  .col-grid { grid-template-columns: 1fr; gap: 22px; }
-  #lisa-header, .ask-lisa, .programs { padding-left: 20px; padding-right: 20px; }
-  .ask-lisa { flex-direction: column; align-items: stretch; }
-  .ask-lisa a.ask-btn { text-align: center; }
-}
+  .col-grid { grid-template-columns: 1fr; gap: 18px; }
+  #hero, .programs { padding-left: 20px; padding-right: 20px; }
+  .ask-row { flex-direction: column; align-items: stretch; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-  <!-- Lisa Header -->
-  <div id="lisa-header">
+  <!-- Hero: Lisa + Ask Lisa -->
+  <div id="hero">
     <p class="lisa-wordmark">Lisa<span class="dot">.</span></p>
     <div class="lisa-intro">
-      <p>I help you <span class="leasea">lease a</span> home more easily &mdash; the voice of reason between renters and landlords.</p>
+      <p><span class="leasea">Lease a</span> home more easily.</p>
     </div>
-    <p class="lisa-tag">Advocacy &middot; Transparency &middot; Local insight</p>
+
+    <div id="ask">
+      <div id="thread"></div>
+
+      <div class="ask-row">
+        <textarea id="q" rows="1" placeholder="Ask me anything about renting. I&#39;m here to help&hellip;"></textarea>
+      </div>
+      <p class="ask-hint">Press Enter to send.</p>
+    </div>
   </div>
 
-  <!-- Ask Lisa band -->
-  <div class="ask-lisa">
-    <div class="ask-copy">
-      <b>Ask Lisa.</b> Tell me where you are looking or what you are trying to do, and I will guide you through it &mdash; step by step, with your market in mind.
-    </div>
-    <a class="ask-btn" href="https://renters-story-writer.netlify.app/renters-roadmap.html">Start with Lisa &rarr;</a>
-  </div>
-
-  <!-- Programs -->
+  <!-- Programs (secondary) -->
   <div class="programs">
-    <p class="programs-lead">Or start with a guide I have already prepared. More are on the way &mdash; I am always building.</p>
+    <p class="programs-head">Guided programs</p>
+    <p class="programs-lead">Prefer a step-by-step walkthrough? Start with a guide I have prepared. More are on the way.</p>
 
     <div class="col-grid">
-
-      <!-- Renters -->
       <div class="col">
         <h3>For Renters</h3>
         <a class="prog live" href="https://renters-story-writer.netlify.app/renters-roadmap.html">
-          <span class="label">Renter Roadmap</span>
-          <span class="go">Open &rarr;</span>
+          <span class="label">Renter Roadmap</span><span class="go">Open &rarr;</span>
         </a>
         <div class="prog soon"><span class="label">Credit Building</span><span class="tag">Coming soon</span></div>
         <div class="prog soon"><span class="label">Avoiding Rental Scams</span><span class="tag">Coming soon</span></div>
@@ -228,8 +192,6 @@ a.prog.live .go {
         <div class="prog soon"><span class="label">Renting on a Budget</span><span class="tag">Coming soon</span></div>
         <div class="prog soon"><span class="label">Flexibility &amp; Mobility</span><span class="tag">Coming soon</span></div>
       </div>
-
-      <!-- Landlords -->
       <div class="col">
         <h3>For Landlords</h3>
         <div class="prog soon"><span class="label">Landlord Guide</span><span class="tag">Coming soon</span></div>
@@ -238,8 +200,6 @@ a.prog.live .go {
         <div class="prog soon"><span class="label">Screening &amp; Fair Housing</span><span class="tag">Coming soon</span></div>
         <div class="prog soon"><span class="label">Fill Your Vacancy Faster</span><span class="tag">Coming soon</span></div>
       </div>
-
-      <!-- Property Managers -->
       <div class="col">
         <h3>For Property Managers</h3>
         <div class="prog soon"><span class="label">Property Manager Guide</span><span class="tag">Coming soon</span></div>
@@ -247,8 +207,6 @@ a.prog.live .go {
         <div class="prog soon"><span class="label">Growth &amp; Scale</span><span class="tag">Coming soon</span></div>
         <div class="prog soon"><span class="label">Occupancy &amp; Turnover</span><span class="tag">Coming soon</span></div>
       </div>
-
-      <!-- Realtors -->
       <div class="col">
         <h3>For Realtors</h3>
         <div class="prog soon"><span class="label">Realtor Guide</span><span class="tag">Coming soon</span></div>
@@ -256,14 +214,117 @@ a.prog.live .go {
         <div class="prog soon"><span class="label">Managing Renters</span><span class="tag">Coming soon</span></div>
         <div class="prog soon"><span class="label">Renter Retention</span><span class="tag">Coming soon</span></div>
       </div>
-
     </div>
   </div>
 
-  <p class="footer-note">
-    Lisa learns from every real renter and landlord on Renters.com &mdash; growing more useful, and more local, over time.
-  </p>
+  <p class="footer-note">Lisa learns from every real renter and landlord on Renters.com &mdash; growing more useful, and more local, over time.</p>
 
 </div>
+
+<script>
+(function () {
+  var FN = 'https://renters-story-writer.netlify.app/.netlify/functions/roadmap-answer';
+  var thread = document.getElementById('thread');
+  var input = document.getElementById('q');
+  var history = [];   // [{role, content}]
+  var busy = false;
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  // Render Lisa text into short paragraphs.
+  function toParas(text) {
+    var parts = text.split(/\n\s*\n/).map(function (p) { return p.trim(); }).filter(Boolean);
+    if (parts.length === 0) parts = [text.trim()];
+    return parts.map(function (p) { return '<p>' + escapeHtml(p).replace(/\n/g, '<br>') + '</p>'; }).join('');
+  }
+  function addUser(text) {
+    var d = document.createElement('div');
+    d.className = 'msg user';
+    d.textContent = text;
+    thread.appendChild(d);
+    scroll();
+  }
+  function addLisa(html) {
+    var d = document.createElement('div');
+    d.className = 'msg lisa';
+    d.innerHTML = '<div class="who">Lisa</div>' + html;
+    thread.appendChild(d);
+    scroll();
+    return d;
+  }
+  function addTyping() {
+    var d = document.createElement('div');
+    d.className = 'msg lisa typing';
+    d.id = 'typing';
+    d.textContent = 'Lisa is thinking...';
+    thread.appendChild(d);
+    scroll();
+    return d;
+  }
+  function scroll() { thread.scrollTop = thread.scrollHeight; }
+  function showThread() { if (!thread.classList.contains('show')) thread.classList.add('show'); }
+
+  function autoGrow() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 130) + 'px';
+  }
+  input.addEventListener('input', autoGrow);
+
+  async function ask(text) {
+    if (busy) return;
+    text = (text || '').trim();
+    if (!text) return;
+    busy = true;
+    input.disabled = true;
+    showThread();
+    addUser(text);
+    history.push({ role: 'user', content: text });
+    input.value = '';
+    autoGrow();
+    var typing = addTyping();
+
+    try {
+      var res = await fetch(FN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: history })
+      });
+      var data = await res.json();
+      typing.remove();
+      if (!res.ok || !data.text) {
+        var e = document.createElement('div');
+        e.className = 'msg lisa error';
+        e.textContent = 'Something went wrong reaching Lisa. Please try again in a moment.';
+        thread.appendChild(e);
+        scroll();
+        history.pop(); // drop the unanswered user turn so retry is clean
+      } else {
+        addLisa(toParas(data.text));
+        history.push({ role: 'assistant', content: data.text });
+      }
+    } catch (err) {
+      typing.remove();
+      var e2 = document.createElement('div');
+      e2.className = 'msg lisa error';
+      e2.textContent = 'Could not connect. Check your connection and try again.';
+      thread.appendChild(e2);
+      scroll();
+      history.pop();
+    } finally {
+      busy = false;
+      input.disabled = false;
+      input.focus();
+    }
+  }
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      ask(input.value);
+    }
+  });
+})();
+</script>
 </body>
 </html>
