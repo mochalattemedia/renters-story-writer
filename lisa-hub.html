@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Lisa | Renters.com</title>
+<link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700,800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --navy: #0d2d4e;
+  --teal: #3a9e8f;
+  --lime: #8dc63f;
+  --cream: #f9f7f4;
+  --sand: #f0ede8;
+  --text: #1a2b3c;
+  --muted: #5a6a7a;
+  --border: #e2ddd8;
+  --white: #ffffff;
+}
+
+body {
+  font-family: 'Open Sans', sans-serif;
+  background: var(--cream);
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 860px;
+  margin: 0 auto;
+  background: var(--white);
+}
+
+/* ── Lisa Header (matches roadmap) ── */
+#lisa-header {
+  background: var(--navy);
+  padding: 30px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lisa-wordmark {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--white);
+  line-height: 1;
+  margin: 0 0 8px;
+}
+.lisa-wordmark .dot { color: var(--lime); }
+.lisa-intro p {
+  font-size: 15px;
+  color: rgba(255,255,255,0.72);
+  margin: 0;
+  line-height: 1.5;
+}
+.lisa-intro p .leasea { color: var(--lime); font-weight: 600; }
+.lisa-tag {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  margin: 14px 0 0;
+}
+
+/* ── Ask Lisa band ── */
+.ask-lisa {
+  background: var(--navy);
+  border-top: 1px solid rgba(255,255,255,0.12);
+  padding: 22px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ask-lisa .ask-copy {
+  color: rgba(255,255,255,0.82);
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 540px;
+}
+.ask-lisa .ask-copy b { color: var(--white); font-weight: 700; }
+.ask-lisa a.ask-btn {
+  background: var(--lime);
+  color: var(--navy);
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+  padding: 11px 22px;
+  border-radius: 8px;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.ask-lisa a.ask-btn:hover { background: #7ab32f; }
+
+/* ── Programs ── */
+.programs {
+  padding: 28px 32px 36px;
+}
+.programs-lead {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 22px;
+  line-height: 1.5;
+}
+.col-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 26px 28px;
+}
+.col h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--teal);
+  font-weight: 700;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--sand);
+}
+
+.prog {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 9px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+}
+/* Live, clickable program */
+a.prog.live {
+  background: var(--white);
+  color: var(--navy);
+  font-weight: 600;
+  text-decoration: none;
+  border-color: var(--teal);
+  transition: background 0.15s, box-shadow 0.15s;
+}
+a.prog.live:hover {
+  background: #f3faf8;
+  box-shadow: 0 2px 8px rgba(58,158,143,0.15);
+}
+a.prog.live .go {
+  color: var(--teal);
+  font-weight: 700;
+  font-size: 13px;
+}
+/* Coming soon, not clickable */
+.prog.soon {
+  background: var(--cream);
+  color: #9aa6b0;
+  cursor: default;
+}
+.prog.soon .tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #aab4bd;
+  background: var(--white);
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.prog .label { display: flex; align-items: center; gap: 9px; }
+
+.footer-note {
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 32px 30px;
+  line-height: 1.6;
+}
+
+@media (max-width: 620px) {
+  .col-grid { grid-template-columns: 1fr; gap: 22px; }
+  #lisa-header, .ask-lisa, .programs { padding-left: 20px; padding-right: 20px; }
+  .ask-lisa { flex-direction: column; align-items: stretch; }
+  .ask-lisa a.ask-btn { text-align: center; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Lisa Header -->
+  <div id="lisa-header">
+    <p class="lisa-wordmark">Lisa<span class="dot">.</span></p>
+    <div class="lisa-intro">
+      <p>I help you <span class="leasea">lease a</span> home more easily &mdash; the voice of reason between renters and landlords.</p>
+    </div>
+    <p class="lisa-tag">Advocacy &middot; Transparency &middot; Local insight</p>
+  </div>
+
+  <!-- Ask Lisa band -->
+  <div class="ask-lisa">
+    <div class="ask-copy">
+      <b>Ask Lisa.</b> Tell me where you are looking or what you are trying to do, and I will guide you through it &mdash; step by step, with your market in mind.
+    </div>
+    <a class="ask-btn" href="https://renters-story-writer.netlify.app/renters-roadmap.html">Start with Lisa &rarr;</a>
+  </div>
+
+  <!-- Programs -->
+  <div class="programs">
+    <p class="programs-lead">Or start with a guide I have already prepared. More are on the way &mdash; I am always building.</p>
+
+    <div class="col-grid">
+
+      <!-- Renters -->
+      <div class="col">
+        <h3>For Renters</h3>
+        <a class="prog live" href="https://renters-story-writer.netlify.app/renters-roadmap.html">
+          <span class="label">Renter Roadmap</span>
+          <span class="go">Open &rarr;</span>
+        </a>
+        <div class="prog soon"><span class="label">Credit Building</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Avoiding Rental Scams</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Path to Home Ownership</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">House Hacks</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Renting on a Budget</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Flexibility &amp; Mobility</span><span class="tag">Coming soon</span></div>
+      </div>
+
+      <!-- Landlords -->
+      <div class="col">
+        <h3>For Landlords</h3>
+        <div class="prog soon"><span class="label">Landlord Guide</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Landlord DIY</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Pricing Your Rental</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Screening &amp; Fair Housing</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Fill Your Vacancy Faster</span><span class="tag">Coming soon</span></div>
+      </div>
+
+      <!-- Property Managers -->
+      <div class="col">
+        <h3>For Property Managers</h3>
+        <div class="prog soon"><span class="label">Property Manager Guide</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Retention &amp; Management</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Growth &amp; Scale</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Occupancy &amp; Turnover</span><span class="tag">Coming soon</span></div>
+      </div>
+
+      <!-- Realtors -->
+      <div class="col">
+        <h3>For Realtors</h3>
+        <div class="prog soon"><span class="label">Realtor Guide</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Renters to Owners</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Managing Renters</span><span class="tag">Coming soon</span></div>
+        <div class="prog soon"><span class="label">Renter Retention</span><span class="tag">Coming soon</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <p class="footer-note">
+    Lisa learns from every real renter and landlord on Renters.com &mdash; growing more useful, and more local, over time.
+  </p>
+
+</div>
+</body>
+</html>
