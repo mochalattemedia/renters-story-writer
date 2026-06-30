@@ -1,8 +1,8 @@
 /* ============================================================
-   Renters.com Verification Panel  ·  v5 (CRM)
-   v5: A re-submission after a prior decision stays PENDING (so
-       Approve/Deny show again) and surfaces the prior result as
-       history ("RESUBMITTED - previously denied on <date>").
+   Renters.com Verification Panel  ·  v6 (CRM)
+   v5: resubmission stays PENDING + shows prior result as history.
+   v6: delete now includes newsite=38748 so BD actually deletes
+       (without it BD returns 200 but does not remove the record).
    ============================================================ */
 (function () {
   var FN_BASE = "https://renters-story-writer.netlify.app/.netlify/functions";
@@ -238,7 +238,7 @@
     if (!confirm("Delete this verification request?\n\n" + (c.member && c.member.name || c.name) + " (Inquiry #" + c.inquiryId + ")\n\nThis permanently removes the request from your Forms Inbox (same as BD's delete). It does NOT change their verification status or delete their account.")) return;
     var card = document.getElementById("card-" + id);
     if (card) card.style.opacity = "0.5";
-    var url = "https://ww2.managemydirectory.com/admin/go.php?widget=Admin-Module-Form-Inquiries&apitype=json&noheader=1&external_action=inquiryAction&inquiry_action=mark_delete&inquiry_id=" + encodeURIComponent(c.inquiryId);
+    var url = "https://ww2.managemydirectory.com/admin/go.php?widget=Admin-Module-Form-Inquiries&apitype=json&noheader=1&newsite=38748&external_action=inquiryAction&inquiry_action=mark_delete&inquiry_id=" + encodeURIComponent(c.inquiryId);
     fetch(url, { credentials: "include" })
       .then(function () {
         cards = cards.filter(function (x) { return x.inquiryId !== id; });
