@@ -1,22 +1,8 @@
 /* ============================================================
    Renters.com Verification Panel  ·  v5 (CRM)
-   Replaces verify-queue.js. Loaded automatically in BD admin.
-
-   Data flow:
-     1) Parse verify_business submissions from the Forms Inbox page
-     2) Record each into the Netlify Blobs log  (verify-log)
-     3) Fetch rich member data for each          (verify-member)
-     4) Render a sortable/filterable CRM table with status
-   Actions:
-     - Approve: native BD verify (viewMembers.php, both checkmarks)
-                + log update (approved) + approval email + photo delete
-     - Deny:    notice email + log update (denied) + photo delete
-   Status comes from the LOG (persistent), so it remembers across
-   sessions and flags duplicates.
-
-   v5: A re-submission after a prior decision now stays PENDING
-       (so Approve/Deny show again) and surfaces the prior result
-       as history ("RESUBMITTED - previously denied on <date>").
+   v5: A re-submission after a prior decision stays PENDING (so
+       Approve/Deny show again) and surfaces the prior result as
+       history ("RESUBMITTED - previously denied on <date>").
    ============================================================ */
 (function () {
   var FN_BASE = "https://renters-story-writer.netlify.app/.netlify/functions";
@@ -28,7 +14,6 @@
   if (document.getElementById("rp-overlay")) document.getElementById("rp-overlay").remove();
   if (document.getElementById("rp-style")) document.getElementById("rp-style").remove();
 
-  /* ---------- styles ---------- */
   var css = ""
     + "#rp-overlay{position:fixed;inset:0;background:rgba(8,20,35,.7);z-index:99999;display:flex;align-items:flex-start;justify-content:center;padding:18px;overflow-y:auto;font-family:Arial,Helvetica,sans-serif;}"
     + "#rp-panel{background:#fff;border-radius:14px;width:100%;max-width:1180px;color:#0d2d4e;padding:22px;margin:auto;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.3);}"
@@ -115,11 +100,9 @@
     overlay.remove(); st.remove();
   };
 
-  /* ---------- state ---------- */
-  var cards = [];           // merged: submission + log + member
+  var cards = [];
   var fStatus = "all", fType = "all", sortNewest = true;
 
-  /* ---------- helpers ---------- */
   function badgeClass(t) {
     t = (t || "").toLowerCase();
     if (t.indexOf("renter") > -1) return "b-renter";
@@ -135,7 +118,6 @@
     return fetch(url, opts).then(function (r) { return r.json(); });
   }
 
-  /* ---------- parse submissions from BD Forms Inbox ---------- */
   function parseRows() {
     var out = [], seen = {};
     var rows = document.querySelectorAll("table.form-inquiries-table tbody tr.odd, table.form-inquiries-table tbody tr.even");
@@ -162,5 +144,242 @@
     return out;
   }
 
-  /* ---------- render ---------- */
   function visible() {
+    return cards.filter(function (c) {
+      if (fStatus !== "all" && c.status !== fStatus) return false;
+      if (fType !== "all") {
+        var t = (c.member && c.member.accountType ? c.member.accountType : "").toLowerCase();
+        if (t.indexOf(fType) === -1) return false;
+      }
+      return true;
+    }).sort(function (a, b) {
+      var x = new Date(a.submitted || 0).getTime(), y = new Date(b.submitted || 0).getTime();
+      return sortNewest ? y - x : x - y;
+    });
+  }
+
+  function render() {
+    var list = document.getElementById("rp-list");
+    var vis = visible();
+    document.getElementById("rp-count").textContent = vis.length + " of " + cards.length;
+    if (!vis.length) { list.innerHTML = "<div class='rp-load'>No matching submissions.</div>"; return; }
+    list.innerHTML = vis.map(function (c) {
+      var m = c.member || {};
+      var vp = c.photoUrl || (m.verifyPhotoUrl || "");
+      var sp = m.profilePhoto || "";
+      function photoBox(url, label) {
+        if (!url) return "<div class='rp-photo-x'>" + label + "<br>none</div>";
+        return "<div class='rp-pcol'>"
+          + "<img class='rp-photo' src='" + esc(url) + "' onclick=\"rpZoom('" + esc(url).replace(/'/g, "%27") + "')\" onerror=\"this.outerHTML='<div class=rp-photo-x>" + label + "<br>gone</div>'\">"
+          + "<span class='rp-plabel'>" + label + "</span></div>";
+      }
+      var photo = "<div class='rp-photos'>" + photoBox(vp, "Verify") + photoBox(sp, "Profile") + "</div>";
+
+      var typeBadge = "<span class='rp-badge " + badgeClass(m.accountType) + "'>" + esc(m.accountType || "?") + "</span>";
+      var vbadge = m.verified ? "<span class='rp-vbadge'>&#10003; verified</span>" : "";
+
+      var ctx = "";
+      if (m.accountType && m.accountType.toLowerCase().indexOf("renter") > -1) {
+        var ri = m.rentalInfo || {};
+        ctx += (c.seeking || m.seeking ? "<div><b>Seeking:</b> " + esc(m.seeking || "") + "</div>" : "");
+        if (ri.budget) ctx += "<div><b>Budget:</b> " + esc(ri.budget) + "</div>";
+        if (ri.timeline) ctx += "<div><b>Move:</b> " + esc(ri.timeline) + "</div>";
+        if (ri.household) ctx += "<div><b>Household:</b> " + esc(ri.household) + "</div>";
+        if (ri.income) ctx += "<div><b>Income:</b> " + esc(ri.income) + "</div>";
+        if (ri.pets) ctx += "<div><b>Pets:</b> " + esc(ri.pets) + "</div>";
+        if (ri.idealRental) ctx += "<div><b>Ideal:</b> " + esc(ri.idealRental) + "</div>";
+      }
+      var pct = (m.profileCompletePct != null ? m.profileCompletePct : 0);
+      ctx += "<div style='margin-top:6px;'><b>Profile:</b> " + pct + "%</div><div class='rp-meter'><span style='width:" + pct + "%;'></span></div>";
+      if (m.optStatus && m.optStatus !== "none") ctx += "<div><b>Matching:</b> " + esc(m.optStatus) + "</div>";
+
+      var dupFlag = c.duplicate ? "<span class='rp-dupflag'>RESUBMITTED &middot; previously " + esc(c.priorStatus || "decided") + (c.priorAt ? " on " + fmtDate(c.priorAt) : "") + "</span>" : "";
+
+      var acts;
+      if (c.status === "pending") {
+        acts = "<button class='rp-btn rp-ap' id='ap-" + c.inquiryId + "' onclick=\"rpApprove('" + c.inquiryId + "')\">&#10003; Approve</button>"
+          + "<button class='rp-btn rp-dn' id='dn-" + c.inquiryId + "' onclick=\"rpDeny('" + c.inquiryId + "')\">&#10005; Deny</button>"
+          + (c.profileUrl ? "<a class='rp-btn rp-vw' href='" + c.profileUrl + "' target='_blank'>BD Profile</a>" : "")
+          + "<button class='rp-btn rp-del' onclick=\"rpDelete('" + c.inquiryId + "')\">&#128465; Delete</button>";
+      } else {
+        var sc = c.status === "approved" ? "s-approved" : "s-denied";
+        var lbl = c.status === "approved" ? "&#10003; Approved" : "&#10005; Denied";
+        acts = "<div class='rp-stat " + sc + "'>" + lbl + (c.decidedAt ? "<small>" + fmtDate(c.decidedAt) + "</small>" : "") + "</div>"
+          + (c.profileUrl ? "<a class='rp-btn rp-vw' href='" + c.profileUrl + "' target='_blank' style='margin-top:6px;'>BD Profile</a>" : "")
+          + "<button class='rp-btn rp-del' onclick=\"rpDelete('" + c.inquiryId + "')\">&#128465; Delete</button>";
+      }
+
+      return "<div class='rp-card " + c.status + (c.duplicate ? " dup" : "") + "' id='card-" + c.inquiryId + "'>"
+        + "<div>" + photo + "</div>"
+        + "<div>" + dupFlag + "<p class='rp-name'>" + esc(m.name || c.name) + " " + vbadge + "</p>"
+        + "<p class='rp-row'>" + typeBadge + "Member #" + esc(c.memberId) + "</p>"
+        + (m.email ? "<p class='rp-row'>&#9993; " + esc(m.email) + "</p>" : "")
+        + (m.phone ? "<p class='rp-row'>&#9742; " + esc(m.phone) + "</p>" : "")
+        + (m.location ? "<p class='rp-row'>&#128205; " + esc(m.location) + "</p>" : "")
+        + "<p class='rp-row'>&#128197; submitted " + esc(c.submitted) + "</p></div>"
+        + "<div class='rp-ctx'>" + ctx + "</div>"
+        + "<div class='rp-acts'>" + acts + "</div>"
+        + "</div>";
+    }).join("");
+  }
+
+  window.rpZoom = function (url) {
+    var u = decodeURIComponent(url);
+    var z = document.createElement("div");
+    z.id = "rp-zoom";
+    z.innerHTML = "<span class='rp-zclose'>&#10005;</span><img src='" + u + "'>";
+    z.onclick = function () { z.remove(); };
+    document.body.appendChild(z);
+  };
+
+  window.rpDelete = function (id) {
+    var c = cards.find(function (x) { return x.inquiryId === id; });
+    if (!c) return;
+    if (!confirm("Delete this verification request?\n\n" + (c.member && c.member.name || c.name) + " (Inquiry #" + c.inquiryId + ")\n\nThis permanently removes the request from your Forms Inbox (same as BD's delete). It does NOT change their verification status or delete their account.")) return;
+    var card = document.getElementById("card-" + id);
+    if (card) card.style.opacity = "0.5";
+    var url = "https://ww2.managemydirectory.com/admin/go.php?widget=Admin-Module-Form-Inquiries&apitype=json&noheader=1&external_action=inquiryAction&inquiry_action=mark_delete&inquiry_id=" + encodeURIComponent(c.inquiryId);
+    fetch(url, { credentials: "include" })
+      .then(function () {
+        cards = cards.filter(function (x) { return x.inquiryId !== id; });
+        render();
+      })
+      .catch(function (e) {
+        if (card) card.style.opacity = "1";
+        alert("Delete error. Try in BD admin.\n" + e);
+      });
+  };
+
+  function deletePhoto(p) {
+    if (!p) return Promise.resolve();
+    return fetch("https://ww2.managemydirectory.com/admin/fileaddon/delete", {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "file=" + encodeURIComponent(p)
+    }).catch(function () {});
+  }
+  function sendEmail(type, email, name) {
+    if (!email) return Promise.resolve();
+    return fetch(EMAIL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: type, email: email, name: name })
+    }).catch(function () {});
+  }
+  function logUpdate(memberId, status) {
+    return api(LOG, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "update", key: KEY, memberId: memberId, status: status, decidedBy: "admin" })
+    }).catch(function () {});
+  }
+
+  window.rpApprove = function (id) {
+    var c = cards.find(function (x) { return x.inquiryId === id; });
+    if (!c) return;
+    if (!confirm("Approve " + (c.member && c.member.name || c.name) + " (Member #" + c.memberId + ")?\nThis verifies their account (both checkmarks) and deletes their verification photo.")) return;
+    var ap = document.getElementById("ap-" + id), dn = document.getElementById("dn-" + id);
+    if (ap) { ap.disabled = true; ap.textContent = "Processing..."; } if (dn) dn.disabled = true;
+
+    var fd = new URLSearchParams();
+    fd.append("faction", "bulkmemberactions");
+    fd.append("newsite", "38748");
+    fd.append("total_records", "1");
+    fd.append("bulk_action_type", "selected_rows");
+    fd.append("selected_rows", c.memberId);
+    fd.append("bulk_action", "update-verified-status");
+    fd.append("new_value", "1");
+    fd.append("apply_subaccounts", "");
+
+    fetch("https://ww2.managemydirectory.com/admin/viewMembers.php", {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: fd.toString()
+    }).then(function () { return deletePhoto(c.photoPath); })
+      .then(function () { return logUpdate(c.memberId, "approved"); })
+      .then(function () {
+        c.status = "approved"; c.decidedAt = new Date().toISOString(); c.duplicate = false; c.priorStatus = ""; c.priorAt = "";
+        render();
+        sendEmail("approved", c.member && c.member.email, c.member && c.member.name || c.name);
+      })
+      .catch(function (e) { alert("Approve error. Try in BD admin.\n" + e); });
+  };
+
+  window.rpDeny = function (id) {
+    var c = cards.find(function (x) { return x.inquiryId === id; });
+    if (!c) return;
+    if (!confirm("Deny " + (c.member && c.member.name || c.name) + "'s verification?\nA rejection email will be sent and their photo deleted.")) return;
+    var ap = document.getElementById("ap-" + id), dn = document.getElementById("dn-" + id);
+    if (ap) ap.disabled = true; if (dn) { dn.disabled = true; dn.textContent = "Processing..."; }
+
+    deletePhoto(c.photoPath)
+      .then(function () { return logUpdate(c.memberId, "denied"); })
+      .then(function () {
+        c.status = "denied"; c.decidedAt = new Date().toISOString(); c.duplicate = false; c.priorStatus = ""; c.priorAt = "";
+        render();
+        sendEmail("rejected", c.member && c.member.email, c.member && c.member.name || c.name);
+      })
+      .catch(function (e) { alert("Deny error.\n" + e); });
+  };
+
+  overlay.addEventListener("click", function (e) {
+    var b = e.target.closest(".rp-fbtn"); if (!b) return;
+    if (b.id === "rp-sort") { sortNewest = !sortNewest; b.textContent = sortNewest ? "Newest first" : "Oldest first"; render(); return; }
+    var f = b.getAttribute("data-f"), v = b.getAttribute("data-v");
+    if (!f) return;
+    if (f === "status") fStatus = v; else if (f === "type") fType = v;
+    overlay.querySelectorAll(".rp-fbtn[data-f='" + f + "']").forEach(function (x) { x.classList.toggle("on", x === b); });
+    render();
+  });
+
+  var subs = parseRows();
+  if (!subs.length) {
+    document.getElementById("rp-sub").textContent = "No verify_business submissions found on this page.";
+    document.getElementById("rp-list").innerHTML = "<div class='rp-load'>Open the BD Forms Inbox filtered to verify_business submissions.</div>";
+    return;
+  }
+
+  document.getElementById("rp-sub").textContent = subs.length + " submission(s) - loading member data & history...";
+  document.getElementById("rp-bar").style.display = "flex";
+
+  cards = subs.map(function (s) {
+    return { inquiryId: s.inquiryId, memberId: s.memberId, name: s.name, submitted: s.submitted, profileUrl: s.profileUrl, status: "pending", duplicate: false, priorStatus: "", priorAt: "", member: null, photoPath: "", photoUrl: "" };
+  });
+  render();
+
+  cards.forEach(function (c, i) {
+    if (!c.memberId) return;
+    setTimeout(function () {
+      api(LOG, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "record", key: KEY, memberId: c.memberId, name: c.name, submitted: c.submitted, inquiryId: c.inquiryId })
+      }).then(function (res) {
+        if (res && res.entry) {
+          if (res.duplicate && res.entry.status && res.entry.status !== "pending") {
+            c.status = "pending";
+            c.duplicate = true;
+            c.priorStatus = res.entry.status;
+            c.priorAt = res.entry.decidedAt || "";
+          } else {
+            c.status = res.entry.status || "pending";
+            c.decidedAt = res.entry.decidedAt || "";
+          }
+        }
+        return api(MEMBER + "?memberId=" + encodeURIComponent(c.memberId) + "&key=" + KEY);
+      }).then(function (mem) {
+        if (mem && mem.found) { c.member = mem; c.seeking = mem.seeking; }
+        render();
+      }).catch(function () { render(); });
+
+      fetch("https://ww2.managemydirectory.com/admin/go.php?widget=Admin-Module-Form-Inquiries&noheader=1&external_action=previewInquiry&inquiry_id=" + c.inquiryId, { credentials: "include" })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var fm = html.match(/\/uploads\/forms\/comments\/[^"'\s]+\.(jpg|jpeg|png|gif)/i);
+          if (fm) { c.photoPath = fm[0]; c.photoUrl = "https://www.renters.com" + fm[0]; render(); }
+        }).catch(function () {});
+    }, i * 350);
+  });
+
+  setTimeout(function () {
+    document.getElementById("rp-sub").textContent = cards.length + " submission(s) - history loaded";
+  }, subs.length * 350 + 1500);
+
+})();
