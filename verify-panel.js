@@ -1,8 +1,12 @@
 /* ============================================================
-   Renters.com Verification Panel  ·  v6 (CRM)
+   Renters.com Verification Panel  ·  v7 (CRM)
    v5: resubmission stays PENDING + shows prior result as history.
    v6: delete now includes newsite=38748 so BD actually deletes
        (without it BD returns 200 but does not remove the record).
+   v7: NEW "Expired ID" action on pending cards. Sends the
+       type:"expired" email (everything matched, ID just expired),
+       logs the member as denied, and deletes the photo - same
+       flow as Deny but with the encouraging expired-ID email.
    ============================================================ */
 (function () {
   var FN_BASE = "https://renters-story-writer.netlify.app/.netlify/functions";
@@ -55,6 +59,7 @@
     + ".rp-btn{padding:8px 10px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;border:none;width:100%;text-align:center;text-decoration:none;display:block;box-sizing:border-box;}"
     + ".rp-ap{background:#3a9e8f;color:#fff;}"
     + ".rp-dn{background:#c0392b;color:#fff;}"
+    + ".rp-ex{background:#e67e22;color:#fff;}"
     + ".rp-vw{background:#f4f7f6;color:#0d2d4e;border:1px solid #e8eceb;font-size:11px;}"
     + ".rp-del{background:#fff;color:#c0392b;border:1px solid #f5c6cb;font-size:11px;}"
     + ".rp-btn:disabled{opacity:.5;cursor:not-allowed;}"
@@ -199,6 +204,7 @@
       if (c.status === "pending") {
         acts = "<button class='rp-btn rp-ap' id='ap-" + c.inquiryId + "' onclick=\"rpApprove('" + c.inquiryId + "')\">&#10003; Approve</button>"
           + "<button class='rp-btn rp-dn' id='dn-" + c.inquiryId + "' onclick=\"rpDeny('" + c.inquiryId + "')\">&#10005; Deny</button>"
+          + "<button class='rp-btn rp-ex' id='ex-" + c.inquiryId + "' onclick=\"rpExpired('" + c.inquiryId + "')\">&#9203; Expired ID</button>"
           + (c.profileUrl ? "<a class='rp-btn rp-vw' href='" + c.profileUrl + "' target='_blank'>BD Profile</a>" : "")
           + "<button class='rp-btn rp-del' onclick=\"rpDelete('" + c.inquiryId + "')\">&#128465; Delete</button>";
       } else {
@@ -276,8 +282,8 @@
     var c = cards.find(function (x) { return x.inquiryId === id; });
     if (!c) return;
     if (!confirm("Approve " + (c.member && c.member.name || c.name) + " (Member #" + c.memberId + ")?\nThis verifies their account (both checkmarks) and deletes their verification photo.")) return;
-    var ap = document.getElementById("ap-" + id), dn = document.getElementById("dn-" + id);
-    if (ap) { ap.disabled = true; ap.textContent = "Processing..."; } if (dn) dn.disabled = true;
+    var ap = document.getElementById("ap-" + id), dn = document.getElementById("dn-" + id), ex = document.getElementById("ex-" + id);
+    if (ap) { ap.disabled = true; ap.textContent = "Processing..."; } if (dn) dn.disabled = true; if (ex) ex.disabled = true;
 
     var fd = new URLSearchParams();
     fd.append("faction", "bulkmemberactions");
@@ -307,8 +313,8 @@
     var c = cards.find(function (x) { return x.inquiryId === id; });
     if (!c) return;
     if (!confirm("Deny " + (c.member && c.member.name || c.name) + "'s verification?\nA rejection email will be sent and their photo deleted.")) return;
-    var ap = document.getElementById("ap-" + id), dn = document.getElementById("dn-" + id);
-    if (ap) ap.disabled = true; if (dn) { dn.disabled = true; dn.textContent = "Processing..."; }
+    var ap = document.getElementById("ap-" + id), dn = document.getElementById("dn-" + id), ex = document.getElementById("ex-" + id);
+    if (ap) ap.disabled = true; if (ex) ex.disabled = true; if (dn) { dn.disabled = true; dn.textContent = "Processing..."; }
 
     deletePhoto(c.photoPath)
       .then(function () { return logUpdate(c.memberId, "denied"); })
@@ -318,6 +324,23 @@
         sendEmail("rejected", c.member && c.member.email, c.member && c.member.name || c.name);
       })
       .catch(function (e) { alert("Deny error.\n" + e); });
+  };
+
+  window.rpExpired = function (id) {
+    var c = cards.find(function (x) { return x.inquiryId === id; });
+    if (!c) return;
+    if (!confirm("Mark " + (c.member && c.member.name || c.name) + "'s ID as EXPIRED?\n\nUse this only when everything else looks good and the ONLY issue is an expired ID. Sends the encouraging \"just need a current ID\" email, logs as denied, and deletes the photo.")) return;
+    var ap = document.getElementById("ap-" + id), dn = document.getElementById("dn-" + id), ex = document.getElementById("ex-" + id);
+    if (ap) ap.disabled = true; if (dn) dn.disabled = true; if (ex) { ex.disabled = true; ex.textContent = "Processing..."; }
+
+    deletePhoto(c.photoPath)
+      .then(function () { return logUpdate(c.memberId, "denied"); })
+      .then(function () {
+        c.status = "denied"; c.decidedAt = new Date().toISOString(); c.duplicate = false; c.priorStatus = ""; c.priorAt = "";
+        render();
+        sendEmail("expired", c.member && c.member.email, c.member && c.member.name || c.name);
+      })
+      .catch(function (e) { alert("Expired-ID error.\n" + e); });
   };
 
   overlay.addEventListener("click", function (e) {
