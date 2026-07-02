@@ -1,15 +1,11 @@
 // netlify/functions/didit-webhook.js
-// Receives Didit verification results, verifies the HMAC-SHA256 signature over the
-// RAW body (legacy x-signature method), then records the outcome to Netlify Blobs.
-//
-// Env vars required:
-//   DIDIT_WEBHOOK_SECRET  = your Webhook Secret Key from the Didit console
-//
-// Point Didit's webhook URL (console Step 3) at:
-//   https://<your-site>.netlify.app/.netlify/functions/didit-webhook
+// Receives Didit verification results, verifies HMAC-SHA256 over the RAW body,
+// then stores the outcome into the existing "verification-log" Netlify Blobs store.
 
 const crypto = require('crypto');
 const { getStore } = require('@netlify/blobs');
+
+const STORE_NAME = 'verification-log';
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -22,7 +18,6 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: 'Not configured' };
   }
 
-  // RAW body — do NOT parse before verifying the signature
   const rawBody = event.body || '';
   const signature = (event.headers['x-signature'] || event.headers['X-Signature'] || '').trim();
   const timestamp = (event.headers['x-timestamp'] || event.headers['X-Timestamp'] || '').trim();
@@ -32,7 +27,6 @@ exports.handler = async (event) => {
     return { statusCode: 401, body: 'Unauthorized' };
   }
 
-  // Timestamp freshness (replay protection) — 5 min window. Skip if header absent.
   if (timestamp) {
     const now = Math.floor(Date.now() / 1000);
     if (Math.abs(now - parseInt(timestamp, 10)) > 300) {
@@ -41,7 +35,6 @@ exports.handler = async (event) => {
     }
   }
 
-  // Verify HMAC-SHA256 over the raw body
   const expected = crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex');
   let valid = false;
   try {
@@ -54,7 +47,6 @@ exports.handler = async (event) => {
     return { statusCode: 401, body: 'Unauthorized (bad signature)' };
   }
 
-  // Signature good — now parse
   let body;
   try {
     body = JSON.parse(rawBody);
@@ -62,18 +54,18 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: 'Bad JSON' };
   }
 
-  const sessionId  = body.session_id || '';
-  const status     = body.status || '';
-  const vendorData = body.vendor_data || '';
+  const sessionId   = body.session_id || '';
+  const status      = body.status || '';
+  const vendorData  = body.vendor_data || '';
   const webhookType = body.webhook_type || '';
-  const decision   = body.decision || {};
-
-  // Pull a few useful fields from the decision report if present
+  const decision    = body.decision || {};
   const idv = (decision && decision.id_verification) || {};
+
   const record = {
+    source: 'didit',
     session_id: sessionId,
-    status: status,                       // Approved | Declined | In Review | ...
-    vendor_data: vendorData,              // your renter/member id
+    status: status,
+    vendor_data: vendorData,
     webhook_type: webhookType,
     first_name: idv.first_name || (decision.expected_details && decision.expected_details.first_name) || '',
     last_name: idv.last_name || (decision.expected_details && decision.expected_details.last_name) || '',
@@ -84,19 +76,16 @@ exports.handler = async (event) => {
     received_at: new Date().toISOString()
   };
 
-  // Store to Netlify Blobs, keyed by session_id (and mirror by vendor_data if present)
   try {
-    const store = getStore('didit-verifications');
-    await store.setJSON(sessionId, record);
+    const store = getStore(STORE_NAME);
+    await store.setJSON('didit_' + sessionId, record);
     if (vendorData) {
-      await store.setJSON('vendor_' + vendorData, record);
+      await store.setJSON('didit_member_' + vendorData, record);
     }
-    console.log('Recorded verification: ' + sessionId + ' status=' + status + ' vendor=' + vendorData);
+    console.log('Recorded Didit verification: ' + sessionId + ' status=' + status + ' vendor=' + vendorData);
   } catch (e) {
     console.log('Blob store error: ' + e.message);
-    // Still return 200 so Didit does not retry-storm; we logged it.
   }
 
-  // Return 2xx quickly
   return { statusCode: 200, body: JSON.stringify({ ok: true }) };
 };
