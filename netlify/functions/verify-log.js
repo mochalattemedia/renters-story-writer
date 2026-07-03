@@ -4,24 +4,13 @@
 //  stored in Netlify Blobs. BD remains the member system; this
 //  log holds the WORKFLOW history BD does not keep.
 //
-//  v2 CHANGE: each member now stores a HISTORY ARRAY of
-//  submissions (keyed by inquiryId) instead of a single status.
-//  This enables:
-//   - a real timeline (submitted+denied on X, then approved on Y)
-//   - true resubmission detection (a NEW inquiryId after a prior
-//     decided one) vs. simply re-viewing the same submission
-//   - denial REASONS + a free-text note per submission, so we can
-//     compare a resubmission against why the last one was denied
-//     WITHOUT retaining the sensitive ID image.
-//
-//  Backward-compatible: legacy single-status entries (no history
-//  array) are read as a one-item history so nothing breaks.
-//
-//  Requires "@netlify/blobs" in package.json.
-//
 //  Actions (POST JSON { action, ... }, or GET ?action=list):
 //   - record : register a submission (by memberId + inquiryId)
 //   - update : set decision (status/reasons/note) on a submission
+//              (also appends a timestamped event to the submission timeline)
+//   - delete : remove ONE submission (by inquiryId) from a member's
+//              history — clears a junk/duplicate identity record only;
+//              never touches the BD member or other data
 //   - list   : return all member records (for the panel)
 //   - get    : return one member record by memberId
 //
@@ -51,14 +40,10 @@ function memberKey(memberId) {
   return `member:${String(memberId).trim()}`;
 }
 
-// Normalize any stored record (legacy or v2) into a record that
-// always has a history array. Legacy entries carried a single
-// top-level status/inquiryId; wrap that as one history item.
 function normalize(rec) {
   if (!rec) return null;
   if (Array.isArray(rec.history)) return rec;
   var hist = [];
-  // Build a single history item from the legacy top-level fields.
   if (rec.inquiryId || rec.status) {
     hist.push({
       inquiryId: rec.inquiryId || "",
@@ -74,10 +59,8 @@ function normalize(rec) {
   return rec;
 }
 
-// Latest decided/known status across the history (for quick display).
 function latestStatus(history) {
   if (!history || !history.length) return "pending";
-  // The most recent submission (last in array) drives current status.
   return history[history.length - 1].status || "pending";
 }
 
@@ -110,7 +93,7 @@ exports.handler = async function (event) {
   }
 
   try {
-    // ---- LIST: every member record (normalized with history) ----
+    // ---- LIST ----
     if (action === "list") {
       const out = [];
       const listing = await store.list({ prefix: "member:" });
@@ -122,7 +105,7 @@ exports.handler = async function (event) {
       return ok({ count: out.length, entries: out });
     }
 
-    // ---- GET: one member record ----
+    // ---- GET ----
     if (action === "get") {
       const memberId = body.memberId || q.memberId;
       if (!memberId) return bad(400, "memberId required");
@@ -130,7 +113,7 @@ exports.handler = async function (event) {
       return ok({ entry: val || null });
     }
 
-    // ---- RECORD: register a submission (by memberId + inquiryId) ----
+    // ---- RECORD ----
     if (action === "record") {
       const src = Object.keys(body).length ? body : q;
       const memberId = src.memberId;
@@ -141,7 +124,6 @@ exports.handler = async function (event) {
       const now = new Date().toISOString();
 
       if (!rec) {
-        // Brand-new member: create record with one pending submission.
         rec = {
           memberId: String(memberId),
           name: src.name || "",
@@ -159,31 +141,28 @@ exports.handler = async function (event) {
             note: "",
             decidedAt: "",
             decidedBy: "",
+            events: [{ action: "recorded", status: "pending", at: now, by: src.decidedBy || "system" }],
           }],
         };
         await store.setJSON(k, rec);
         return ok({ resubmission: false, isNew: true, current: rec.history[0], history: rec.history, entry: rec });
       }
 
-      // Existing member — refresh contact info + lastSeen.
       rec.lastSeen = now;
       ["name", "email", "phone", "location", "accountType"].forEach(function (f) {
         if (src[f]) rec[f] = src[f];
       });
 
-      // Is this inquiryId already in the history?
       let sub = null;
       for (let i = 0; i < rec.history.length; i++) {
         if (String(rec.history[i].inquiryId) === inquiryId && inquiryId !== "") { sub = rec.history[i]; break; }
       }
 
       if (sub) {
-        // SAME submission being re-viewed — NOT a resubmission.
         await store.setJSON(k, rec);
         return ok({ resubmission: false, isNew: false, current: sub, history: rec.history, entry: rec });
       }
 
-      // NEW inquiryId for an existing member = genuine resubmission.
       const priorDecided = rec.history.filter(function (h) { return h.status && h.status !== "pending"; });
       const newSub = {
         inquiryId: inquiryId,
@@ -193,6 +172,7 @@ exports.handler = async function (event) {
         note: "",
         decidedAt: "",
         decidedBy: "",
+        events: [{ action: "recorded", status: "pending", at: now, by: src.decidedBy || "system" }],
       };
       rec.history.push(newSub);
       await store.setJSON(k, rec);
@@ -205,7 +185,7 @@ exports.handler = async function (event) {
       });
     }
 
-    // ---- UPDATE: set a decision on a specific submission ----
+    // ---- UPDATE ----
     if (action === "update") {
       const src = Object.keys(body).length ? body : q;
       const memberId = src.memberId;
@@ -215,7 +195,6 @@ exports.handler = async function (event) {
       let rec = normalize(await store.get(k, { type: "json" }));
       if (!rec) return bad(404, "no log entry for member " + memberId);
 
-      // Find the submission to decide: match inquiryId, else newest.
       let sub = null;
       if (inquiryId) {
         for (let i = 0; i < rec.history.length; i++) {
@@ -225,15 +204,47 @@ exports.handler = async function (event) {
       if (!sub && rec.history.length) sub = rec.history[rec.history.length - 1];
       if (!sub) return bad(404, "no submission found to update");
 
-      if (src.status) sub.status = src.status; // approved | denied | pending
+      if (src.status) sub.status = src.status; // approved | denied | revoked | identity-confirmed | pending
       if (Array.isArray(src.reasons)) sub.reasons = src.reasons;
       if (typeof src.note === "string") sub.note = src.note;
-      sub.decidedAt = src.decidedAt || new Date().toISOString();
+      const nowU = src.decidedAt || new Date().toISOString();
+      sub.decidedAt = nowU;
       sub.decidedBy = src.decidedBy || "admin";
-      rec.lastSeen = new Date().toISOString();
+      rec.lastSeen = nowU;
+
+      if (!Array.isArray(sub.events)) sub.events = [];
+      sub.events.push({
+        action: src.status || "updated",
+        status: src.status || sub.status || "",
+        note: (typeof src.note === "string" ? src.note : ""),
+        at: nowU,
+        by: src.decidedBy || "admin",
+      });
 
       await store.setJSON(k, rec);
       return ok({ updated: true, current: sub, history: rec.history, entry: rec });
+    }
+
+    // ---- DELETE: remove ONE submission (by inquiryId) ----
+    if (action === "delete") {
+      const src = Object.keys(body).length ? body : q;
+      const memberId = src.memberId;
+      const inquiryId = String(src.inquiryId || "");
+      if (!memberId) return bad(400, "memberId required");
+      if (!inquiryId) return bad(400, "inquiryId required (delete removes one submission, not the member)");
+      const k = memberKey(memberId);
+      let rec = normalize(await store.get(k, { type: "json" }));
+      if (!rec) return bad(404, "no log entry for member " + memberId);
+
+      const before = rec.history.length;
+      rec.history = rec.history.filter(function (h) { return String(h.inquiryId) !== inquiryId; });
+      const removed = before - rec.history.length;
+
+      if (removed === 0) return bad(404, "no submission with that inquiryId");
+
+      rec.lastSeen = new Date().toISOString();
+      await store.setJSON(k, rec);
+      return ok({ deleted: true, removed: removed, history: rec.history, entry: rec });
     }
 
     return bad(400, "unknown action: " + action);
