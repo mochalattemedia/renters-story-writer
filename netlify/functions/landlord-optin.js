@@ -64,7 +64,7 @@ const KNOWN_TAGS = {
 // skipped gracefully (the email to Kenny still goes out so no lead is lost).
 // Create these three tags in BD (Members > Tags) for tag writing to work:
 //   renter-connect-self  - "Connect on my own" (free, DIY)
-//   renter-match         - "Match me" (free, landlord pays placement)
+//   renter-match         - "Match me" (free, landlord pays)
 //   renter-concierge     - "Find it for me" ($500 concierge)
 const RENTER_TAGS = {
   connect:   "renter-connect-self",
@@ -73,7 +73,7 @@ const RENTER_TAGS = {
 };
 const RENTER_TIER_LABEL = {
   connect:   "Connect on my own (free, searching independently)",
-  match:     "Match me (free to renter — landlord pays placement)",
+  match:     "Match me (free to renter — landlord pays)",
   concierge: "Concierge $500 (we do the legwork + vouch — up to 5 intros/showings)",
 };
 
@@ -539,8 +539,8 @@ exports.handler = async function (event) {
   else if (verifiedFlag === "0") verifiedText = "Not verified";
 
   const optLabel = optedIn
-    ? "Opted INTO matching — placement fee applies on success"
-    : "Opted OUT of matching — listing freely, no placement fee";
+    ? "Opted INTO matching — marketing fee applies on success"
+    : "Opted OUT of matching — listing freely, no marketing fee";
 
   // --- Compose email (skip empty fields) ---
   const verb = isChange ? "CHANGED their matching preference" : "completed onboarding";
