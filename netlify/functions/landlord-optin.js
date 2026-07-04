@@ -38,7 +38,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v15";
+const FUNCTION_VERSION = "v16";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -254,14 +254,37 @@ exports.handler = async function (event) {
       let renterTier = null;
       if (member) {
         verified = String(member.verified) === "1";
+        // Known tag IDs (from KNOWN_TAGS) so we can match by ID, not only by name.
+        const IN_ID = String((KNOWN_TAGS[TAG_IN] || {}).tag_id || "1");
+        const OUT_ID = String((KNOWN_TAGS[TAG_OUT] || {}).tag_id || "2");
         if (Array.isArray(member.tags)) {
           const names = member.tags.map((t) => t.tag_name);
-          if (names.includes(TAG_IN)) choice = "in";
-          else if (names.includes(TAG_OUT)) choice = "out";
+          const ids = {};
+          member.tags.forEach((t) => {
+            if (t && t.id != null) ids[String(t.id)] = 1;
+            if (t && t.tag_id != null) ids[String(t.tag_id)] = 1;
+          });
+          // Landlord matching choice. Match by tag NAME or by known tag ID.
+          // Opted-out (tag 2) often comes back on the user record without the
+          // "matching-opted-out" name, so ID matching is what makes it stick.
+          if (names.includes(TAG_IN) || ids[IN_ID]) choice = "in";
+          else if (names.includes(TAG_OUT) || ids[OUT_ID]) choice = "out";
           // Renter tier (independent of landlord in/out)
           if (names.includes(RENTER_TAGS.concierge)) renterTier = "concierge";
           else if (names.includes(RENTER_TAGS.match)) renterTier = "match";
           else if (names.includes(RENTER_TAGS.connect)) renterTier = "connect";
+        }
+        // Fallback: if the user record did not surface a landlord choice, consult
+        // the relationship table directly (authoritative for what is attached).
+        // This mirrors the write path, which trusts rel_tags by tag_id.
+        if (choice === null) {
+          try {
+            const rels = await getRelationships(q.memberId);
+            const relIds = {};
+            rels.forEach((r) => { if (r && r.tag_id != null) relIds[String(r.tag_id)] = 1; });
+            if (relIds[IN_ID]) choice = "in";
+            else if (relIds[OUT_ID]) choice = "out";
+          } catch (e) { /* leave choice as-is */ }
         }
       }
       let submitted = null;
