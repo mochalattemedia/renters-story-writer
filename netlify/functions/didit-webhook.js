@@ -1,13 +1,25 @@
 // ============================================================
 //  didit-webhook.js  ·  Receives Didit verification results
-//  Verifies HMAC-SHA256 over the RAW body, then writes the
-//  outcome into verify-log (the store verify-panel.js reads),
-//  keyed by BD member ID (from Didit vendor_data).
-//  Approved -> identity-confirmed | Declined -> denied | else pending
-//  Env: DIDIT_WEBHOOK_SECRET (required)
+//  Verifies HMAC-SHA256 over the RAW body, writes the outcome
+//  into verify-log (keyed by BD member ID from vendor_data),
+//  AND emails a notification to the hub so new submissions +
+//  outcomes land in your Renters/Identity bucket.
+//  Env: DIDIT_WEBHOOK_SECRET (required), SES_* (as elsewhere)
 // ============================================================
 
 const crypto = require('crypto');
+const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses');
+
+const ses = new SESClient({
+  region: process.env.SES_REGION || 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.SES_ACCESS_KEY_ID,
+    secretAccessKey: process.env.SES_SECRET_ACCESS_KEY,
+  },
+});
+
+const NOTIFY_TO = 'kenny@renters.com';
+const NOTIFY_FROM = 'verify@renters.com';
 
 const VERIFY_LOG_URL = process.env.VERIFY_LOG_URL
   || 'https://renters-story-writer.netlify.app/.netlify/functions/verify-log';
@@ -19,6 +31,22 @@ function post(url, payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   }).then(function (r) { return r.json().catch(function () { return null; }); });
+}
+
+// Fire an alert email to the hub. Never throws — email must not break the pipeline.
+async function notify(subject, bodyText) {
+  try {
+    await ses.send(new SendEmailCommand({
+      Source: NOTIFY_FROM,
+      Destination: { ToAddresses: [NOTIFY_TO] },
+      Message: {
+        Subject: { Data: subject, Charset: 'UTF-8' },
+        Body: { Text: { Data: bodyText, Charset: 'UTF-8' } },
+      },
+    }));
+  } catch (e) {
+    console.log('notify email error: ' + e.message);
+  }
 }
 
 exports.handler = async (event) => {
@@ -68,6 +96,33 @@ exports.handler = async (event) => {
   const decision    = body.decision || {};
   const idv = (decision && decision.id_verification) || {};
 
+  const name = (idv.first_name || idv.last_name)
+    ? [idv.first_name, idv.last_name].filter(Boolean).join(' ')
+    : '';
+  const displayName = name || 'New user';
+  const s = diditStatus.toLowerCase();
+
+  // ---- EMAIL NOTIFICATION (fires for real + test submissions) ----
+  // Emoji-anchored subjects so the router's Identity bucket never drifts.
+  let subj;
+  if (s === 'approved')      subj = '🆔 Identity APPROVED — ' + displayName;
+  else if (s === 'declined') subj = '🆔 Identity DECLINED — ' + displayName;
+  else if (s === 'in review')subj = '🆔 Identity IN REVIEW — ' + displayName;
+  else if (s === 'in progress' || s === 'not started')
+                             subj = '🆔 New identity submission — ' + displayName;
+  else                       subj = '🆔 Identity ' + diditStatus + ' — ' + displayName;
+
+  await notify(subj,
+    'Identity verification update on Renters.com\n\n' +
+    'Name:      ' + displayName + '\n' +
+    'Member ID: ' + (memberId || '(none)') + '\n' +
+    'Session:   ' + sessionId + '\n' +
+    'Status:    ' + diditStatus + '\n' +
+    (sessionId ? 'Review:    https://verify.didit.me/session/' + sessionId + '\n' : '') +
+    '\nAutomated notification from Didit.'
+  );
+
+  // ---- EXISTING verify-log pipeline (unchanged) ----
   if (!memberId || memberId === 'renter' || /^live-test/i.test(memberId) || /^test/i.test(memberId)) {
     console.log('Didit webhook: no usable member id (vendor_data="' + memberId + '") session=' + sessionId + ' status=' + diditStatus);
     return { statusCode: 200, body: JSON.stringify({ ok: true, skipped: 'no member id' }) };
@@ -76,7 +131,6 @@ exports.handler = async (event) => {
   let logStatus = 'pending';
   let reasons = [];
   let note = '';
-  const s = diditStatus.toLowerCase();
   if (s === 'approved') {
     logStatus = 'identity-confirmed';
     note = 'Didit: identity confirmed (ID + liveness + face match)';
@@ -93,10 +147,6 @@ exports.handler = async (event) => {
     logStatus = 'pending';
     note = 'Didit status: ' + diditStatus;
   }
-
-  const name = (idv.first_name || idv.last_name)
-    ? [idv.first_name, idv.last_name].filter(Boolean).join(' ')
-    : '';
 
   try {
     await post(VERIFY_LOG_URL, {
