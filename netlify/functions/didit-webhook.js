@@ -2,8 +2,9 @@
 //  didit-webhook.js  ·  Receives Didit verification results
 //  Verifies HMAC-SHA256 over the RAW body, writes the outcome
 //  into verify-log (keyed by BD member ID from vendor_data),
-//  AND emails a notification to the hub so new submissions +
-//  outcomes land in your Renters/Identity bucket.
+//  AND emails a funnel notification to the hub so every stage
+//  (link opened -> in progress -> approved/declined) lands in
+//  its own Renters/Identity bucket.
 //  Env: DIDIT_WEBHOOK_SECRET (required), SES_* (as elsewhere)
 // ============================================================
 
@@ -102,16 +103,19 @@ exports.handler = async (event) => {
   const displayName = name || 'New user';
   const s = diditStatus.toLowerCase();
 
-  // ---- EMAIL NOTIFICATION (fires for real + test submissions) ----
-  // Emoji-anchored subjects so the router's Identity bucket never drifts.
+  // ---- EMAIL NOTIFICATION (funnel: every stage, own subject anchor) ----
   let subj;
-  if (s === 'approved')      subj = '🆔 Identity APPROVED — ' + displayName;
-  else if (s === 'declined') subj = '🆔 Identity DECLINED — ' + displayName;
-  else if (s === 'in review')subj = '🆔 Identity IN REVIEW — ' + displayName;
-  else if (s === 'in progress' || s === 'not started')
-                             subj = '🆔 New identity submission — ' + displayName;
-  else                       subj = '🆔 Identity ' + diditStatus + ' — ' + displayName;
-
+  if (s === 'approved') {
+    subj = '🆔 Identity APPROVED — ' + displayName;          // -> Renters/Identity
+  } else if (s === 'declined') {
+    subj = '🆔❌ Identity DECLINED — ' + displayName;         // -> Renters/Identity-Failed
+  } else if (s === 'in progress') {
+    subj = '🆔⏳ Identity IN PROGRESS — ' + displayName;      // -> Renters/Identity-Progress
+  } else if (s === 'not started') {
+    subj = '🆔🔗 Identity link opened — ' + displayName;      // -> Renters/Identity-Started
+  } else {
+    subj = '🆔 Identity ' + diditStatus + ' — ' + displayName;
+  }
   await notify(subj,
     'Identity verification update on Renters.com\n\n' +
     'Name:      ' + displayName + '\n' +
