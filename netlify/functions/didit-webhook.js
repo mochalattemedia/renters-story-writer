@@ -100,7 +100,7 @@ exports.handler = async (event) => {
   const name = (idv.first_name || idv.last_name)
     ? [idv.first_name, idv.last_name].filter(Boolean).join(' ')
     : '';
-  const displayName = name || 'New user';
+const displayName = name || ('Member #' + (memberId || 'unknown'));
   const s = diditStatus.toLowerCase();
 
   // ---- EMAIL NOTIFICATION (funnel: every stage, own subject anchor) ----
