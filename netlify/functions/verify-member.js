@@ -162,6 +162,10 @@ async function shapeMember(memberId) {
     verified: String(m.verified || "0") === "1",
     verifyPhotoUrl: verifyPhoto ? (verifyPhoto.startsWith("http") ? verifyPhoto : "https://www.renters.com" + verifyPhoto) : "",
     profilePhoto: profilePhoto || "",
+    profilePhotoUrl: profilePhoto
+      ? (String(profilePhoto).startsWith("http") ? profilePhoto
+         : "https://www.renters.com" + (String(profilePhoto).charAt(0) === "/" ? "" : "/") + profilePhoto)
+      : "",
     hasProfilePhoto: !!(profilePhoto && String(profilePhoto).trim()),
     profileCompletePct: completeness(m, accountType),
     optStatus: optStatus(m),
