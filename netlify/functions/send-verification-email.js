@@ -26,7 +26,7 @@ exports.handler = async function (event) {
   } catch (e) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) };
   }
-  const { type, email, name } = body;
+  const { type, email, name, pct, optStatus } = body;
   if (!type || !email || !name) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Missing required fields: type, email, name" }) };
   }
@@ -51,8 +51,23 @@ To get verified, please make sure:
 To resubmit: log into your dashboard, make sure your profile photo under My Photo is a clear headshot, then click "Verify Your Profile" under Account Details to upload your ID.
 If you have any questions, just reply to this email.
 Renters.com Support`;
+  } else if (type === "on-hold") {
+    const pctStr = (pct || pct === 0) ? String(pct).replace(/[^0-9]/g, "") + "%" : "";
+    const optLine = optStatus === "opted-in"
+      ? "You have opted in to our matching service, so landlords can find you."
+      : optStatus === "opted-out"
+      ? "You have opted out of our matching service for now."
+      : "";
+    subject = "Your Renters.com verification is on hold: one quick fix";
+    bodyText = `Hi ${name},
+Good news first: your identity is verified.${pctStr ? " Your profile is " + pctStr + " complete." : ""}${optLine ? " " + optLine : ""}
+Before we switch on your blue check, one thing needs attention: your profile photo does not yet meet our community standard. Your photo is how renters and landlords know they are dealing with a real, accountable person, so it needs to clearly show your face, be well lit, and be just you (no logos, group shots, hats, sunglasses, or filters).
+Please upload a new profile photo under My Photo in your dashboard:
+https://www.renters.com/account/home
+Once it is updated, we will take another look and finish your verification. If you have any questions, just reply to this email.
+Renters.com Support`;
   } else {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid type — must be 'approved' or 'rejected'" }) };
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid type - must be 'approved', 'rejected', or 'on-hold'" }) };
   }
   const command = new SendEmailCommand({
     Source: "verify@renters.com",
