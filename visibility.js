@@ -1,5 +1,9 @@
 // ============================================================
-//  visibility.js   ·   VERSION: vis2  (2026-07-04)
+//  visibility.js   ·   VERSION: vis3  (2026-07-05)
+//  vis3: DEPLOY-FRESHNESS MARKER. Same logic as vis2 plus GET debug branches
+//        (?debug=read&audience=landlords  and  ?debug=write&memberId=ID&audience=landlords)
+//        and hardened Blob store init. If the debug URL still reports "vis2",
+//        the paste did not take. Live/correct version reports "vis3".
 //  "Who can find me" — renter self-serve audience visibility.
 //  Clones landlord-optin.js BD auth + rel_tags write/read pattern.
 //
@@ -41,7 +45,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "vis2";
+const FUNCTION_VERSION = "vis3";
 
 // The five audience tags. Keyed by the flag name the wizard sends/reads.
 // tag_id values confirmed from BD Members > Tags. tag_type_id 1 = Custom Tags group.
