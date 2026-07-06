@@ -130,23 +130,14 @@ async function shapeCard(memberId) {
   };
 }
 
-function idxStore() {
-  try {
-    return getStore({ name: INDEX_STORE, consistency: "strong" });
-  } catch (e1) {
-    const siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
-    const token = process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN || process.env.NETLIFY_AUTH_TOKEN;
-    if (siteID && token) {
-      return getStore({ name: INDEX_STORE, consistency: "strong", siteID, token });
-    }
-    throw e1;
-  }
-}
-
 async function readFindableSet(audience) {
-  const store = idxStore(); // may throw; caller handles
-  const v = await store.get("findable:" + audience, { type: "json" });
-  return Array.isArray(v) ? v.map(String) : [];
+  try {
+    const store = getStore({ name: INDEX_STORE, consistency: "strong" });
+    const v = await store.get("findable:" + audience, { type: "json" });
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch (e) {
+    return [];
+  }
 }
 
 exports.handler = async function (event) {
@@ -159,23 +150,8 @@ exports.handler = async function (event) {
   const verifiedOnly = q.verifiedOnly === "1" || q.verifiedOnly === "true";
   const limit = Math.min(parseInt(q.limit, 10) || 60, 100);
 
-  // --- debug: /renter-search?debug=1&audience=landlords reveals the Blob state ---
-  if (q.debug === "1") {
-    let store_ok = false, store_err = "", ids_dbg = [], read_err = "";
-    try { const st = idxStore(); store_ok = true;
-      try { const v = await st.get("findable:" + audience, { type: "json" }); ids_dbg = Array.isArray(v) ? v.map(String) : []; }
-      catch (e) { read_err = (e && e.message) ? e.message : String(e); }
-    } catch (e) { store_err = (e && e.message) ? e.message : String(e); }
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
-      version: VERSION, debug: true, audience, store_ok, store_err,
-      count_in_set: ids_dbg.length, ids_in_set: ids_dbg, read_err,
-      env_seen: { NETLIFY_SITE_ID: !!process.env.NETLIFY_SITE_ID, SITE_ID: !!process.env.SITE_ID, NETLIFY_BLOBS_TOKEN: !!process.env.NETLIFY_BLOBS_TOKEN }
-    }) };
-  }
-
   // 1) who opted into being found by this member type
-  let ids = [];
-  try { ids = await readFindableSet(audience); } catch (e) { ids = []; }
+  const ids = await readFindableSet(audience);
   if (!ids.length) {
     return {
       statusCode: 200, headers: corsHeaders,
