@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Find renters — Renters.com</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy: #0d2d4e;
+    --teal: #3a9e8f;
+    --lime: #8dc63f;
+    --ink: #1a2b3c;
+    --mute: #6b7a89;
+    --line: #e6ecf2;
+    --bg: #f4f7fa;
+  }
+  body {
+    font-family: "Open Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+    padding: 22px 16px 60px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+
+  /* search bar */
+  .searchbar {
+    background: var(--navy);
+    border-radius: 16px;
+    padding: 22px 22px 24px;
+    color: #fff;
+    box-shadow: 0 8px 26px rgba(13,45,78,.14);
+  }
+  .searchbar h1 { font-size: 22px; font-weight: 800; letter-spacing: -.3px; margin-bottom: 4px; }
+  .searchbar .sub { font-size: 13.5px; color: #b9cbe0; margin-bottom: 18px; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .field { flex: 1 1 240px; min-width: 0; }
+  .field label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: #92a8c2; margin-bottom: 5px; }
+  .field input {
+    width: 100%; font-family: inherit; font-size: 15px; color: var(--ink);
+    background: #fff; border: none; border-radius: 10px; padding: 12px 14px; outline: none;
+  }
+  .field input:focus { box-shadow: 0 0 0 3px rgba(58,158,143,.5); }
+  .go {
+    flex: 0 0 auto; background: var(--lime); color: var(--navy);
+    font-family: inherit; font-size: 15px; font-weight: 800; border: none;
+    border-radius: 10px; padding: 12px 26px; cursor: pointer; transition: filter .15s;
+  }
+  .go:hover { filter: brightness(.96); }
+  .go:disabled { opacity: .6; cursor: default; }
+
+  .vtoggle { display: flex; align-items: center; gap: 9px; margin-top: 15px; font-size: 13px; color: #d5e2f0; cursor: pointer; user-select: none; }
+  .vtoggle .box {
+    width: 40px; height: 23px; border-radius: 23px; background: rgba(255,255,255,.28); position: relative; flex: 0 0 auto; transition: background .2s;
+  }
+  .vtoggle .box:before { content: ""; position: absolute; width: 17px; height: 17px; border-radius: 50%; background: #fff; left: 3px; top: 3px; transition: transform .2s; }
+  .vtoggle.on .box { background: var(--lime); }
+  .vtoggle.on .box:before { transform: translateX(17px); }
+  .badge-inline { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; color: #fff; }
+  .badge-inline img { width: 15px; height: 15px; display: inline-block; }
+
+  /* result meta */
+  .meta { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 22px 4px 12px; }
+  .meta .count { font-size: 14px; font-weight: 700; color: var(--navy); }
+  .meta .note { font-size: 12.5px; color: var(--mute); }
+
+  /* cards grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .card {
+    background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    display: flex; flex-direction: column; transition: box-shadow .15s, transform .15s;
+  }
+  .card:hover { box-shadow: 0 8px 22px rgba(13,45,78,.10); transform: translateY(-2px); }
+  .card .top { display: flex; gap: 13px; padding: 16px 16px 12px; }
+  .avatar {
+    width: 58px; height: 58px; border-radius: 50%; flex: 0 0 auto; background: #e8eef4;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    font-size: 22px; font-weight: 800; color: #9aabbd;
+  }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .who { flex: 1; min-width: 0; }
+  .who .nm { font-size: 16px; font-weight: 800; color: var(--navy); display: flex; align-items: center; gap: 6px; }
+  .who .nm .vb { width: 16px; height: 16px; flex: 0 0 auto; }
+  .who .loc { font-size: 12.5px; color: var(--mute); margin-top: 2px; }
+  .who .verimark { font-size: 11px; font-weight: 700; color: var(--teal); margin-top: 4px; }
+  .story { padding: 0 16px 12px; font-size: 13px; color: #47586a; }
+  .facts { padding: 0 16px 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 11.5px; font-weight: 600; color: #3d5063; background: #eef3f8; border-radius: 20px; padding: 4px 10px; }
+  .chip.budget { background: #eaf6f1; color: #1e7a63; }
+  .cardfoot { margin-top: auto; border-top: 1px solid var(--line); padding: 12px 16px; }
+  .contact {
+    width: 100%; background: var(--navy); color: #fff; font-family: inherit; font-size: 13.5px; font-weight: 700;
+    border: none; border-radius: 9px; padding: 11px; cursor: pointer; transition: filter .15s;
+  }
+  .contact:hover { filter: brightness(1.12); }
+
+  /* states */
+  .state { text-align: center; padding: 54px 20px; color: var(--mute); }
+  .state .big { font-size: 17px; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+  .state .sm { font-size: 13.5px; max-width: 420px; margin: 0 auto; }
+  .spinner { width: 30px; height: 30px; border: 3px solid #dbe4ee; border-top-color: var(--teal); border-radius: 50%; margin: 0 auto 16px; animation: sp .8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+
+  .privacy { margin: 20px 4px 0; font-size: 12px; color: var(--mute); background: #eef3f8; border-radius: 10px; padding: 11px 14px; }
+  .privacy b { color: var(--navy); }
+
+  @media (max-width: 560px) {
+    .go { flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="searchbar">
+    <h1>Find renters</h1>
+    <div class="sub">Browse verified renters who chose to be found by landlords. Search by zip or city.</div>
+    <div class="controls">
+      <div class="field">
+        <label for="loc">Location</label>
+        <input id="loc" type="text" placeholder="Zip code or city" autocomplete="off">
+      </div>
+      <button class="go" id="go">Search renters</button>
+    </div>
+    <div class="vtoggle" id="vtoggle">
+      <span class="box"></span>
+      <span>Verified renters only</span>
+    </div>
+  </div>
+
+  <div class="meta" id="meta" style="display:none;">
+    <span class="count" id="count"></span>
+    <span class="note">Verified renters shown first.</span>
+  </div>
+
+  <div id="results"></div>
+
+  <div class="privacy">
+    <b>Contact stays on-platform.</b> You reach a renter through a Renters.com message. Their email and phone are never shown until they choose to share them with you.
+  </div>
+
+</div>
+
+<script>
+  var API = "https://renters-story-writer.netlify.app/.netlify/functions/renter-search";
+  var BADGE = "https://www.renters.com/images/Twitter_Verified_Badge.svg.png";
+  var AUDIENCE = "landlords"; // this page is the landlord surface
+
+  var locEl = document.getElementById("loc");
+  var goBtn = document.getElementById("go");
+  var results = document.getElementById("results");
+  var meta = document.getElementById("meta");
+  var countEl = document.getElementById("count");
+  var vtoggle = document.getElementById("vtoggle");
+  var verifiedOnly = false;
+
+  vtoggle.addEventListener("click", function () {
+    verifiedOnly = !verifiedOnly;
+    vtoggle.className = "vtoggle" + (verifiedOnly ? " on" : "");
+  });
+
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function initials(name) { var p = String(name || "").trim().split(/\s+/); return ((p[0] || "")[0] || "") + ((p[1] || "")[0] || ""); }
+
+  function loadingState() {
+    meta.style.display = "none";
+    results.innerHTML = '<div class="state"><div class="spinner"></div><div class="sm">Finding renters…</div></div>';
+  }
+  function emptyState(loc) {
+    meta.style.display = "none";
+    results.innerHTML = '<div class="state"><div class="big">No renters found' + (loc ? ' near "' + esc(loc) + '"' : "") + '</div>'
+      + '<div class="sm">Try a nearby zip or a broader city name. As more renters opt in, this list grows.</div></div>';
+  }
+  function errorState() {
+    meta.style.display = "none";
+    results.innerHTML = '<div class="state"><div class="big">Search is unavailable right now</div><div class="sm">Give it a moment and search again.</div></div>';
+  }
+
+  function card(r) {
+    var av = r.hasProfilePhoto && r.profilePhotoUrl
+      ? '<img src="' + esc(r.profilePhotoUrl) + '" alt="" onerror="this.style.display=\'none\';this.parentNode.textContent=\'' + esc(initials(r.name)) + '\'">'
+      : esc(initials(r.name) || "?");
+    var badge = r.verified ? '<img class="vb" src="' + BADGE + '" alt="Verified">' : "";
+    var verimark = r.verified ? '<div class="verimark">Verified identity</div>' : "";
+
+    var chips = "";
+    if (r.budget) chips += '<span class="chip budget">' + esc(r.budget) + '/mo</span>';
+    if (r.timeline) chips += '<span class="chip">' + esc(r.timeline) + '</span>';
+    if (r.household) chips += '<span class="chip">' + esc(r.household) + ' in household</span>';
+    if (r.propertyType) chips += '<span class="chip">' + esc(r.propertyType) + '</span>';
+
+    var story = r.storySnippet ? '<div class="story">' + esc(r.storySnippet) + '</div>' : "";
+
+    return '<div class="card">'
+      + '<div class="top">'
+      +   '<div class="avatar">' + av + '</div>'
+      +   '<div class="who"><div class="nm">' + esc(r.name) + badge + '</div>'
+      +     '<div class="loc">' + esc(r.areas || r.location || "Location not set") + '</div>' + verimark + '</div>'
+      + '</div>'
+      + story
+      + (chips ? '<div class="facts">' + chips + '</div>' : "")
+      + '<div class="cardfoot"><button class="contact" data-id="' + esc(r.memberId) + '">Send a message</button></div>'
+      + '</div>';
+  }
+
+  function render(data) {
+    var list = (data && data.results) || [];
+    if (!list.length) { emptyState(data ? data.location : ""); return; }
+    meta.style.display = "flex";
+    countEl.textContent = data.total + (data.total === 1 ? " renter" : " renters") + (data.location ? ' near "' + data.location + '"' : "");
+    results.innerHTML = '<div class="grid">' + list.map(card).join("") + '</div>';
+
+    var btns = results.querySelectorAll(".contact");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].addEventListener("click", function () {
+        var id = this.getAttribute("data-id");
+        // On-platform message. Adjust the path if your message route differs.
+        window.top.location.href = "https://www.renters.com/account/messages/compose?to=" + encodeURIComponent(id);
+      });
+    }
+  }
+
+  function search() {
+    var loc = locEl.value.trim();
+    goBtn.disabled = true; goBtn.textContent = "Searching…";
+    loadingState();
+    var url = API + "?audience=" + encodeURIComponent(AUDIENCE)
+      + "&location=" + encodeURIComponent(loc)
+      + "&verifiedOnly=" + (verifiedOnly ? "1" : "0")
+      + "&limit=60";
+    fetch(url)
+      .then(function (r) { return r.json(); })
+      .then(function (d) { render(d); })
+      .catch(function () { errorState(); })
+      .then(function () { goBtn.disabled = false; goBtn.textContent = "Search renters"; });
+  }
+
+  goBtn.addEventListener("click", search);
+  locEl.addEventListener("keydown", function (e) { if (e.key === "Enter") search(); });
+
+  // initial load: show everyone findable (no location filter)
+  search();
+</script>
+</body>
+</html>
