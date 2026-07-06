@@ -61,7 +61,18 @@ AUDIENCES.forEach((a) => { BY_KEY[a.key] = a; });
 // Store name "visibility-index", one key per audience -> JSON array of member IDs.
 const INDEX_STORE = "visibility-index";
 function idxStore() {
-  return getStore({ name: INDEX_STORE, consistency: "strong" });
+  // Try automatic Netlify context first (works inside a deployed function).
+  // Fall back to explicit siteID + token if those env vars are present.
+  try {
+    return getStore({ name: INDEX_STORE, consistency: "strong" });
+  } catch (e1) {
+    var siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+    var token = process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN || process.env.NETLIFY_AUTH_TOKEN;
+    if (siteID && token) {
+      return getStore({ name: INDEX_STORE, consistency: "strong", siteID: siteID, token: token });
+    }
+    throw e1;
+  }
 }
 async function readIndex(store, key) {
   try {
@@ -73,7 +84,7 @@ async function writeAudienceIndex(userId, desired) {
   // For each audience, add or remove this member ID from its Blob set to mirror
   // the tag state. Best-effort: a Blob failure never blocks the tag write/UI.
   let store;
-  try { store = idxStore(); } catch (e) { return { indexed: false, reason: "no-store" }; }
+  try { store = idxStore(); } catch (e) { return { indexed: false, reason: "no-store", detail: (e && e.message) ? e.message : String(e) }; }
   const uid = String(userId);
   const summary = {};
   for (const a of AUDIENCES) {
