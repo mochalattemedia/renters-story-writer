@@ -1,11 +1,11 @@
 // ============================================================
-//  find-renters-page.js   ·   VERSION: frp2  (2026-07-05)
-//  Serves the landlord-facing renter-search page HTML.
-//  Mirrors listing-check-page.js: a function that returns a full
-//  HTML document, embedded into a BD page via <iframe>.
+//  find-renters-page.js   ·   VERSION: frp3  (2026-07-05)
+//  Shared supply-side renter-search page. ONE page for all three
+//  member types. The gate head code appends ?audience=X to the iframe
+//  src based on the viewer's member level (landlord/PM/realtor); this
+//  page reads its own ?audience and scopes the search + copy to it.
 //  Live at: /.netlify/functions/find-renters-page
-//  Calls the renter-search function for results.
-//  frp2: card location fallback copy tidy.
+//  frp3: dynamic audience (was landlord-only frp2).
 // ============================================================
 
 const PAGE = `<!DOCTYPE html>
@@ -125,7 +125,7 @@ const PAGE = `<!DOCTYPE html>
 
   <div class="searchbar">
     <h1>Find renters</h1>
-    <div class="sub">Browse verified renters who chose to be found by landlords. Search by zip or city.</div>
+    <div class="sub" id="subcopy">Browse verified renters who chose to be found. Search by zip or city.</div>
     <div class="controls">
       <div class="field">
         <label for="loc">Location</label>
@@ -155,8 +155,23 @@ const PAGE = `<!DOCTYPE html>
 <script>
   var API = "https://renters-story-writer.netlify.app/.netlify/functions/renter-search";
   var BADGE = "https://www.renters.com/images/Twitter_Verified_Badge.svg.png";
-  var AUDIENCE = "landlords"; // this page is the landlord surface
+  // Audience is set by the parent BD page (the gate head code appends
+  // ?audience=landlords|propertyManagers|realtors to the iframe src based on
+  // the viewer\\'s member type). Default to landlords if absent.
+  var AUDIENCE = (function () {
+    try {
+      var m = (window.location.search || "").match(/[?&]audience=([a-zA-Z]+)/);
+      var a = m ? m[1] : "";
+      return ["landlords", "propertyManagers", "realtors", "buying", "renters"].indexOf(a) !== -1 ? a : "landlords";
+    } catch (e) { return "landlords"; }
+  })();
 
+  (function () {
+    var labels = { landlords: "landlords", propertyManagers: "property managers", realtors: "realtors" };
+    var who = labels[AUDIENCE] || "you";
+    var el = document.getElementById("subcopy");
+    if (el) el.textContent = "Browse verified renters who chose to be found by " + who + ". Search by zip or city.";
+  })();
   var locEl = document.getElementById("loc");
   var goBtn = document.getElementById("go");
   var results = document.getElementById("results");
