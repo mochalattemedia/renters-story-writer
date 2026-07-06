@@ -45,7 +45,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "vis4";
+const FUNCTION_VERSION = "vis5";
 
 // The five audience tags. Keyed by the flag name the wizard sends/reads.
 // tag_id values confirmed from BD Members > Tags. tag_type_id 1 = Custom Tags group.
@@ -245,6 +245,27 @@ async function readVisibility(userId, member) {
   return on;
 }
 
+// Read whether the member carries the "prequalified" income tag (id 16).
+async function readIncomeConfirmed(userId, member) {
+  try {
+    if (member && Array.isArray(member.tags)) {
+      for (var i = 0; i < member.tags.length; i++) {
+        var t = member.tags[i];
+        if (!t) continue;
+        if (String(t.id) === "16" || String(t.tag_id) === "16" || t.tag_name === "prequalified") return true;
+      }
+    }
+    const rels = await getRelationships(userId);
+    for (var j = 0; j < rels.length; j++) {
+      var r = rels[j];
+      if (!r || String(r.tag_id) !== "16") continue;
+      if (r.object_id != null && String(r.object_id) !== String(userId)) continue;
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
 exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers: corsHeaders, body: "" };
@@ -297,6 +318,7 @@ exports.handler = async function (event) {
           realtors: on.realtors,
           buying: on.buying,
           renters: on.renters,
+          incomeConfirmed: await readIncomeConfirmed(q.memberId, member),
         }),
       };
     }
