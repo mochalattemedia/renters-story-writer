@@ -1,8 +1,11 @@
 {
-     "name": "renters-functions",
-     "version": "1.0.0",
-     "dependencies": {
-       "@aws-sdk/client-ses": "^3.0.0",
-       "@netlify/blobs": "^8.1.0"
-     }
-   }
+  "name": "renters-functions",
+  "version": "1.0.0",
+  "dependencies": {
+    "@aws-sdk/client-ses": "^3.0.0",
+    "@netlify/blobs": "^8.1.0",
+    "stripe": "^17.0.0",
+    "plaid": "^27.0.0",
+    "jose": "^5.9.0"
+  }
+}
