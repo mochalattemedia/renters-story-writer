@@ -1,5 +1,9 @@
 // ============================================================
-//  visibility.js   ·   VERSION: vis2  (2026-07-04)
+//  visibility.js   ·   VERSION: vis3  (2026-07-05)
+//  vis3: DEPLOY-FRESHNESS MARKER. Same logic as vis2 plus GET debug branches
+//        (?debug=read&audience=landlords  and  ?debug=write&memberId=ID&audience=landlords)
+//        and hardened Blob store init. If the debug URL still reports "vis2",
+//        the paste did not take. Live/correct version reports "vis3".
 //  "Who can find me" — renter self-serve audience visibility.
 //  Clones landlord-optin.js BD auth + rel_tags write/read pattern.
 //
@@ -41,7 +45,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "vis2";
+const FUNCTION_VERSION = "vis3";
 
 // The five audience tags. Keyed by the flag name the wizard sends/reads.
 // tag_id values confirmed from BD Members > Tags. tag_type_id 1 = Custom Tags group.
@@ -61,7 +65,18 @@ AUDIENCES.forEach((a) => { BY_KEY[a.key] = a; });
 // Store name "visibility-index", one key per audience -> JSON array of member IDs.
 const INDEX_STORE = "visibility-index";
 function idxStore() {
-  return getStore({ name: INDEX_STORE, consistency: "strong" });
+  // Try automatic Netlify context first (works inside a deployed function).
+  // Fall back to explicit siteID + token if those env vars are present.
+  try {
+    return getStore({ name: INDEX_STORE, consistency: "strong" });
+  } catch (e1) {
+    var siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+    var token = process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN || process.env.NETLIFY_AUTH_TOKEN;
+    if (siteID && token) {
+      return getStore({ name: INDEX_STORE, consistency: "strong", siteID: siteID, token: token });
+    }
+    throw e1;
+  }
 }
 async function readIndex(store, key) {
   try {
@@ -73,7 +88,7 @@ async function writeAudienceIndex(userId, desired) {
   // For each audience, add or remove this member ID from its Blob set to mirror
   // the tag state. Best-effort: a Blob failure never blocks the tag write/UI.
   let store;
-  try { store = idxStore(); } catch (e) { return { indexed: false, reason: "no-store" }; }
+  try { store = idxStore(); } catch (e) { return { indexed: false, reason: "no-store", detail: (e && e.message) ? e.message : String(e) }; }
   const uid = String(userId);
   const summary = {};
   for (const a of AUDIENCES) {
@@ -227,6 +242,36 @@ async function readVisibility(userId, member) {
 exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers: corsHeaders, body: "" };
+  }
+
+  // --- GET debug: forces a Blob index write + read-back so we can see the truth ---
+  // /visibility?debug=write&memberId=3700&audience=landlords
+  if (event.httpMethod === "GET") {
+    const dq = event.queryStringParameters || {};
+    if (dq.debug === "write" && dq.memberId) {
+      const aud = ["landlords","propertyManagers","realtors","buying","renters"].indexOf(dq.audience) !== -1 ? dq.audience : "landlords";
+      const desired = {};
+      AUDIENCES.forEach((a) => { desired[a.key] = (a.key === aud); });
+      let writeRes, readBack = [], storeOk = false, storeErr = "";
+      try { writeRes = await writeAudienceIndex(dq.memberId, desired); }
+      catch (e) { writeRes = { indexed: false, threw: (e && e.message) ? e.message : String(e) }; }
+      try {
+        const st = idxStore(); storeOk = true;
+        const v = await st.get("findable:" + aud, { type: "json" });
+        readBack = Array.isArray(v) ? v.map(String) : [];
+      } catch (e) { storeErr = (e && e.message) ? e.message : String(e); }
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+        version: FUNCTION_VERSION, debug: "write", memberId: dq.memberId, audience: aud,
+        writeResult: writeRes, storeOk, storeErr, count_after: readBack.length, ids_after: readBack
+      }) };
+    }
+    if (dq.debug === "read") {
+      const aud = ["landlords","propertyManagers","realtors","buying","renters"].indexOf(dq.audience) !== -1 ? dq.audience : "landlords";
+      let ids = [], storeErr = "";
+      try { const st = idxStore(); const v = await st.get("findable:" + aud, { type: "json" }); ids = Array.isArray(v) ? v.map(String) : []; }
+      catch (e) { storeErr = (e && e.message) ? e.message : String(e); }
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ version: FUNCTION_VERSION, debug: "read", audience: aud, count: ids.length, ids, storeErr }) };
+    }
   }
 
   // --- GET status: wizard reads current visibility on load ---
