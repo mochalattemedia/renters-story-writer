@@ -45,7 +45,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "vis3";
+const FUNCTION_VERSION = "vis4";
 
 // The five audience tags. Keyed by the flag name the wizard sends/reads.
 // tag_id values confirmed from BD Members > Tags. tag_type_id 1 = Custom Tags group.
@@ -232,7 +232,13 @@ async function readVisibility(userId, member) {
     try {
       const rels = await getRelationships(userId);
       rels.forEach((r) => {
-        if (r && r.tag_id != null && idToKey[String(r.tag_id)]) on[idToKey[String(r.tag_id)]] = true;
+        if (!r || r.tag_id == null || !idToKey[String(r.tag_id)]) return;
+        // vis4 GUARD: only count relationships that actually belong to THIS member.
+        // BD's /rel_tags/get can return rows not scoped to object_id; without this
+        // one member's tag (e.g. 3700's visible-to-landlords) bled into every read,
+        // making every renter's card show landlord-on.
+        if (r.object_id != null && String(r.object_id) !== String(userId)) return;
+        on[idToKey[String(r.tag_id)]] = true;
       });
     } catch (e) { /* keep what we have */ }
   }
