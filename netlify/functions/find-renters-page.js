@@ -1,10 +1,11 @@
 // ============================================================
-//  find-renters-page.js   ·   VERSION: frp1  (2026-07-05)
+//  find-renters-page.js   ·   VERSION: frp2  (2026-07-05)
 //  Serves the landlord-facing renter-search page HTML.
 //  Mirrors listing-check-page.js: a function that returns a full
 //  HTML document, embedded into a BD page via <iframe>.
 //  Live at: /.netlify/functions/find-renters-page
 //  Calls the renter-search function for results.
+//  frp2: card location fallback copy tidy.
 // ============================================================
 
 const PAGE = `<!DOCTYPE html>
@@ -205,7 +206,7 @@ const PAGE = `<!DOCTYPE html>
       + '<div class="top">'
       +   '<div class="avatar">' + av + '</div>'
       +   '<div class="who"><div class="nm">' + esc(r.name) + badge + '</div>'
-      +     '<div class="loc">' + esc(r.areas || r.location || "Location not set") + '</div>' + verimark + '</div>'
+      +     '<div class="loc">' + esc(r.areas || r.location || "Area not specified") + '</div>' + verimark + '</div>'
       + '</div>'
       + story
       + (chips ? '<div class="facts">' + chips + '</div>' : "")
