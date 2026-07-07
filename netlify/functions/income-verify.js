@@ -1,6 +1,6 @@
 // ============================================================
 //  income-verify.js  ·  Pulls the Plaid Bank Income report for a
-//  paid member, scores income-to-rent, and on a pass stamps the
+//  paid member, scores income vs 2.5x the top of their rent-range band, stamps the
 //  BD "prequalified" tag (id 16) directly via /rel_tags/create.
 //  Self-contained: clones visibility.js BD auth + rel_tags pattern.
 //  Callable two ways (idempotent): from the verify page on Link
@@ -23,12 +23,14 @@ const { URL } = require("url");
 const PREQUALIFIED_TAG_ID = "16";
 const PREQUALIFIED_TAG_TYPE_ID = "1"; // Custom Tags group
 const PREQUALIFIED_TAG_NAME = "prequalified";
-const RENT_MULTIPLE = 3; // income must be >= 3x monthly rent to pass
+const RENT_MULTIPLE = 2.5; // income must be >= 2.5x the TOP of their rent-range band
 
 const ALLOWED_ORIGIN = "https://www.renters.com";
 const NOTIFY_TO = "kenny@renters.com";
 const NOTIFY_FROM = "verify@renters.com";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
+const VERIFY_MEMBER_URL = "https://renters-story-writer.netlify.app/.netlify/functions/verify-member";
+const VERIFY_MEMBER_KEY = "renters2026";
 
 const ses = new SESClient({
   region: process.env.SES_REGION || "us-east-2",
@@ -179,6 +181,27 @@ function monthlyFromBankIncome(report) {
   } catch (e) { return 0; }
 }
 
+
+// Read the renter's rent-range CEILING (top of their Monthly rent budget band)
+// via verify-member. monthly_budget stores e.g. "10002000" = $1000-$2000, so the
+// last 4 digits are the ceiling we screen against.
+async function readRentCeiling(memberId) {
+  try {
+    const url = VERIFY_MEMBER_URL + "?memberId=" + encodeURIComponent(memberId) + "&key=" + VERIFY_MEMBER_KEY;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!data || data.found === false) return { ceiling: 0, band: "" };
+    const band = (data.rentalInfo && data.rentalInfo.budget) || "";
+    // Pull the raw band from the formatted string digits, or re-derive the ceiling.
+    var digits = String(band).replace(/[^0-9]/g, "");
+    var ceiling = 0;
+    if (digits.length >= 8) ceiling = parseInt(digits.slice(4, 8), 10);
+    else if (digits.length >= 4) ceiling = parseInt(digits.slice(-4), 10);
+    else if (digits.length > 0) ceiling = parseInt(digits, 10);
+    return { ceiling: ceiling || 0, band: band };
+  } catch (e) { return { ceiling: 0, band: "" }; }
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: cors, body: "" };
   if (event.httpMethod !== "POST") return { statusCode: 405, headers: cors, body: JSON.stringify({ error: "Method not allowed" }) };
@@ -211,18 +234,19 @@ exports.handler = async (event) => {
 
     const monthlyIncome = monthlyFromBankIncome(report);
 
-    // ---- Renter's target rent (persisted at pay time) ----
+    // ---- Renter's target rent = TOP of their Monthly rent budget band ----
     const status = getStore("prequalify-status");
     let rec = null;
     try { rec = await status.get(String(memberId), { type: "json" }); } catch (e) {}
-    const targetRent = Number((rec && rec.targetRent) || 0);
+    const rentInfo = await readRentCeiling(memberId);
+    const targetRent = Number(rentInfo.ceiling || (rec && rec.targetRent) || 0);
 
     // ---- Score income-to-rent ----
     let prequalified = false;
     let scoreNote;
     if (targetRent > 0) {
       prequalified = monthlyIncome >= RENT_MULTIPLE * targetRent;
-      scoreNote = "$" + monthlyIncome + "/mo vs $" + targetRent + " rent (need " + RENT_MULTIPLE + "x = $" + (RENT_MULTIPLE * targetRent) + ")";
+      scoreNote = "$" + monthlyIncome + "/mo vs $" + targetRent + " rent ceiling" + (rentInfo.band ? " (band " + rentInfo.band + ")" : "") + " — need " + RENT_MULTIPLE + "x = $" + (RENT_MULTIPLE * targetRent) + "";
     } else {
       scoreNote = "$" + monthlyIncome + "/mo verified; no target rent on file — review";
     }
