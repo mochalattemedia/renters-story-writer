@@ -53,22 +53,27 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers: cors, body: JSON.stringify({ error: 'Method not allowed' }) };
 
   try {
-    const { memberId, sessionId } = JSON.parse(event.body || '{}');
-    if (!memberId) return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'memberId required' }) };
+    let { memberId, sessionId } = JSON.parse(event.body || '{}');
 
-    // ---- Gate: confirm the $5 was paid ----
+    // ---- Gate: confirm the $5 was paid; derive memberId from the session if needed ----
     let paid = false;
 
     // 1) Source of truth: verify the Stripe session directly (no webhook race).
+    //    If the page couldn't read a memberId (this page has no logged_user field),
+    //    pull it straight from the paid session's metadata.
     if (sessionId && process.env.STRIPE_SECRET_KEY) {
       try {
         const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
         const s = await stripe.checkout.sessions.retrieve(sessionId);
-        if (s && s.payment_status === 'paid' && String((s.metadata || {}).memberId) === String(memberId)) {
+        const sessionMember = String((s && s.metadata && s.metadata.memberId) || '');
+        if (!memberId && sessionMember) memberId = sessionMember;
+        if (s && s.payment_status === 'paid' && sessionMember && String(sessionMember) === String(memberId)) {
           paid = true;
         }
       } catch (e) { /* fall through to blob check */ }
     }
+
+    if (!memberId) return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'memberId required' }) };
 
     // 2) Fallback: the webhook already marked them paid.
     if (!paid) {
