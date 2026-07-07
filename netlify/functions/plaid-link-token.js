@@ -19,7 +19,7 @@ function rdcStore(name) {
 }
 // ============================================================
 
-const FN_VERSION = 'plt-v5';  // <-- deployed version. Check this line or any JSON response's _v field.
+const FN_VERSION = 'plt-v8';  // <-- deployed version. Check this line or any JSON response's _v field.
 
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 const { getStore } = require('@netlify/blobs');
@@ -92,6 +92,15 @@ exports.handler = async (event) => {
 
     const plaid = plaidClient();
 
+    // TEMP DEBUG: force a fresh user create and return the full response.
+    try {
+      const dbg = await plaid.userCreate({ client_user_id: 'rdc-dbg-' + Date.now() });
+      return { statusCode: 200, headers: cors, body: JSON.stringify({ _v: FN_VERSION, DEBUG_userCreate: (dbg && dbg.data) ? dbg.data : dbg }) };
+    } catch (ce) {
+      const m = (ce.response && ce.response.data) ? ce.response.data : ce.message;
+      return { statusCode: 200, headers: cors, body: JSON.stringify({ _v: FN_VERSION, DEBUG_userCreate_error: m }) };
+    }
+
     // ---- Get or create the Plaid user for this member (one user per member) ----
     // Newer Plaid integrations use user_id (from /user/create), not user_token.
     const users = rdcStore('plaid-users');
@@ -103,6 +112,7 @@ exports.handler = async (event) => {
     if (!userId) {
       try {
         const u = await plaid.userCreate({ client_user_id: clientUserId });
+        return { statusCode: 200, headers: cors, body: JSON.stringify({ _v: FN_VERSION, DEBUG_userCreate: (u && u.data) ? u.data : u }) };
         userId = u.data && u.data.user_id;
         await users.set(String(memberId), JSON.stringify({
           user_id: userId,
@@ -135,8 +145,7 @@ exports.handler = async (event) => {
 
     // ---- Create the Bank Income Link token ----
     const lt = await plaid.linkTokenCreate({
-      user: { client_user_id: 'rdc-' + memberId },
-      user_id: userId,
+      user: { client_user_id: 'rdc-' + memberId, user_id: userId },
       client_name: 'Renters.com',
       products: ['income_verification'],
       income_verification: {
