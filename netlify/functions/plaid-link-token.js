@@ -19,7 +19,7 @@ function rdcStore(name) {
 }
 // ============================================================
 
-const FN_VERSION = 'plt-v4';  // <-- deployed version. Check this line or any JSON response's _v field.
+const FN_VERSION = 'plt-v5';  // <-- deployed version. Check this line or any JSON response's _v field.
 
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 const { getStore } = require('@netlify/blobs');
@@ -93,38 +93,30 @@ exports.handler = async (event) => {
     const plaid = plaidClient();
 
     // ---- Get or create the Plaid user for this member (one user per member) ----
+    // Newer Plaid integrations use user_id (from /user/create), not user_token.
     const users = rdcStore('plaid-users');
     let userRec = null;
     try { userRec = await users.get(String(memberId), { type: 'json' }); } catch (e) {}
-    let userToken = userRec && userRec.user_token;
+    let userId = userRec && (userRec.user_id || userRec.userId);
     const clientUserId = 'rdc-' + memberId;
-    let __ucResp;
 
-    // Create the Plaid user if we don't have a valid token yet. If Plaid says the
-    // user already exists but we lost the token, make a fresh unique user id so we
-    // always end up with a usable user_token (Bank Income requires it).
-    if (!userToken) {
+    if (!userId) {
       try {
         const u = await plaid.userCreate({ client_user_id: clientUserId });
-        __ucResp = u && u.data ? u.data : u;
-        userToken = u.data && (u.data.user_token || (u.data.user && u.data.user.user_token));
+        userId = u.data && u.data.user_id;
         await users.set(String(memberId), JSON.stringify({
-          user_token: userToken,
-          user_id: u.data.user_id,
+          user_id: userId,
           client_user_id: clientUserId,
           memberId: String(memberId),
           createdAt: new Date().toISOString(),
         }));
       } catch (e) {
-        // user_id already exists (from a prior partial run) but we don't have the
-        // token — create a fresh uniquely-suffixed user so we get a token back.
         try {
           const freshId = clientUserId + '-' + Date.now();
           const u2 = await plaid.userCreate({ client_user_id: freshId });
-          userToken = u2.data.user_token;
+          userId = u2.data && u2.data.user_id;
           await users.set(String(memberId), JSON.stringify({
-            user_token: userToken,
-            user_id: u2.data.user_id,
+            user_id: userId,
             client_user_id: freshId,
             memberId: String(memberId),
             createdAt: new Date().toISOString(),
@@ -137,14 +129,14 @@ exports.handler = async (event) => {
       }
     }
 
-    if (!userToken) {
-      return { statusCode: 500, headers: cors, body: JSON.stringify({ _v: FN_VERSION, error: 'could_not_create_plaid_user', debug: (typeof __ucResp !== 'undefined' ? __ucResp : 'no-response-captured') }) };
+    if (!userId) {
+      return { statusCode: 500, headers: cors, body: JSON.stringify({ _v: FN_VERSION, error: 'could_not_create_plaid_user' }) };
     }
 
     // ---- Create the Bank Income Link token ----
     const lt = await plaid.linkTokenCreate({
       user: { client_user_id: 'rdc-' + memberId },
-      user_token: userToken,
+      user_id: userId,
       client_name: 'Renters.com',
       products: ['income_verification'],
       income_verification: {
