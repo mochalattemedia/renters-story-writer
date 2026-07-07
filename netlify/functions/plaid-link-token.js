@@ -19,6 +19,8 @@ function rdcStore(name) {
 }
 // ============================================================
 
+const FN_VERSION = 'plt-v3';  // <-- deployed version. Check this line or any JSON response's _v field.
+
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 const { getStore } = require('@netlify/blobs');
 const Stripe = require('stripe');
@@ -50,7 +52,7 @@ exports.handler = async (event) => {
     'Content-Type': 'application/json',
   };
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
-  if (event.httpMethod !== 'POST') return { statusCode: 405, headers: cors, body: JSON.stringify({ error: 'Method not allowed' }) };
+  if (event.httpMethod !== 'POST') return { statusCode: 405, headers: cors, body: JSON.stringify({ _v: FN_VERSION, error: 'Method not allowed' }) };
 
   try {
     let { memberId, sessionId } = JSON.parse(event.body || '{}');
@@ -73,7 +75,7 @@ exports.handler = async (event) => {
       } catch (e) { /* fall through to blob check */ }
     }
 
-    if (!memberId) return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'memberId required' }) };
+    if (!memberId) return { statusCode: 400, headers: cors, body: JSON.stringify({ _v: FN_VERSION, error: 'memberId required' }) };
 
     // 2) Fallback: the webhook already marked them paid.
     if (!paid) {
@@ -85,7 +87,7 @@ exports.handler = async (event) => {
     }
 
     if (!paid) {
-      return { statusCode: 402, headers: cors, body: JSON.stringify({ error: 'payment_not_confirmed' }) };
+      return { statusCode: 402, headers: cors, body: JSON.stringify({ _v: FN_VERSION, error: 'payment_not_confirmed' }) };
     }
 
     const plaid = plaidClient();
@@ -114,21 +116,27 @@ exports.handler = async (event) => {
       } catch (e) {
         // user_id already exists (from a prior partial run) but we don't have the
         // token — create a fresh uniquely-suffixed user so we get a token back.
-        const freshId = clientUserId + '-' + Date.now();
-        const u2 = await plaid.userCreate({ client_user_id: freshId });
-        userToken = u2.data.user_token;
-        await users.set(String(memberId), JSON.stringify({
-          user_token: userToken,
-          user_id: u2.data.user_id,
-          client_user_id: freshId,
-          memberId: String(memberId),
-          createdAt: new Date().toISOString(),
-        }));
+        try {
+          const freshId = clientUserId + '-' + Date.now();
+          const u2 = await plaid.userCreate({ client_user_id: freshId });
+          userToken = u2.data.user_token;
+          await users.set(String(memberId), JSON.stringify({
+            user_token: userToken,
+            user_id: u2.data.user_id,
+            client_user_id: freshId,
+            memberId: String(memberId),
+            createdAt: new Date().toISOString(),
+          }));
+        } catch (e2) {
+          const m1 = (e.response && e.response.data) ? JSON.stringify(e.response.data) : e.message;
+          const m2 = (e2.response && e2.response.data) ? JSON.stringify(e2.response.data) : e2.message;
+          return { statusCode: 500, headers: cors, body: JSON.stringify({ _v: FN_VERSION, error: 'plaid_user_create_failed', first: m1, second: m2 }) };
+        }
       }
     }
 
     if (!userToken) {
-      return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'could_not_create_plaid_user' }) };
+      return { statusCode: 500, headers: cors, body: JSON.stringify({ _v: FN_VERSION, error: 'could_not_create_plaid_user' }) };
     }
 
     // ---- Create the Bank Income Link token ----
@@ -146,10 +154,10 @@ exports.handler = async (event) => {
       webhook: PLAID_WEBHOOK,
     });
 
-    return { statusCode: 200, headers: cors, body: JSON.stringify({ link_token: lt.data.link_token }) };
+    return { statusCode: 200, headers: cors, body: JSON.stringify({ _v: FN_VERSION, link_token: lt.data.link_token }) };
   } catch (err) {
     const msg = (err.response && err.response.data) ? JSON.stringify(err.response.data) : err.message;
     console.log('plaid-link-token error: ' + msg);
-    return { statusCode: 500, headers: cors, body: JSON.stringify({ error: msg }) };
+    return { statusCode: 500, headers: cors, body: JSON.stringify({ _v: FN_VERSION, error: msg }) };
   }
 };
