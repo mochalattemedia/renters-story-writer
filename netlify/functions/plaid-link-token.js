@@ -19,7 +19,7 @@ function rdcStore(name) {
 }
 // ============================================================
 
-const FN_VERSION = 'plt-v3';  // <-- deployed version. Check this line or any JSON response's _v field.
+const FN_VERSION = 'plt-v4';  // <-- deployed version. Check this line or any JSON response's _v field.
 
 const { Configuration, PlaidApi, PlaidEnvironments } = require('plaid');
 const { getStore } = require('@netlify/blobs');
@@ -98,6 +98,7 @@ exports.handler = async (event) => {
     try { userRec = await users.get(String(memberId), { type: 'json' }); } catch (e) {}
     let userToken = userRec && userRec.user_token;
     const clientUserId = 'rdc-' + memberId;
+    let __ucResp;
 
     // Create the Plaid user if we don't have a valid token yet. If Plaid says the
     // user already exists but we lost the token, make a fresh unique user id so we
@@ -105,7 +106,8 @@ exports.handler = async (event) => {
     if (!userToken) {
       try {
         const u = await plaid.userCreate({ client_user_id: clientUserId });
-        userToken = u.data.user_token;
+        __ucResp = u && u.data ? u.data : u;
+        userToken = u.data && (u.data.user_token || (u.data.user && u.data.user.user_token));
         await users.set(String(memberId), JSON.stringify({
           user_token: userToken,
           user_id: u.data.user_id,
@@ -136,7 +138,7 @@ exports.handler = async (event) => {
     }
 
     if (!userToken) {
-      return { statusCode: 500, headers: cors, body: JSON.stringify({ _v: FN_VERSION, error: 'could_not_create_plaid_user' }) };
+      return { statusCode: 500, headers: cors, body: JSON.stringify({ _v: FN_VERSION, error: 'could_not_create_plaid_user', debug: (typeof __ucResp !== 'undefined' ? __ucResp : 'no-response-captured') }) };
     }
 
     // ---- Create the Bank Income Link token ----
