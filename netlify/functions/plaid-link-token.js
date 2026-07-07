@@ -90,16 +90,40 @@ exports.handler = async (event) => {
     let userRec = null;
     try { userRec = await users.get(String(memberId), { type: 'json' }); } catch (e) {}
     let userToken = userRec && userRec.user_token;
+    const clientUserId = 'rdc-' + memberId;
+
+    // Create the Plaid user if we don't have a valid token yet. If Plaid says the
+    // user already exists but we lost the token, make a fresh unique user id so we
+    // always end up with a usable user_token (Bank Income requires it).
+    if (!userToken) {
+      try {
+        const u = await plaid.userCreate({ client_user_id: clientUserId });
+        userToken = u.data.user_token;
+        await users.set(String(memberId), JSON.stringify({
+          user_token: userToken,
+          user_id: u.data.user_id,
+          client_user_id: clientUserId,
+          memberId: String(memberId),
+          createdAt: new Date().toISOString(),
+        }));
+      } catch (e) {
+        // user_id already exists (from a prior partial run) but we don't have the
+        // token — create a fresh uniquely-suffixed user so we get a token back.
+        const freshId = clientUserId + '-' + Date.now();
+        const u2 = await plaid.userCreate({ client_user_id: freshId });
+        userToken = u2.data.user_token;
+        await users.set(String(memberId), JSON.stringify({
+          user_token: userToken,
+          user_id: u2.data.user_id,
+          client_user_id: freshId,
+          memberId: String(memberId),
+          createdAt: new Date().toISOString(),
+        }));
+      }
+    }
 
     if (!userToken) {
-      const u = await plaid.userCreate({ client_user_id: 'rdc-' + memberId });
-      userToken = u.data.user_token;
-      await users.set(String(memberId), JSON.stringify({
-        user_token: userToken,
-        user_id: u.data.user_id,
-        memberId: String(memberId),
-        createdAt: new Date().toISOString(),
-      }));
+      return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'could_not_create_plaid_user' }) };
     }
 
     // ---- Create the Bank Income Link token ----
