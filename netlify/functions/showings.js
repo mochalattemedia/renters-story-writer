@@ -21,15 +21,14 @@ const CENTROIDS = {
 
 // rdcStore wrapper: auto-context first, explicit siteID/token fallback (matches project pattern)
 function rdcStore(name) {
-  try {
-    return getStore(name);
-  } catch (e) {
-    return getStore({
-      name,
-      siteID: process.env.NETLIFY_SITE_ID,
-      token: process.env.NETLIFY_BLOBS_TOKEN
-    });
+  // getStore(name) does NOT throw on creation (only later on read/write), so a
+  // try/catch fallback never fires. Pass siteID + token explicitly.
+  var siteID = process.env.NETLIFY_SITE_ID;
+  var token = process.env.NETLIFY_BLOBS_TOKEN;
+  if (siteID && token) {
+    return getStore({ name: name, siteID: siteID, token: token });
   }
+  return getStore(name);
 }
 
 exports.handler = async (event) => {
