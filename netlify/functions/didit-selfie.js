@@ -69,26 +69,27 @@ exports.handler = async function (event) {
       };
     }
 
-        const fm = data.face_match || {};
-    const lv = data.liveness || {};
-    const idv = data.id_verification || {};
+        const liveness = (Array.isArray(data.liveness_checks) && data.liveness_checks[0]) || {};
+    const faceMatch = (Array.isArray(data.face_matches) && data.face_matches[0]) || {};
+    const idv = (Array.isArray(data.id_verifications) && data.id_verifications[0]) || {};
 
+    // Selfie: the live face captured during liveness (best), then face-match source.
     const selfie =
-      fm.source_image ||
-      lv.reference_image ||
-      fm.user_image ||
+      liveness.reference_image ||
+      faceMatch.source_image ||
       "";
 
+    // ID portrait: the face photo on the government ID.
     const idPortrait =
       idv.portrait_image ||
-      fm.target_image ||
+      faceMatch.target_image ||
       "";
 
     return ok({
       status: data.status || "",
       selfie: selfie || "",
       idPortrait: idPortrait || "",
-      faceMatchScore: (typeof fm.score === "number" ? fm.score : (typeof fm.confidence === "number" ? fm.confidence : null)),
+      faceMatchScore: (typeof faceMatch.score === "number" ? faceMatch.score : (typeof faceMatch.confidence === "number" ? faceMatch.confidence : null)),
       sessionId: sessionId,
     });
   } catch (e) {
