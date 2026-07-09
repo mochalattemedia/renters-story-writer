@@ -59,9 +59,17 @@ exports.handler = async function (event) {
 
     const data = await resp.json();
 
-    // The selfie may live under a few keys depending on the workflow shape.
-    // Prefer face_match.source_image, then liveness.reference_image.
-    const fm = data.face_match || {};
+    // DEBUG: dump the full raw response so we can locate the selfie/image fields.
+    var dbg = (q && q.debug) || (body && body.debug);
+    if (dbg) {
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({ raw: data }, null, 2)
+      };
+    }
+
+        const fm = data.face_match || {};
     const lv = data.liveness || {};
     const idv = data.id_verification || {};
 
