@@ -8,6 +8,19 @@ const STORE = 'showings-availability';
 const SECRET = 'renters2026'; // light gate, matches existing pattern; harden later
 const DAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 
+// Always create the store with explicit siteID + token.
+// getStore(name) does NOT throw on creation (only later on read/write), so a
+// try/catch fallback never fires. Passing config explicitly is the reliable path.
+function rdcStore(name) {
+  const siteID = process.env.NETLIFY_SITE_ID;
+  const token = process.env.NETLIFY_BLOBS_TOKEN;
+  if (siteID && token) {
+    return getStore({ name: name, siteID: siteID, token: token });
+  }
+  // last resort if env vars are somehow absent at runtime
+  return getStore(name);
+}
+
 exports.handler = async (event) => {
   const cors = {
     'Access-Control-Allow-Origin': '*',
@@ -18,7 +31,7 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
 
   try {
-    const store = getStore(STORE);
+    const store = rdcStore(STORE);
 
     if (event.httpMethod === 'GET') {
       const memberId = (event.queryStringParameters || {}).memberId;
