@@ -85,13 +85,46 @@ function completeness(m, accountType) {
   return Math.round((parts.filter(Boolean).length / parts.length) * 100);
 }
 
-// Read opted-in / opted-out from the member's tags array.
-function optStatus(m) {
-  const tags = Array.isArray(m.tags) ? m.tags : [];
-  const names = tags.map((t) => (t.tag_name || t.name || "").toLowerCase());
-  if (names.includes("matching-opted-in")) return "opted-in";
-  if (names.includes("matching-opted-out")) return "opted-out";
-  return "none";
+// Tag ids (confirmed in landlord-optin.js):
+//   1 matching-opted-in, 2 matching-opted-out,
+//   3 renter-connect-self, 4 renter-match, 5 renter-concierge
+const OPT_TAG_IDS = { "1": "matching-opted-in", "2": "matching-opted-out",
+  "3": "renter-connect-self", "4": "renter-match", "5": "renter-concierge" };
+
+// Turn a set of tag names into a friendly opt label.
+function optFromNames(names) {
+  if (names.indexOf("matching-opted-in") > -1) return "Matching: opted in";
+  if (names.indexOf("matching-opted-out") > -1) return "Matching: opted out";
+  if (names.indexOf("renter-concierge") > -1) return "Renter: concierge ($500)";
+  if (names.indexOf("renter-match") > -1) return "Renter: free matching";
+  if (names.indexOf("renter-connect-self") > -1) return "Renter: searching solo";
+  return "";
+}
+
+// Read the member's opt choice from member.tags; if empty, fall back to
+// /rel_tags/get?object_id=ID (same method landlord-optin uses to read tags).
+async function optStatus(m, memberId) {
+  let names = [];
+  if (Array.isArray(m.tags)) {
+    names = m.tags.map((t) => String(t.tag_name || t.name || "").toLowerCase());
+  }
+  let label = optFromNames(names);
+  if (label) return label;
+
+  // Fallback: relationship tags by object_id.
+  const rel = await bd(`/rel_tags/get?object_id=${encodeURIComponent(memberId)}`);
+  const rows = (rel && rel.data && (rel.data.message || rel.data)) || [];
+  const relRows = Array.isArray(rows) ? rows : [];
+  const relNames = [];
+  relRows.forEach((r) => {
+    const tn = String(r.tag_name || "").toLowerCase();
+    if (tn) relNames.push(tn);
+    // Some rel rows only carry tag_id — map it to a known name.
+    const tid = String(r.tag_id || r.tag || "");
+    if (tid && OPT_TAG_IDS[tid]) relNames.push(OPT_TAG_IDS[tid]);
+  });
+  label = optFromNames(relNames);
+  return label || "No opt choice";
 }
 
 // Tidy BD's lowercase_underscore values into readable labels.
@@ -141,9 +174,11 @@ async function shapeMember(memberId) {
   const verifyPhoto = m.image_verification_1_url || m.image_verification_1 || "";
   const profilePhoto = m.image_main_file || m.filename || "";
 
-  // Account type lives in member_level (subscription/level name): Renter / Landlord / etc.
+  // Account type: BD nests the real name in subscription_schema.subscription_name
+  // (top-level subscription_name is often null). Fall back through other fields.
   let accountType = "Unknown";
-  for (const v of [m.subscription_name, m.member_level_name, m.member_type]) {
+  const schemaName = (m.subscription_schema && m.subscription_schema.subscription_name) || "";
+  for (const v of [schemaName, m.subscription_name, m.member_level_name, m.member_type, m.listing_type]) {
     if (v && String(v).trim() && String(v).trim() !== "0") { accountType = String(v).trim(); break; }
   }
 
@@ -179,9 +214,8 @@ async function shapeMember(memberId) {
       : "",
     hasProfilePhoto: !!(profilePhoto && String(profilePhoto).trim()),
     profileCompletePct: completeness(m, accountType),
-    optStatus: optStatus(m),
+    optStatus: await optStatus(m, memberId),
     signupDate: m.signup_date || m.date_added || m.created || m.join_date || m.registration_date || "",
-    loginCount: firstVal(m, ["logins_count", "login_count", "num_logins", "logins", "total_logins", "visit_count"]),
     lastLogin: firstVal(m, ["last_login", "last_login_date", "date_last_login", "last_visit", "last_active", "last_activity"]),
     accountStatus: firstVal(m, ["account_status", "status", "member_status", "active"]),
   };
