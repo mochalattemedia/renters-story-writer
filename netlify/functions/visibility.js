@@ -1,5 +1,10 @@
 // ============================================================
-//  visibility.js   ·   VERSION: vis3  (2026-07-05)
+//  visibility.js   ·   VERSION: vis5  (2026-07-09)
+//  vis5: Blob store init fixed. idxStore() now passes siteID + token explicitly
+//        instead of a try/catch around getStore() that never caught (getStore
+//        does not throw on creation). This is why opt-ins never populated the
+//        visibility-index and Find Renters returned nothing. Re-save each opted-in
+//        renter to backfill the index.
 //  vis3: DEPLOY-FRESHNESS MARKER. Same logic as vis2 plus GET debug branches
 //        (?debug=read&audience=landlords  and  ?debug=write&memberId=ID&audience=landlords)
 //        and hardened Blob store init. If the debug URL still reports "vis2",
