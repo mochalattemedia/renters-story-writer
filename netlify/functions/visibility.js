@@ -65,18 +65,14 @@ AUDIENCES.forEach((a) => { BY_KEY[a.key] = a; });
 // Store name "visibility-index", one key per audience -> JSON array of member IDs.
 const INDEX_STORE = "visibility-index";
 function idxStore() {
-  // Try automatic Netlify context first (works inside a deployed function).
-  // Fall back to explicit siteID + token if those env vars are present.
-  try {
-    return getStore({ name: INDEX_STORE, consistency: "strong" });
-  } catch (e1) {
-    var siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
-    var token = process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN || process.env.NETLIFY_AUTH_TOKEN;
-    if (siteID && token) {
-      return getStore({ name: INDEX_STORE, consistency: "strong", siteID: siteID, token: token });
-    }
-    throw e1;
+  // getStore() does NOT throw on creation (only later on read/write), so a
+  // try/catch fallback never fires. Pass siteID + token explicitly when present.
+  var siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+  var token = process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN || process.env.NETLIFY_AUTH_TOKEN;
+  if (siteID && token) {
+    return getStore({ name: INDEX_STORE, consistency: "strong", siteID: siteID, token: token });
   }
+  return getStore({ name: INDEX_STORE, consistency: "strong" });
 }
 async function readIndex(store, key) {
   try {
