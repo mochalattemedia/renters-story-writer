@@ -118,6 +118,17 @@ function tidyBudget(v) {
   return tidy(v);
 }
 
+// Return the first non-empty value among a list of possible BD field names.
+function firstVal(m, keys) {
+  for (var i = 0; i < keys.length; i++) {
+    var v = m[keys[i]];
+    if (v !== undefined && v !== null && String(v).trim() !== "" && String(v).trim() !== "0") {
+      return String(v).trim();
+    }
+  }
+  return "";
+}
+
 async function shapeMember(memberId) {
   const r = await bd(`/user/get/${encodeURIComponent(memberId)}`);
   const m = memberFrom(r.data);
@@ -169,7 +180,10 @@ async function shapeMember(memberId) {
     hasProfilePhoto: !!(profilePhoto && String(profilePhoto).trim()),
     profileCompletePct: completeness(m, accountType),
     optStatus: optStatus(m),
-    signupDate: m.signup_date || "",
+    signupDate: m.signup_date || m.date_added || m.created || m.join_date || m.registration_date || "",
+    loginCount: firstVal(m, ["logins_count", "login_count", "num_logins", "logins", "total_logins", "visit_count"]),
+    lastLogin: firstVal(m, ["last_login", "last_login_date", "date_last_login", "last_visit", "last_active", "last_activity"]),
+    accountStatus: firstVal(m, ["account_status", "status", "member_status", "active"]),
   };
 }
 
@@ -187,6 +201,13 @@ exports.handler = async function (event) {
         results.push(await shapeMember(id));
       }
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ count: results.length, members: results }) };
+    }
+
+    // Debug: dump raw BD member object to discover exact field names (login count, dates, etc.)
+    if (q.debug === "1" && q.memberId) {
+      const rr = await bd(`/user/get/${encodeURIComponent(q.memberId)}`);
+      const mm = memberFrom(rr.data) || {};
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ rawKeys: Object.keys(mm), raw: mm }, null, 2) };
     }
 
     // Single
