@@ -24,32 +24,28 @@ html, body {
 .wrap { max-width: 860px; margin: 0 auto; }
 
 #band {
-  background: rgba(13, 45, 78, 0.68);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  padding: 26px 30px 24px;
-  border-radius: 20px;
-  border: 1px solid rgba(255,255,255,0.10);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  background: #0d2d4e;
+  padding: 30px 34px 34px;
+  border-radius: 22px;
+  box-shadow: 0 10px 30px -8px rgba(0,0,0,0.22);
 }
 .lisa-wordmark {
   font-size: 30px; font-weight: 800; letter-spacing: -0.01em;
-  color: var(--white); line-height: 1; margin: 0 0 7px;
+  color: var(--white); line-height: 1; margin: 0 0 6px;
 }
 .lisa-wordmark .dot { color: var(--lime); }
-.lisa-intro p {
+.lisa-sub {
   font-size: 15px; color: rgba(255,255,255,0.72);
-  margin: 0; line-height: 1.5;
+  margin: 0 0 4px; line-height: 1.6; font-weight: 300;
 }
-.lisa-intro p .leasea { color: var(--lime); font-weight: 600; }
 
 #ask {
-  margin-top: 18px;
+  margin-top: 22px;
   background: var(--white);
-  border: 1px solid rgba(0,0,0,0.08);
-  border-radius: 16px;
-  padding: 16px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 18px;
+  padding: 22px;
+  box-shadow: none;
 }
 #thread {
   display: none;
@@ -129,17 +125,16 @@ html, body {
 #ask textarea:disabled { opacity: .6; }
 .ask-hint { font-size: 11px; color: #9aa0a8; margin: 9px 2px 0; }
 .ask-disclaimer { font-size: 11px; color: #b0b4ba; margin: 4px 2px 0; line-height: 1.45; }
-.ask-cap { font-size: 13px; color: #5a6b78; margin: 8px 2px 0; line-height: 1.55; }
 
 @media (max-width: 620px) {
   .wrap { max-width: 100%; }
   #band {
-    padding: 20px 16px 18px;
-    border-radius: 16px;
+    padding: 24px 18px 22px;
+    border-radius: 18px;
   }
   .lisa-wordmark { font-size: 26px; }
-  .lisa-intro p { font-size: 14px; }
-  #ask { padding: 13px; margin-top: 15px; }
+  .lisa-sub { font-size: 14px; }
+  #ask { padding: 18px; margin-top: 18px; }
   #ask textarea {
     min-height: 64px;
     font-size: 16px;
@@ -147,7 +142,6 @@ html, body {
   }
   .msg { max-width: 88%; font-size: 14px; }
   .ask-hint, .ask-disclaimer { font-size: 11px; }
-  .ask-cap { font-size: 12px; }
 }
 @media (max-width: 400px) {
   #band { padding: 18px 13px 16px; }
@@ -159,6 +153,7 @@ html, body {
 <div class="wrap">
   <div id="band">
     <p class="lisa-wordmark">Lisa<span class="dot">.</span></p>
+    <p class="lisa-sub">Ask me anything about renting &mdash; neighborhoods, budgets, leases, or how Renters.com works.</p>
 
     <div id="ask">
       <div id="thread"></div>
@@ -169,8 +164,7 @@ html, body {
         </button>
       </div>
       <p class="ask-hint">Tap the arrow or press Enter to send.</p>
-      <p class="ask-disclaimer">Lisa is AI and can be wrong. Verify anything important — especially legal, financial, or local rules — before acting on it.</p>
-      <p class="ask-cap">Ask about neighborhoods, budgets, rental prices, local rules, and leases &mdash; or how Renters.com works. Lisa is a knowledgeable guide, not a listings search.</p>
+      <p class="ask-disclaimer">Lisa is AI and can be wrong. Verify anything important, especially legal, financial, or local rules, before acting on it.</p>
     </div>
   </div>
 </div>
