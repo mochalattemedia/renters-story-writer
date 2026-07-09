@@ -1,5 +1,9 @@
 // ============================================================
-//  renter-search.js   ·   VERSION: rs1  (2026-07-05)
+//  renter-search.js   ·   VERSION: rs2  (2026-07-09)
+//  rs2: Blob read fixed. readFindableSet now builds the store via idxStore()
+//       with explicit siteID + token, matching visibility.js. The old plain
+//       getStore() read failed silently and returned [], so search showed
+//       nothing even when the index was populated.
 //  Landlord-facing renter search. Reads the "findable" Blob index
 //  written by visibility.js, shapes each renter from live BD data
 //  (same read pattern as verify-member.js), filters by location,
@@ -21,7 +25,7 @@ const { URL } = require("url");
 const { getStore } = require("@netlify/blobs");
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const VERSION = "rs1";
+const VERSION = "rs2";
 const INDEX_STORE = "visibility-index";
 
 const AUDIENCE_KEYS = ["landlords", "propertyManagers", "realtors", "buying", "renters"];
@@ -130,9 +134,20 @@ async function shapeCard(memberId) {
   };
 }
 
+// Build the index store with explicit siteID + token (getStore does not throw
+// on creation, so a try/catch fallback never fires). Matches visibility.js.
+function idxStore() {
+  var siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+  var token = process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN || process.env.NETLIFY_AUTH_TOKEN;
+  if (siteID && token) {
+    return getStore({ name: INDEX_STORE, consistency: "strong", siteID: siteID, token: token });
+  }
+  return getStore({ name: INDEX_STORE, consistency: "strong" });
+}
+
 async function readFindableSet(audience) {
   try {
-    const store = getStore({ name: INDEX_STORE, consistency: "strong" });
+    const store = idxStore();
     const v = await store.get("findable:" + audience, { type: "json" });
     return Array.isArray(v) ? v.map(String) : [];
   } catch (e) {
