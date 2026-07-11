@@ -96,8 +96,114 @@ exports.handler = async function (event) {
   if (!type || !email || !name) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Missing required fields: type, email, name" }) };
   }
-  if (type !== "approved") {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid type, only 'approved' is supported" }) };
+  if (type !== "approved" && type !== "denied" && type !== "needs-photo") {
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid type, use 'approved', 'denied', or 'needs-photo'" }) };
+  }
+
+  // ---------- NEEDS PHOTO (identity verified, waiting on a face photo) ----------
+  if (type === "needs-photo") {
+    const npSubject = "One quick step to finish verifying you";
+    const dash = "https://www.renters.com/account/home";
+    const npText = "Hi " + name + ",\n\n"
+      + "Good news: your identity checked out. To finish getting your verified badge, we just need a clear photo of your face on your profile.\n\n"
+      + "Right now your profile does not have a photo we can match to your ID, so we are holding your verification until you add one.\n\n"
+      + "Please add a profile photo that is:\n"
+      + "- A clear, front-facing photo of your face, like an ID photo. Just you, no logos, group photos, hats, or sunglasses.\n"
+      + "- Recent and clearly showing you.\n\n"
+      + "Add your photo from your dashboard (My Profile > Profile Photo): " + dash + "\n\n"
+      + "Once it is added, we will finish verifying you. You do NOT need to redo the identity check.\n\n"
+      + "Questions? Just reply to this email.\n\n"
+      + "Renters.com. Finding a home should feel safe.";
+
+    const npHtml = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+      + "<body style='margin:0;padding:0;background:#eef2f5;font-family:Open Sans,Arial,sans-serif;'>"
+      + "<div style='max-width:560px;margin:0 auto;padding:24px 16px;'>"
+      + "<div style='background:#0d2d4e;border-radius:14px 14px 0 0;padding:26px 30px;text-align:center;'>"
+      + "<div style='font-size:22px;font-weight:800;color:#ffffff;'>RENTERS<span style='color:#8dc63f;'>.</span></div></div>"
+      + "<div style='background:#ffffff;padding:32px 30px;border-radius:0 0 14px 14px;'>"
+      + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 12px;'>One quick step to finish</h1>"
+      + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + name + ", good news: your identity checked out. To finish getting your verified badge, we just need a clear photo of your face on your profile.</p>"
+      + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Right now your profile does not have a photo we can match to your ID, so we are holding your verification until you add one.</p>"
+      + "<div style='background:#f4f6f7;border-radius:10px;padding:16px 18px;margin-bottom:18px;'>"
+      + "<p style='font-size:13px;font-weight:700;color:#0d2d4e;margin:0 0 8px;'>Please add a profile photo that is:</p>"
+      + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0 0 6px;'>&#9679; A clear, front-facing photo of your face, like an ID photo. Just you, no logos, group photos, hats, or sunglasses.</p>"
+      + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0;'>&#9679; Recent and clearly showing you.</p></div>"
+      + "<div style='text-align:center;margin-bottom:16px;'>"
+      + "<a href='" + dash + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>Add your photo &rarr;</a></div>"
+      + "<p style='font-size:13px;color:#4a5a6a;line-height:1.6;text-align:center;margin:0 0 6px;'>Add it from My Profile &gt; Profile Photo. Once it is added, we will finish verifying you.</p>"
+      + "<p style='font-size:13px;color:#1e8449;font-weight:700;line-height:1.6;text-align:center;margin:0;'>You do not need to redo the identity check.</p>"
+      + "</div>"
+      + "<p style='font-size:12px;color:#9aa7b3;text-align:center;margin:18px 0 0;'>Renters.com. Finding a home should feel safe.</p>"
+      + "</div></body></html>";
+
+    const npCommand = new SendEmailCommand({
+      Source: "verify@renters.com",
+      Destination: { ToAddresses: [email] },
+      Message: {
+        Subject: { Data: npSubject, Charset: "UTF-8" },
+        Body: { Text: { Data: npText, Charset: "UTF-8" }, Html: { Data: npHtml, Charset: "UTF-8" } },
+      },
+    });
+    try {
+      await ses.send(npCommand);
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, type: "needs-photo", email }) };
+    } catch (err) {
+      console.error("SES error:", err);
+      return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to send email", details: err.message }) };
+    }
+  }
+
+  // ---------- DENIED (identity could not be confirmed against the profile) ----------
+  if (type === "denied") {
+    const denySubject = "About your Renters.com verification";
+    const reverify = "https://www.renters.com/account/promote/verify";
+    const denyText = "Hi " + name + ",\n\n"
+      + "Thanks for verifying your identity. We could not yet confirm that it matches your Renters.com profile, so your account is not verified.\n\n"
+      + "Here is how verification works: we check that the photo on your profile is a clear photo of you that matches the ID and selfie from your verification.\n\n"
+      + "To get verified, please make sure:\n"
+      + "- Your profile photo is a clear, front-facing photo of your face, like an ID photo. Just you, no logos, group photos, hats, or sunglasses.\n"
+      + "- The photo is recent and clearly shows you.\n\n"
+      + "Then re-verify here: " + reverify + "\n\n"
+      + "If you have questions, just reply to this email.\n\n"
+      + "Renters.com. Finding a home should feel safe.";
+
+    const denyHtml = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+      + "<body style='margin:0;padding:0;background:#eef2f5;font-family:Open Sans,Arial,sans-serif;'>"
+      + "<div style='max-width:560px;margin:0 auto;padding:24px 16px;'>"
+      + "<div style='background:#0d2d4e;border-radius:14px 14px 0 0;padding:26px 30px;text-align:center;'>"
+      + "<div style='font-size:22px;font-weight:800;color:#ffffff;'>RENTERS<span style='color:#8dc63f;'>.</span></div></div>"
+      + "<div style='background:#ffffff;padding:32px 30px;border-radius:0 0 14px 14px;'>"
+      + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 12px;'>Let\u2019s finish verifying you</h1>"
+      + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + name + ", thanks for verifying your identity. We could not yet confirm it matches your Renters.com profile, so your account is not verified.</p>"
+      + "<div style='background:#f4f6f7;border-radius:10px;padding:16px 18px;margin-bottom:18px;'>"
+      + "<p style='font-size:13px;font-weight:700;color:#0d2d4e;margin:0 0 8px;'>To get verified, make sure:</p>"
+      + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0 0 6px;'>&#9679; Your profile photo is a clear, front-facing photo of your face, like an ID photo. Just you, no logos, group photos, hats, or sunglasses.</p>"
+      + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0;'>&#9679; The photo is recent and clearly shows you.</p></div>"
+      + "<div style='text-align:center;margin-bottom:18px;'>"
+      + "<a href='" + reverify + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>Re-verify now &rarr;</a></div>"
+      + "<p style='font-size:13px;color:#8a97a3;line-height:1.6;text-align:center;margin:0;'>Questions? Just reply to this email and we\u2019ll help.</p>"
+      + "</div>"
+      + "<p style='font-size:12px;color:#9aa7b3;text-align:center;margin:18px 0 0;'>Renters.com. Finding a home should feel safe.</p>"
+      + "</div></body></html>";
+
+    const denyCommand = new SendEmailCommand({
+      Source: "verify@renters.com",
+      Destination: { ToAddresses: [email] },
+      Message: {
+        Subject: { Data: denySubject, Charset: "UTF-8" },
+        Body: {
+          Text: { Data: denyText, Charset: "UTF-8" },
+          Html: { Data: denyHtml, Charset: "UTF-8" },
+        },
+      },
+    });
+    try {
+      await ses.send(denyCommand);
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, type: "denied", email }) };
+    } catch (err) {
+      console.error("SES error:", err);
+      return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to send email", details: err.message }) };
+    }
   }
 
   const supply = isSupplySide(accountType);
