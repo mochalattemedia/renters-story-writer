@@ -1,6 +1,6 @@
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 const ses = new SESClient({
-  region: process.env.SES_REGION || "us-east-1",
+  region: process.env.SES_REGION || "us-east-2",
   credentials: {
     accessKeyId: process.env.SES_ACCESS_KEY_ID,
     secretAccessKey: process.env.SES_SECRET_ACCESS_KEY,
@@ -96,8 +96,63 @@ exports.handler = async function (event) {
   if (!type || !email || !name) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Missing required fields: type, email, name" }) };
   }
-  if (type !== "approved" && type !== "denied" && type !== "needs-photo") {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid type, use 'approved', 'denied', or 'needs-photo'" }) };
+  if (type !== "approved" && type !== "denied" && type !== "needs-photo" && type !== "try-again") {
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid type, use 'approved', 'denied', 'needs-photo', or 'try-again'" }) };
+  }
+
+  // ---------- TRY AGAIN (Didit declined a likely-legitimate person; encourage a retry) ----------
+  if (type === "try-again") {
+    const taSubject = "Let\u2019s try your verification again";
+    const reverify = "https://www.renters.com/account/promote/verify";
+    const taText = "Hi " + name + ",\n\n"
+      + "Your recent identity verification did not go through, but that often happens to real people for small, fixable reasons, so we would like you to try again.\n\n"
+      + "Verifications commonly do not pass when:\n"
+      + "- The photo of your ID has glare, blur, or a cut-off edge.\n"
+      + "- The lighting was too dark or too bright.\n"
+      + "- Your face was not fully visible in the selfie (hat, sunglasses, shadow).\n"
+      + "- The ID was expired or hard to read.\n\n"
+      + "None of these mean anything is wrong with you or your ID. A clear, well-lit photo of a valid government ID and a straight-on selfie usually does the trick.\n\n"
+      + "Try again here: " + reverify + "\n\n"
+      + "If you try again and still have trouble, just reply to this email and we will help you through it.\n\n"
+      + "Renters.com. Finding a home should feel safe.";
+
+    const taHtml = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+      + "<body style='margin:0;padding:0;background:#eef2f5;font-family:Open Sans,Arial,sans-serif;'>"
+      + "<div style='max-width:560px;margin:0 auto;padding:24px 16px;'>"
+      + "<div style='background:#0d2d4e;border-radius:14px 14px 0 0;padding:26px 30px;text-align:center;'>"
+      + "<div style='font-size:22px;font-weight:800;color:#ffffff;'>RENTERS<span style='color:#8dc63f;'>.</span></div></div>"
+      + "<div style='background:#ffffff;padding:32px 30px;border-radius:0 0 14px 14px;'>"
+      + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 12px;'>Let\u2019s try your verification again</h1>"
+      + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + name + ", your recent identity verification did not go through. That often happens to real people for small, fixable reasons, so we would like you to try again.</p>"
+      + "<div style='background:#f4f6f7;border-radius:10px;padding:16px 18px;margin-bottom:16px;'>"
+      + "<p style='font-size:13px;font-weight:700;color:#0d2d4e;margin:0 0 8px;'>Verifications commonly do not pass when:</p>"
+      + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0 0 5px;'>&#9679; The photo of your ID has glare, blur, or a cut-off edge.</p>"
+      + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0 0 5px;'>&#9679; The lighting was too dark or too bright.</p>"
+      + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0 0 5px;'>&#9679; Your face was not fully visible in the selfie (hat, sunglasses, shadow).</p>"
+      + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0;'>&#9679; The ID was expired or hard to read.</p></div>"
+      + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0 0 18px;'>None of these mean anything is wrong with you or your ID. A clear, well-lit photo of a valid government ID and a straight-on selfie usually does the trick.</p>"
+      + "<div style='text-align:center;margin-bottom:16px;'>"
+      + "<a href='" + reverify + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>Try again &rarr;</a></div>"
+      + "<p style='font-size:13px;color:#8a97a3;line-height:1.6;text-align:center;margin:0;'>Still having trouble? Just reply to this email and we will help you through it.</p>"
+      + "</div>"
+      + "<p style='font-size:12px;color:#9aa7b3;text-align:center;margin:18px 0 0;'>Renters.com. Finding a home should feel safe.</p>"
+      + "</div></body></html>";
+
+    const taCommand = new SendEmailCommand({
+      Source: "verify@renters.com",
+      Destination: { ToAddresses: [email] },
+      Message: {
+        Subject: { Data: taSubject, Charset: "UTF-8" },
+        Body: { Text: { Data: taText, Charset: "UTF-8" }, Html: { Data: taHtml, Charset: "UTF-8" } },
+      },
+    });
+    try {
+      await ses.send(taCommand);
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, type: "try-again", email }) };
+    } catch (err) {
+      console.error("SES error:", err);
+      return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to send email", details: err.message }) };
+    }
   }
 
   // ---------- NEEDS PHOTO (identity verified, waiting on a face photo) ----------
