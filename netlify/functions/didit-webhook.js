@@ -126,7 +126,16 @@ const displayName = name || ('Member #' + (memberId || 'unknown'));
     '\nAutomated notification from Didit.'
   );
 
-  // ---- EXISTING verify-log pipeline (unchanged) ----
+  // ---- verify-log pipeline: ONLY real decisions land in the review queue ----
+  // Didit sends: 'not started' (link opened) -> 'in progress' -> 'approved'/'declined'.
+  // The first two have no selfie/ID yet, so they must NOT create queue records.
+  // Emails above still fire for every stage (funnel visibility); only the final
+  // decision is written to verify-log for inspection.
+  if (s !== 'approved' && s !== 'declined') {
+    console.log('Didit webhook: skipping verify-log write for non-decision status "' + diditStatus + '" (member=' + memberId + ', session=' + sessionId + ')');
+    return { statusCode: 200, body: JSON.stringify({ ok: true, skipped: 'non-decision status', status: diditStatus }) };
+  }
+
   if (!memberId || memberId === 'renter' || /^live-test/i.test(memberId) || /^test/i.test(memberId)) {
     console.log('Didit webhook: no usable member id (vendor_data="' + memberId + '") session=' + sessionId + ' status=' + diditStatus);
     return { statusCode: 200, body: JSON.stringify({ ok: true, skipped: 'no member id' }) };
