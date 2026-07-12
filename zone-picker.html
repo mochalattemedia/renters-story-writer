@@ -141,6 +141,10 @@ var COLORS = ['#3a9e8f','#0d2d4e','#e67e22','#9b59b6','#e74c3c','#1abc9c','#2980
 // and it poisons Find Renters results. Enforced again in head code za5.
 var MAX_ZIPS = 15;
 
+// How many areas are ALREADY on the renter profile. The parent page reads this
+// out of BD table and posts it down, because the picker cannot see BD.
+var existingCount = 0;
+
 function initMap() {
   map = new google.maps.Map(document.getElementById('zp-map'), {
     center: { lat: 39.5, lng: -98.35 },
@@ -496,7 +500,8 @@ function allZipsAcrossZones() {
 function updateCapBanner() {
   var cap = document.getElementById('zp-cap');
   if (!cap) return;
-  var total = allZipsAcrossZones().length;
+  var drawing = allZipsAcrossZones().length;
+  var total = existingCount + drawing;   // the whole profile, not just this save
   var anyLoading = zones.some(function(z) { return z.loading; });
 
   if (anyLoading || total <= MAX_ZIPS) {
@@ -505,10 +510,19 @@ function updateCapBanner() {
     return;
   }
 
-  cap.innerHTML = '<b>Your search area is very broad.</b> It covers ' + total +
-    ' zip codes, and we save the first ' + MAX_ZIPS + '. An area this wide reads as ' +
-    '"anywhere" to landlords, which weakens your matches. Tighten your zones to the ' +
-    'places you would actually live and you will get better ones.';
+  var room = Math.max(0, MAX_ZIPS - existingCount);
+  var msg = '<b>Your search area is too broad.</b> ';
+  if (existingCount > 0) {
+    msg += 'You already have ' + existingCount + ' area' + (existingCount !== 1 ? 's' : '') +
+           ' saved, and these zones add ' + drawing + ' more, which is ' + total + ' against a limit of ' + MAX_ZIPS + '. ' +
+           'We will save ' + room + '. ';
+  } else {
+    msg += 'These zones cover ' + drawing + ' zip codes against a limit of ' + MAX_ZIPS + '. ' +
+           'We will save the first ' + MAX_ZIPS + '. ';
+  }
+  msg += 'An area this wide reads as "anywhere" to landlords, which weakens your matches. ' +
+         'Tighten your zones to the places you would actually live and you will get better ones.';
+  cap.innerHTML = msg;
   cap.classList.add('visible');
 }
 
@@ -603,9 +617,6 @@ function saveZones() {
     return;
   }
 
-  var overCap = zipList.length > MAX_ZIPS;
-  if (overCap) zipList = zipList.slice(0, MAX_ZIPS);
-
   if (window.parent) {
     window.parent.postMessage({
       type: 'renters_areas_zips',
@@ -627,14 +638,42 @@ function saveZones() {
     }, '*');
   }
 
-  if (overCap) {
-    setStatus('Saved the first ' + MAX_ZIPS + ' zip codes. Tighten your zones to save the ones that matter most.');
-    document.getElementById('zp-status').classList.add('warn');
-  } else {
-    document.getElementById('zp-status').classList.remove('warn');
-    setStatus('&#10003; ' + zipList.length + ' area' + (zipList.length !== 1 ? 's' : '') + ' saved to your profile.');
-  }
+  // The parent enforces the real cap (it can see what is already on the profile)
+  // and posts the outcome back, which overwrites this line.
+  setStatus('Saving...');
 }
+
+// ---- handshake with the parent page (head code za6) ----
+window.addEventListener('message', function(e) {
+  var d = e.data;
+  if (!d || !d.type) return;
+
+  if (d.type === 'renters_areas_state') {
+    existingCount = d.existing || 0;
+    if (typeof d.cap === 'number') MAX_ZIPS = d.cap;
+    renderZoneList();
+    if (existingCount > 0 && zones.length === 0) {
+      setStatus('You have ' + existingCount + ' of ' + MAX_ZIPS + ' areas saved. Draw a zone to add more.');
+    }
+  }
+
+  if (d.type === 'renters_areas_result') {
+    var el = document.getElementById('zp-status');
+    if (d.full) {
+      el.classList.add('warn');
+      setStatus('Your profile is full at ' + d.cap + ' areas. Delete one below before adding another.');
+    } else if (d.duplicate) {
+      el.classList.remove('warn');
+      setStatus('Those areas are already on your profile.');
+    } else if (d.skipped > 0) {
+      el.classList.add('warn');
+      setStatus('Saved ' + d.saved + '. Skipped ' + d.skipped + ', you hit the ' + d.cap + ' area limit.');
+    } else {
+      el.classList.remove('warn');
+      setStatus('Saved ' + d.saved + ' area' + (d.saved !== 1 ? 's' : '') + '. You now have ' + d.existing + ' of ' + d.cap + '.');
+    }
+  }
+});
 
 function setStatus(msg) {
   document.getElementById('zp-status').innerHTML = msg;
