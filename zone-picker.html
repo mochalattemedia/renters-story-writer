@@ -68,17 +68,33 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
 }
 #zp-status { font-size: 13px; color: #3a9e8f; font-weight: 600; }
+#zp-status.warn { color: #c0392b; }
+
+.zp-zone-name {
+  color: #0d2d4e; font-weight: 600; border: 1px solid transparent;
+  border-radius: 6px; padding: 2px 6px; margin: -2px -6px;
+  cursor: text; min-width: 60px; display: inline-block;
+}
+.zp-zone-name:hover { border-color: #e8eceb; background: #fff; }
+.zp-zone-name:focus { border-color: #3a9e8f; background: #fff; outline: none; }
+.zp-zone-rename { font-size: 11px; color: #8a9aa8; margin-left: 6px; font-weight: 400; }
+
+.zp-cap {
+  padding: 10px 20px; background: #fdf0ee; border-left: 3px solid #c0392b;
+  font-size: 12px; color: #7a2a20; line-height: 1.6; display: none;
+}
+.zp-cap.visible { display: block; }
 </style>
 </head>
 <body>
 
 <div id="zp-header">
   <h1>My Areas</h1>
-  <p>Search for a location, then click "Draw Zone" and click points on the map to outline your area. Double-click to finish a zone.</p>
+  <p>Search for a neighborhood or city, then click "Draw Zone" and click points on the map to outline your area. Double-click to finish. We name each zone for you, and you can rename it in your own words.</p>
 </div>
 
 <div id="zp-toolbar">
-  <input type="text" id="zp-search" placeholder="Search for a city, neighborhood, or address...">
+  <input type="text" id="zp-search" placeholder="Search a neighborhood, city, or zip...">
   <button class="zp-btn zp-btn-teal" id="zp-draw-btn" onclick="startDrawing()">&#9998; Draw Zone</button>
   <button class="zp-btn zp-btn-red" id="zp-cancel-btn" onclick="cancelDrawing()" style="display:none;">&#x2715; Cancel</button>
   <button class="zp-btn zp-btn-outline" id="zp-finish-btn" onclick="finishZone()" style="display:none;">&#10003; Finish Zone</button>
@@ -87,6 +103,8 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
 <div id="zp-instructions">
   Click on the map to place points around your zone. Click "Finish Zone" or double-click to complete it.
 </div>
+
+<div class="zp-cap" id="zp-cap"></div>
 
 <div id="zp-map"></div>
 
@@ -115,8 +133,13 @@ var currentPolyline = null;
 var currentMarkers = [];
 var previewPolygon = null;
 var mapReady = false;
+var lastSearchName = '';
 
 var COLORS = ['#3a9e8f','#0d2d4e','#e67e22','#9b59b6','#e74c3c','#1abc9c','#2980b9','#8dc63f'];
+
+// Locked business cap. A renter matching 40 zips is not really searching,
+// and it poisons Find Renters results. Enforced again in head code za5.
+var MAX_ZIPS = 15;
 
 function initMap() {
   map = new google.maps.Map(document.getElementById('zp-map'), {
@@ -131,19 +154,28 @@ function initMap() {
 
   // Search autocomplete
   var input = document.getElementById('zp-search');
+  // types '(regions)' surfaces neighborhoods, sublocalities, cities and zips.
+  // Without it Google returns businesses too, which is why search felt noisy.
   var autocomplete = new google.maps.places.Autocomplete(input, {
-    componentRestrictions: { country: 'us' }
+    componentRestrictions: { country: 'us' },
+    types: ['(regions)'],
+    fields: ['geometry', 'name', 'formatted_address', 'place_id', 'types']
   });
   autocomplete.bindTo('bounds', map);
   autocomplete.addListener('place_changed', function() {
     var place = autocomplete.getPlace();
     if (!place.geometry) return;
+    // Remember what the renter searched. If they draw next, we prefill the
+    // zone label with it, since it is closer to their words than a reverse
+    // geocode of a random point inside the shape.
+    lastSearchName = place.name || '';
     if (place.geometry.viewport) {
       map.fitBounds(place.geometry.viewport);
     } else {
       map.setCenter(place.geometry.location);
       map.setZoom(12);
     }
+    setStatus('Showing ' + (place.name || 'that area') + '. Click "Draw Zone" to outline it.');
   });
 
   // Map click handler for drawing
@@ -273,6 +305,7 @@ function finishZone() {
 
   var zone = {
     polygon: polygon,
+    customName: false,   // true once the renter renames it, so we never overwrite
     color: color,
     zips: [],
     name: 'Area ' + (zoneIndex + 1),
@@ -297,6 +330,7 @@ function resetDrawingUI() {
 }
 
 function autoNameZone(polygon, zoneIndex) {
+  var searchedName = lastSearchName;   // what the renter typed, if anything
   var path = polygon.getPath();
   var bounds = new google.maps.LatLngBounds();
   path.forEach(function(point) { bounds.extend(point); });
@@ -348,17 +382,28 @@ function autoNameZone(polygon, zoneIndex) {
         }
         completed++;
         if (completed === pointsToName.length) {
+          // The renter already renamed it while we were geocoding. Leave it alone.
+          if (zones[zoneIndex] && zones[zoneIndex].customName) { renderZoneList(); return; }
+
           var neighborhoods = Object.keys(foundNeighborhoods).slice(0, 3);
           var zips = Object.keys(foundZipsForName).slice(0, 3);
           var name = '';
+
           if (neighborhoods.length > 0) {
             name = neighborhoods.join(', ');
             if (stateCode) name += ', ' + stateCode;
+          } else if (searchedName) {
+            // No neighborhood came back, but the renter searched something.
+            // Their words beat "Area in OR".
+            name = searchedName + (stateCode ? ', ' + stateCode : '');
           } else if (stateCode) {
             name = 'Area in ' + stateCode;
           }
-          zones[zoneIndex].name = name || ('Area ' + (zoneIndex + 1));
-          zones[zoneIndex].displayZips = zips;
+
+          if (zones[zoneIndex]) {
+            zones[zoneIndex].name = name || ('Area ' + (zoneIndex + 1));
+            zones[zoneIndex].displayZips = zips;
+          }
           renderZoneList();
         }
       });
@@ -429,10 +474,49 @@ function getZipCodesForPolygon(polygon, zoneIndex) {
   });
 }
 
+function escapeHtml(t) {
+  return String(t == null ? '' : t)
+    .split('&').join('&amp;')
+    .split('<').join('&lt;')
+    .split('>').join('&gt;')
+    .split('"').join('&quot;');
+}
+
+// Every unique zip across every zone. This is what actually gets saved.
+function allZipsAcrossZones() {
+  var seen = {}, out = [];
+  zones.forEach(function(zone) {
+    (zone.zips || []).forEach(function(zip) {
+      if (!seen[zip]) { seen[zip] = true; out.push(zip); }
+    });
+  });
+  return out;
+}
+
+function updateCapBanner() {
+  var cap = document.getElementById('zp-cap');
+  if (!cap) return;
+  var total = allZipsAcrossZones().length;
+  var anyLoading = zones.some(function(z) { return z.loading; });
+
+  if (anyLoading || total <= MAX_ZIPS) {
+    cap.classList.remove('visible');
+    cap.innerHTML = '';
+    return;
+  }
+
+  cap.innerHTML = '<b>Your search area is very broad.</b> It covers ' + total +
+    ' zip codes, and we save the first ' + MAX_ZIPS + '. An area this wide reads as ' +
+    '"anywhere" to landlords, which weakens your matches. Tighten your zones to the ' +
+    'places you would actually live and you will get better ones.';
+  cap.classList.add('visible');
+}
+
 function renderZoneList() {
   var list = document.getElementById('zp-zones-list');
   if (zones.length === 0) {
     list.innerHTML = '<div id="zp-empty">No zones drawn yet. Click "Draw Zone" to get started.</div>';
+    updateCapBanner();
     return;
   }
   var html = '';
@@ -441,15 +525,18 @@ function renderZoneList() {
     html += '<div class="zp-zone-item-left">';
     html += '<div class="zp-zone-dot" style="background:' + zone.color + '"></div>';
     html += '<div>';
-    html += '<div class="zp-zone-name">' + zone.name + '</div>';
+    html += '<span class="zp-zone-name" contenteditable="true" spellcheck="false" data-index="' + i + '" onblur="renameZone(this)" onkeydown="zoneKey(event, this)">' + escapeHtml(zone.name) + '</span>';
+    if (!zone.customName && !zone.loading) {
+      html += '<span class="zp-zone-rename">click to rename</span>';
+    }
     if (zone.loading) {
       html += '<div class="zp-zone-zips">Identifying neighborhoods and zip codes...</div>';
     } else {
       var displayZips = (zone.displayZips || zone.zips.slice(0, 3));
-      var zipStr = displayZips.length > 0 ? ' — ' + displayZips.join(', ') + (zone.zips.length > displayZips.length ? '...' : '') : '';
+      var zipStr = displayZips.length > 0 ? ' - ' + displayZips.join(', ') + (zone.zips.length > displayZips.length ? '...' : '') : '';
       var totalStr = zone.zips.length > 0
         ? zone.zips.length + ' zip code' + (zone.zips.length !== 1 ? 's' : '') + zipStr
-        : 'No zip codes found — try a larger zone';
+        : 'No zip codes found, try a larger zone';
       html += '<div class="zp-zone-zips">' + totalStr + '</div>';
     }
     html += '</div></div>';
@@ -457,14 +544,40 @@ function renderZoneList() {
     html += '</div>';
   });
   list.innerHTML = html;
+  updateCapBanner();
+}
+
+function zoneKey(e, el) {
+  if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+}
+
+// The renter names the zone in their own words. This label is a Renters.com
+// field: it rides up in the postMessage, it never goes to BD (BD stores zips
+// only), and once the renter sets it we never auto-overwrite it.
+function renameZone(el) {
+  var i = parseInt(el.getAttribute('data-index'), 10);
+  if (isNaN(i) || !zones[i]) return;
+  var typed = (el.textContent || '').replace(/\s+/g, ' ').trim();
+  if (typed.length > 60) typed = typed.substring(0, 60);
+  if (!typed) { el.textContent = zones[i].name; return; }
+  if (typed === zones[i].name) return;
+  zones[i].name = typed;
+  zones[i].customName = true;
+  renderZoneList();
+  setStatus('Renamed to "' + typed + '".');
 }
 
 function deleteZone(index) {
+  // BUG FIXED (v2): this used to renumber every surviving zone to "Zone 1",
+  // "Zone 2", wiping both the auto-detected neighborhood names AND anything the
+  // renter had typed. Names belong to their zone. Deleting a sibling does not
+  // rename it.
+  if (!zones[index]) return;
+  var gone = zones[index].name;
   zones[index].polygon.setMap(null);
   zones.splice(index, 1);
-  zones.forEach(function(zone, i) { zone.name = 'Zone ' + (i + 1); });
   renderZoneList();
-  setStatus('Zone deleted.');
+  setStatus(gone ? ('"' + gone + '" removed.') : 'Zone deleted.');
 }
 
 function clearAll() {
@@ -476,30 +589,51 @@ function clearAll() {
 
 function saveZones() {
   if (zones.some(function(z) { return z.loading; })) {
-    setStatus('Please wait — still calculating zip codes...');
+    setStatus('Please wait, still identifying zip codes...');
     return;
   }
   if (zones.length === 0) {
-    setStatus('No zones to save — draw at least one zone first.');
+    setStatus('No zones to save, draw at least one zone first.');
     return;
   }
-  var allZips = {};
-  zones.forEach(function(zone) {
-    zone.zips.forEach(function(zip) { allZips[zip] = true; });
-  });
-  var zipList = Object.keys(allZips);
+
+  var zipList = allZipsAcrossZones();
   if (zipList.length === 0) {
-    setStatus('No zip codes found — try drawing larger zones.');
+    setStatus('No zip codes found, try drawing larger zones.');
     return;
   }
+
+  var overCap = zipList.length > MAX_ZIPS;
+  if (overCap) zipList = zipList.slice(0, MAX_ZIPS);
+
   if (window.parent) {
     window.parent.postMessage({
       type: 'renters_areas_zips',
+      // The machine layer. BD stores these as Postal Code service areas and
+      // renter-search matches landlords against them.
       zips: zipList,
-      zones: zones.map(function(z) { return { name: z.name, zips: z.zips }; })
+      // The human layer. The renter's own words for each zone. Renters.com
+      // keeps these; BD never sees them.
+      zones: zones.map(function(z) {
+        return {
+          name: z.name,
+          custom: !!z.customName,
+          zips: z.zips || [],
+          path: z.polygon.getPath().getArray().map(function(pt) {
+            return { lat: pt.lat(), lng: pt.lng() };
+          })
+        };
+      })
     }, '*');
   }
-  setStatus('&#10003; ' + zipList.length + ' areas saved to your profile!');
+
+  if (overCap) {
+    setStatus('Saved the first ' + MAX_ZIPS + ' zip codes. Tighten your zones to save the ones that matter most.');
+    document.getElementById('zp-status').classList.add('warn');
+  } else {
+    document.getElementById('zp-status').classList.remove('warn');
+    setStatus('&#10003; ' + zipList.length + ' area' + (zipList.length !== 1 ? 's' : '') + ' saved to your profile.');
+  }
 }
 
 function setStatus(msg) {
