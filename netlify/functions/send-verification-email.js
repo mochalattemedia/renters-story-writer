@@ -13,6 +13,19 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
+// --- Name cleanup (restored; was live before the Jul 9 rebuild dropped it) ---
+// Blank/garbage name -> "there" so the greeting reads "Hi there,".
+// Domain-like names ("RENTERS.COM") get their dots de-linked so mail clients
+// don't auto-hyperlink them in the greeting.
+function cleanName(raw) {
+  var n = String(raw == null ? "" : raw).trim();
+  if (!n) return "there";
+  // de-link domain-ish names: dot between alphanumerics -> space
+  n = n.replace(/([A-Za-z0-9])\.([A-Za-z0-9])/g, "$1 $2").trim();
+  if (!n) return "there";
+  return n;
+}
+
 // Renter vs supply-side (landlord / property manager / realtor / agent)
 function isSupplySide(accountType) {
   const t = String(accountType || "").toLowerCase();
@@ -92,10 +105,12 @@ exports.handler = async function (event) {
   try { body = JSON.parse(event.body); }
   catch (e) { return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) }; }
 
-  const { type, email, name, accountType } = body;
-  if (!type || !email || !name) {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Missing required fields: type, email, name" }) };
+  const { type, email, accountType } = body;
+  if (!type || !email) {
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Missing required fields: type, email" }) };
   }
+  // Name is optional: a blank name greets "Hi there," rather than "Hi ,".
+  const name = cleanName(body.name);
   if (type !== "approved" && type !== "denied" && type !== "needs-photo" && type !== "try-again") {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid type, use 'approved', 'denied', 'needs-photo', or 'try-again'" }) };
   }
