@@ -1,4 +1,18 @@
 // ============================================================
+//  didit-webhook.js
+//  FN_VERSION: dwh-v2   (2026-07-11)
+//
+//  Changelog
+//   dwh-v2  Jul 11  verify-log writes ONLY on approved/declined. Didit sends
+//                   4 statuses (not started -> in progress -> approved/declined);
+//                   writing on every status put abandoned sessions in the review
+//                   queue with no selfie and no ID. Funnel EMAILS still fire at
+//                   every stage (that pipeline is unchanged).
+//   dwh-v1          HMAC verify + verify-log write on every status + SES funnel
+//                   notifications to the hub.
+// ============================================================
+const FN_VERSION = "dwh-v2";
+// ============================================================
 //  didit-webhook.js  ·  Receives Didit verification results
 //  Verifies HMAC-SHA256 over the RAW body, writes the outcome
 //  into verify-log (keyed by BD member ID from vendor_data),
@@ -133,7 +147,7 @@ const displayName = name || ('Member #' + (memberId || 'unknown'));
   // decision is written to verify-log for inspection.
   if (s !== 'approved' && s !== 'declined') {
     console.log('Didit webhook: skipping verify-log write for non-decision status "' + diditStatus + '" (member=' + memberId + ', session=' + sessionId + ')');
-    return { statusCode: 200, body: JSON.stringify({ ok: true, skipped: 'non-decision status', status: diditStatus }) };
+    return { statusCode: 200, body: JSON.stringify({ ok: true, _v: FN_VERSION, skipped: 'non-decision status', status: diditStatus }) };
   }
 
   if (!memberId || memberId === 'renter' || /^live-test/i.test(memberId) || /^test/i.test(memberId)) {

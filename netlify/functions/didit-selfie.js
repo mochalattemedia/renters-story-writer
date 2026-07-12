@@ -1,3 +1,12 @@
+// FN_VERSION: dsf-v2  (2026-07-11)
+//  dsf-v2  correct plural array field paths:
+//          selfie      = liveness_checks[0].reference_image
+//          idPortrait  = id_verifications[0].portrait_image
+//          score       = face_matches[0].score
+//          (dsf-v1 used the singular names and always returned empty)
+//  Debug: append &debug=1 to dump the raw Didit decision response.
+const FN_VERSION = "dsf-v2";
+
 // ============================================================
 //  didit-selfie.js  ·  Retrieve the captured selfie (and ID portrait)
 //  from a Didit session, so the admin review panel can compare the
@@ -86,6 +95,7 @@ exports.handler = async function (event) {
       "";
 
     return ok({
+      _v: FN_VERSION,
       status: data.status || "",
       selfie: selfie || "",
       idPortrait: idPortrait || "",

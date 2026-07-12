@@ -1,3 +1,25 @@
+// ============================================================
+//  send-verification-email.js
+//  FN_VERSION: sve-v3   (2026-07-11)
+//
+//  Changelog
+//   sve-v3  Jul 11  + needs-photo email (hold for a face photo, no re-Didit)
+//                   + try-again email (warm retry nudge for Didit declines)
+//                   + SES region fallback corrected us-east-1 -> us-east-2
+//                   + RESTORED cleanName() (blank name -> "Hi there,";
+//                     de-links domain-like names). It was live from Jul 4 and
+//                     was silently dropped by the sve-v2 rebuild.
+//   sve-v2  Jul 9   approved email split renter vs landlord (welcome +
+//                   checklist + toolkit); deny email. REGRESSION: dropped
+//                   cleanName(), and dropped the pct/optStatus adaptive copy.
+//   sve-v1  Jul 4   approved / rejected / on-hold; cleanName(); pct+optStatus
+//                   adaptive lines.
+//
+//  Types: approved | denied | needs-photo | try-again
+//  Sender: verify@renters.com  ·  SES region: us-east-2 (Ohio)
+// ============================================================
+const FN_VERSION = "sve-v3";
+
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 const ses = new SESClient({
   region: process.env.SES_REGION || "us-east-2",
@@ -99,6 +121,11 @@ function shell(name, introLine, checklistItems, toolsHtml) {
 
 exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
+  // GET = version probe. Open the function URL in a browser to see which
+  // build is actually deployed, without diffing files.
+  if (event.httpMethod === "GET") {
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ ok: true, _v: FN_VERSION, types: ["approved", "denied", "needs-photo", "try-again"] }) };
+  }
   if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: "Method Not Allowed" };
 
   let body;
@@ -163,7 +190,7 @@ exports.handler = async function (event) {
     });
     try {
       await ses.send(taCommand);
-      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, type: "try-again", email }) };
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, _v: FN_VERSION, type: "try-again", email }) };
     } catch (err) {
       console.error("SES error:", err);
       return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to send email", details: err.message }) };
@@ -216,7 +243,7 @@ exports.handler = async function (event) {
     });
     try {
       await ses.send(npCommand);
-      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, type: "needs-photo", email }) };
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, _v: FN_VERSION, type: "needs-photo", email }) };
     } catch (err) {
       console.error("SES error:", err);
       return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to send email", details: err.message }) };
@@ -269,7 +296,7 @@ exports.handler = async function (event) {
     });
     try {
       await ses.send(denyCommand);
-      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, type: "denied", email }) };
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, _v: FN_VERSION, type: "denied", email }) };
     } catch (err) {
       console.error("SES error:", err);
       return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to send email", details: err.message }) };
@@ -350,7 +377,7 @@ exports.handler = async function (event) {
   });
   try {
     await ses.send(command);
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, type, email, side: supply ? "landlord" : "renter" }) };
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, _v: FN_VERSION, type, email, side: supply ? "landlord" : "renter" }) };
   } catch (err) {
     console.error("SES error:", err);
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to send email", details: err.message }) };
