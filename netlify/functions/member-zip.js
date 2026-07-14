@@ -1,7 +1,10 @@
 // ============================================================
-//  member-zip.js   ·   VERSION: mz-v2  (2026-07-13)
+//  member-zip.js   ·   VERSION: mz-v3  (2026-07-13)
 //  mz-v2: ?version=1 now reports whether ADMIN_PROBE_KEY actually reached the
 //        function, so a 403 can be told apart from a missing/unscoped env var.
+//  mz-v3: a 403 now returns a SHA-256 fingerprint + length of BOTH the stored key
+//        and the supplied key. Neither secret is revealed, but a mismatch is now
+//        diagnosable instead of guessable. Debug the silent failure, do not guess.
 //
 //  WHY THIS FILE EXISTS
 //  The onboarding wizard replaced BD's About Me force-march and killed
@@ -36,10 +39,11 @@
 // ============================================================
 
 const https = require("https");
+const crypto = require("crypto");
 const { URL } = require("url");
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 
-const FN_VERSION = "mz-v2";
+const FN_VERSION = "mz-v3";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const PROBE_KEY = process.env.ADMIN_PROBE_KEY || "";
 
@@ -261,8 +265,29 @@ exports.handler = async function (event) {
     // ---------- ADMIN PROBES (gated: /user/get returns email, phone, address) ----
     const isProbe = q.raw || q.keys || q.list;
     if (isProbe) {
-      if (!PROBE_KEY || q.key !== PROBE_KEY) {
-        return reply(403, { ok: false, error: "probe_key_required", FN_VERSION });
+      const supplied = q.key == null ? "" : String(q.key);
+      if (!PROBE_KEY || supplied !== PROBE_KEY) {
+        // Fingerprint both sides. Reveals neither, but tells us WHICH is wrong:
+        //   lengths differ            -> the URL truncated it, or the stored value
+        //                                has stray whitespace
+        //   lengths match, fp differs -> the two strings are simply not the same
+        //   fp match                  -> impossible (would not be in this branch)
+        const fp = (v) => crypto.createHash("sha256").update(v, "utf8").digest("hex").slice(0, 12);
+        return reply(403, {
+          ok: false,
+          error: "probe_key_required",
+          FN_VERSION,
+          storedLength: PROBE_KEY.length,
+          suppliedLength: supplied.length,
+          storedFingerprint: PROBE_KEY ? fp(PROBE_KEY) : null,
+          suppliedFingerprint: supplied ? fp(supplied) : null,
+          // Was the value in Netlify saved with invisible whitespace on it?
+          storedHasOuterWhitespace: PROBE_KEY !== PROBE_KEY.trim(),
+          storedLengthTrimmed: PROBE_KEY.trim().length,
+          // Would it have matched if we trimmed the stored value? If true, the
+          // env var has a stray space or newline and that is the entire bug.
+          wouldMatchIfStoredTrimmed: supplied.length > 0 && supplied === PROBE_KEY.trim(),
+        });
       }
 
       // ?list=1 -> DOES BD HAVE A BULK MEMBER LIST?
