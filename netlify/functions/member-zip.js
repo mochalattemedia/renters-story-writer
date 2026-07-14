@@ -1,10 +1,28 @@
 // ============================================================
-//  member-zip.js   ·   VERSION: mz-v3  (2026-07-13)
+//  member-zip.js   ·   VERSION: mz-v4  (2026-07-14)
 //  mz-v2: ?version=1 now reports whether ADMIN_PROBE_KEY actually reached the
 //        function, so a 403 can be told apart from a missing/unscoped env var.
 //  mz-v3: a 403 now returns a SHA-256 fingerprint + length of BOTH the stored key
 //        and the supplied key. Neither secret is revealed, but a mismatch is now
 //        diagnosable instead of guessable. Debug the silent failure, do not guess.
+//  mz-v4: CENTROID WRITE. Geocodes the zip server-side (Google Geocoding API) and
+//        writes lat/lon/city/state_code alongside zip_code in the SAME /user/update.
+//        WHY:
+//          1. BD stamps new members with a junk fallback coordinate
+//             (38.7945952, -106.5348379 = rural Saguache County, CO). It sits on
+//             1,764 members. Proven live on member 3664. Writing a real coordinate
+//             overwrites it, so we stop caring what put it there: we are the last
+//             writer. BD admin lists and BD's own location search start working.
+//          2. PRIVACY, and this is the important half. The alternative path is the
+//             About Me form's Google Places widget, which derives lat/lon from a
+//             STREET ADDRESS. The Live Members Map privacy model (Element T)
+//             explicitly forbids an address-precise coordinate entering the
+//             pipeline. A ZIP CENTROID is coarse by construction (~90 sq mi). By
+//             writing it ourselves at capture time, the precise coordinate never
+//             exists in the first place.
+//          3. The map's nightly build can then skip geocoding entirely.
+//        The geocode is BEST EFFORT. If it fails, we still write the zip. Capture
+//        never depends on Google being up.
 //
 //  WHY THIS FILE EXISTS
 //  The onboarding wizard replaced BD's About Me force-march and killed
@@ -28,9 +46,16 @@
 //  GET  ?list=1&page=1&limit=100&key=KEY    -> bulk member-list probe            [ADMIN]
 //  POST { memberId, zip }                   -> write + read-back verify
 //
+//  ⚠️ BD API KEY PERMISSIONS. The key needs PUT on the "Users (users_data)" row in
+//     BD admin -> Developer Hub -> API Keys -> Permissions. It shipped with GET only,
+//     which returned a silent-ish 403 on every write. GET alone is not enough.
+//     Grant PUT, NOT POST: POST on /user/* is user/create, and this function has no
+//     business creating members.
+//
 //  Required Netlify env vars:
 //    BD_API_KEY              - Brilliant Directories API key (X-Api-Key header)
 //    ADMIN_PROBE_KEY         - gates the three [ADMIN] probes (they return PII)
+//    GOOGLE_MAPS_API_KEY     - Geocoding API, for the zip -> centroid lookup
 //    SES_ACCESS_KEY_ID       - already set
 //    SES_SECRET_ACCESS_KEY   - already set
 //  Optional:
@@ -43,7 +68,7 @@ const crypto = require("crypto");
 const { URL } = require("url");
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 
-const FN_VERSION = "mz-v3";
+const FN_VERSION = "mz-v4";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const PROBE_KEY = process.env.ADMIN_PROBE_KEY || "";
 
@@ -167,6 +192,86 @@ async function updateMember(fields) {
     return { method, res };
   }
   return { method: null, res: last };
+}
+
+// ------------------------------------------------------------------
+// ZIP -> CENTROID. Google Geocoding API, server-side.
+// We ask for a POSTAL CODE, not an address, so what comes back is the centroid of
+// the zip area. That is the coarsest useful coordinate and it is the ONLY kind the
+// privacy model permits. We never resolve a street address, so we never hold one.
+// Best effort: a failure here must never block the zip write.
+// ------------------------------------------------------------------
+function httpsGetJson(urlStr) {
+  return new Promise((resolve) => {
+    let u;
+    try { u = new URL(urlStr); } catch (e) { return resolve(null); }
+    const req = https.request(
+      { hostname: u.hostname, port: 443, path: u.pathname + u.search, method: "GET" },
+      (res) => {
+        let raw = "";
+        res.on("data", (c) => (raw += c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(raw)); } catch (e) { resolve(null); }
+        });
+      }
+    );
+    req.on("error", (e) => { console.log("[mz] geocode req error: " + e.message); resolve(null); });
+    req.setTimeout(8000, () => { req.destroy(); console.log("[mz] geocode timeout"); resolve(null); });
+    req.end();
+  });
+}
+
+async function geocodeZip(zip) {
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (!key) {
+    console.log("[mz] GOOGLE_MAPS_API_KEY missing - skipping centroid, writing zip only");
+    return null;
+  }
+  // components= restricts the lookup to a US postal code. No street address is ever
+  // sent to Google and no street address can come back.
+  const url =
+    "https://maps.googleapis.com/maps/api/geocode/json?components=" +
+    encodeURIComponent("postal_code:" + zip + "|country:US") +
+    "&key=" + encodeURIComponent(key);
+
+  const data = await httpsGetJson(url);
+  if (!data || data.status !== "OK" || !Array.isArray(data.results) || !data.results.length) {
+    console.log("[mz] geocode failed for " + zip + " status=" + (data ? data.status : "no_response"));
+    return null;
+  }
+
+  const r = data.results[0];
+  const loc = r.geometry && r.geometry.location;
+  if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") {
+    console.log("[mz] geocode returned no location for " + zip);
+    return null;
+  }
+
+  // Pull city + state out of the address components so BD's own location search
+  // and the admin member list read correctly.
+  let city = "";
+  let stateCode = "";
+  let stateLong = "";
+  const comps = r.address_components || [];
+  for (const c of comps) {
+    const t = c.types || [];
+    if (!city && (t.indexOf("locality") !== -1 || t.indexOf("postal_town") !== -1)) city = c.long_name;
+    if (!city && t.indexOf("sublocality") !== -1) city = c.long_name;
+    if (t.indexOf("administrative_area_level_1") !== -1) {
+      stateCode = c.short_name;
+      stateLong = c.long_name;
+    }
+  }
+
+  const out = {
+    lat: String(loc.lat),
+    lon: String(loc.lng),
+    city: city,
+    state_code: stateCode,
+    state_ln: stateLong,
+  };
+  console.log("[mz] centroid " + zip + " -> " + out.lat + "," + out.lon + " " + city + ", " + stateCode);
+  return out;
 }
 
 // --- Zip normalize. Digits only, exactly 5. ---
@@ -399,6 +504,19 @@ exports.handler = async function (event) {
   const fields = { user_id: memberId };
   fields[ZIP_FIELD] = zip;
 
+  // Centroid. Best effort — if Google is down or the key is missing, we still write
+  // the zip. Capture NEVER depends on the geocode.
+  const geo = await geocodeZip(zip);
+  if (geo) {
+    fields.lat = geo.lat;
+    fields.lon = geo.lon;
+    // Only fill city/state if the geocode actually produced them. Never blank out
+    // a value a member already supplied.
+    if (geo.city) fields.city = geo.city;
+    if (geo.state_code) fields.state_code = geo.state_code;
+    if (geo.state_ln) fields.state_ln = geo.state_ln;
+  }
+
   const w = await updateMember(fields);
   const wStatus = w.res ? w.res.status : 0;
   const wRaw = w.res ? String(w.res.raw || w.res.error || "").slice(0, 300) : "";
@@ -422,6 +540,9 @@ exports.handler = async function (event) {
     await alarm(memberId, zip, `writeMethod=${w.method} writeStatus=${wStatus} body=${wRaw} readBack=${stored}`);
   }
 
+  // Did the centroid land too? BD's junk fallback is 38.7945952 / -106.5348379.
+  const junk = after && String(after.lat || "").indexOf("38.794") === 0;
+
   return reply(landed ? 200 : 502, {
     ok: landed,
     landed, // false = the value is NOT on the member record. Field name is wrong.
@@ -430,10 +551,13 @@ exports.handler = async function (event) {
     readBack: stored,
     writeMethod: w.method,
     writeStatus: wStatus,
-    // Did BD geocode the zip for us on write, or does it still wait for the
-    // manual "Sync Members with Google Maps" button? First real write answers this.
+    // The centroid we sent, and what BD now holds.
+    centroidSent: geo ? geo.lat + "," + geo.lon : null,
+    citySent: geo ? geo.city : null,
     lat: after ? after.lat : null,
     lon: after ? after.lon : null,
+    city: after ? after.city : null,
+    stillOnJunkCoordinate: junk, // true = the Colorado fallback survived our write
     FN_VERSION,
   });
 };
