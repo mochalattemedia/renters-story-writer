@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v5
+// FN_VERSION: mmb-v6
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v5";
+const FN_VERSION = "mmb-v6";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -250,8 +250,20 @@ function cursor(page, limit) {
   return Buffer.from(String(page) + "*_*" + String(limit), "utf8").toString("base64");
 }
 
-function listPath(page, limit) {
-  return "/user/get?page=" + encodeURIComponent(cursor(page, limit)) + "&limit=" + limit;
+// ⚠️ mmb-v6 FIX — DO NOT ADD &limit= BACK.
+// The limit is ALREADY inside the cursor ("1*_*25"). Sending it again as its own
+// query param makes BD 400 the whole request. mmb-v5 did exactly that and every
+// page failed, even though the cursors were byte-identical to BD's own tokens.
+//
+// PADDING: base64("1*_*25") has no "=" padding, but base64("10*_*25") does, and at
+// 155 pages we cannot avoid page 10. Whether BD's decoder tolerates padding is
+// UNKNOWN, so we discover it rather than assume. padMode:
+//   "raw"     -> send the "=" (URL-encoded as %3D)
+//   "stripped"-> drop the "=" entirely (many base64 decoders accept unpadded)
+function listPath(page, limit, padMode) {
+  let c = cursor(page, limit);
+  if (padMode === "stripped") c = c.replace(/=+$/, "");
+  return "/user/get?page=" + encodeURIComponent(c);
 }
 
 // Soft fetch: never throws, returns the whole story. Used by the probes.
@@ -281,25 +293,37 @@ async function bdTry(path) {
   }
 }
 
-async function fetchPage(page, limit) {
-  const data = await bdGet(listPath(page, limit));
+async function fetchPage(page, limit, padMode) {
+  const data = await bdGet(listPath(page, limit, padMode));
   return { rows: rowsFrom(data), meta: metaFrom(data), raw: data };
 }
 
-// BD may or may not honour a limit above its default 25. Find out, once, and use
-// the biggest that actually works. Fewer pages, fewer calls, faster cron.
+// Discover TWO things in one pass:
+//   1. the biggest page size BD actually honours (fewer pages, fewer calls)
+//   2. whether BD's base64 decoder accepts padded cursors
+// Page 10 is the real test for padding, because page 1 at limit 25 happens to have
+// none. A format that works on page 1 and dies on page 10 would be a silent
+// half-build, which is the worst outcome available.
 async function pickLimit() {
-  for (const l of [100, 50, 25]) {
-    const r = await bdTry(listPath(1, l));
-    log("limit probe", l, "-> http", r.httpStatus, "rows", r.rows, "total", r.meta && r.meta.total);
-    if (r.rows > 0) {
-      // BD honoured it if it gave us more than its default page of 25.
-      if (r.rows >= l || l === 25) {
-        log("using limit", l, "(" + r.rows + " rows on page 1)");
-        return { limit: l, firstPage: r };
+  for (const padMode of ["raw", "stripped"]) {
+    for (const l of [100, 50, 25]) {
+      const p1 = await bdTry(listPath(1, l, padMode));
+      if (!p1.rows) {
+        log("limit", l, padMode, "-> page1 http", p1.httpStatus, "rows 0");
+        continue;
       }
-      log("asked for", l, "got", r.rows, "— BD capped it, using", r.rows);
-      return { limit: r.rows, firstPage: r };
+
+      // Page 1 works. Now prove a PADDED cursor works, or this dies at page 10.
+      const p10 = await bdTry(listPath(10, l, padMode));
+      log("limit", l, padMode, "-> page1 rows", p1.rows, "| page10 rows", p10.rows, "http", p10.httpStatus);
+      if (!p10.rows) {
+        log("page 10 failed under padMode=" + padMode + " — cursor padding rejected");
+        continue;
+      }
+
+      const effective = p1.rows >= l ? l : p1.rows;
+      log("USING limit", effective, "padMode", padMode, "| total", p1.meta && p1.meta.total, "| pages", p1.meta && p1.meta.total_pages);
+      return { limit: effective, padMode: padMode, firstPage: p1 };
     }
   }
   return null;
@@ -312,6 +336,7 @@ async function fetchAllMembers() {
   }
 
   const limit = picked.limit;
+  const padMode = picked.padMode;
   PAGE_LIMIT = limit;
 
   const first = picked.firstPage;
@@ -321,12 +346,12 @@ async function fetchAllMembers() {
   if (!totalPages || totalPages < 1) totalPages = MAX_PAGES;
   totalPages = Math.min(totalPages, MAX_PAGES);
 
-  log("BULK LIST OK | limit:", limit, "| page 1:", all.length, "rows | total:", first.meta && first.meta.total, "| pages:", totalPages);
+  log("BULK LIST OK | limit:", limit, "| padMode:", padMode, "| page 1:", all.length, "rows | total:", first.meta && first.meta.total, "| pages:", totalPages);
 
   let page = 2;
   while (page <= totalPages) {
     const batch = [];
-    for (let i = 0; i < PAGE_BATCH && page + i <= totalPages; i++) batch.push(fetchPage(page + i, limit));
+    for (let i = 0; i < PAGE_BATCH && page + i <= totalPages; i++) batch.push(fetchPage(page + i, limit, padMode));
     const results = await Promise.all(batch);
     let empty = false;
     for (const r of results) {
@@ -342,7 +367,8 @@ async function fetchAllMembers() {
     members: all,
     reportedTotal: first.meta && first.meta.total,
     reportedPages: first.meta && first.meta.total_pages,
-    listLimit: limit
+    listLimit: limit,
+    padMode: padMode
   };
 }
 
@@ -394,7 +420,7 @@ async function build(opts) {
   const cache = await loadZipCache(store);
   const cacheSizeBefore = Object.keys(cache).length;
 
-  const { members, reportedTotal, reportedPages, listLimit } = await fetchAllMembers();
+  const { members, reportedTotal, reportedPages, listLimit, padMode } = await fetchAllMembers();
 
   const now = Date.now();
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -587,6 +613,7 @@ async function build(opts) {
     builtAt: snapshot.builtAt,
     landed: landed,
     listLimit: listLimit,
+    padMode: padMode,
     bdReportedTotal: reportedTotal,
     bdReportedPages: reportedPages,
     membersRead: totals.members,
@@ -614,61 +641,67 @@ async function probe() {
   const out = {
     _v: FN_VERSION,
     BULK_LIST_WORKS: false,
-    cursorFormat: 'base64("<page>*_*<limit>")',
+    cursorFormat: 'base64("<page>*_*<limit>"), sent as ?page=<cursor>. NO separate &limit param.',
     ladder: []
   };
 
-  for (const l of [100, 50, 25]) {
-    const r = await bdTry(listPath(1, l));
-    out.ladder.push({
-      limit: l,
-      cursor: cursor(1, l),
-      http: r.httpStatus,
-      bdMessage: r.bdMessage,
-      rows: r.rows,
-      total: r.meta && r.meta.total,
-      total_pages: r.meta && r.meta.total_pages
-    });
+  for (const padMode of ["raw", "stripped"]) {
+    for (const l of [100, 50, 25]) {
+      const p1r = await bdTry(listPath(1, l, padMode));
+      const p10r = p1r.rows ? await bdTry(listPath(10, l, padMode)) : null;
 
-    if (r.rows > 0 && !out.BULK_LIST_WORKS) {
-      out.BULK_LIST_WORKS = true;
-      out.WORKING_LIMIT = l;
-      out.rowsReturned = r.rows;
-      out.reportedTotal = r.meta && r.meta.total;
-      out.reportedTotalPages = r.meta && r.meta.total_pages;
-      out.topLevelKeys = Object.keys(r.raw || {});
+      out.ladder.push({
+        limit: l,
+        padMode: padMode,
+        page1_cursor: padMode === "stripped" ? cursor(1, l).replace(/=+$/, "") : cursor(1, l),
+        page1_http: p1r.httpStatus,
+        page1_rows: p1r.rows,
+        page10_cursor: padMode === "stripped" ? cursor(10, l).replace(/=+$/, "") : cursor(10, l),
+        page10_http: p10r ? p10r.httpStatus : null,
+        page10_rows: p10r ? p10r.rows : null,
+        total: p1r.meta && p1r.meta.total,
+        total_pages: p1r.meta && p1r.meta.total_pages
+      });
 
-      const rows = rowsFrom(r.raw);
-      const row0 = rows[0] || {};
-      out.HAS_user_id = "user_id" in row0;
-      out.HAS_zip_code = "zip_code" in row0;
-      out.HAS_profession_id = "profession_id" in row0;
-      out.HAS_signup_date = "signup_date" in row0;
-      out.HAS_lat_lon = "lat" in row0 && "lon" in row0;
-      out.ALL_MAP_FIELDS_PRESENT =
-        out.HAS_user_id && out.HAS_zip_code && out.HAS_profession_id && out.HAS_signup_date;
+      if (p1r.rows > 0 && p10r && p10r.rows > 0 && !out.BULK_LIST_WORKS) {
+        out.BULK_LIST_WORKS = true;
+        out.WORKING_LIMIT = l;
+        out.WORKING_PADMODE = padMode;
+        out.rowsPerPage = p1r.rows;
+        out.reportedTotal = p1r.meta && p1r.meta.total;
+        out.reportedTotalPages = p1r.meta && p1r.meta.total_pages;
 
-      // location fields only. No names, no emails, no phones.
-      out.sample = rows.slice(0, 3).map((m) => ({
-        user_id: m.user_id,
-        profession_id: m.profession_id,
-        zip_code: m.zip_code,
-        city: m.city,
-        state_code: m.state_code,
-        lat: m.lat,
-        lon: m.lon,
-        signup_date: m.signup_date,
-        onJunkCoordinate: isJunkCoord(num(m.lat), num(m.lon))
-      }));
+        const rows = rowsFrom(p1r.raw);
+        const row0 = rows[0] || {};
+        out.HAS_user_id = "user_id" in row0;
+        out.HAS_zip_code = "zip_code" in row0;
+        out.HAS_profession_id = "profession_id" in row0;
+        out.HAS_signup_date = "signup_date" in row0;
+        out.HAS_lat_lon = "lat" in row0 && "lon" in row0;
+        out.ALL_MAP_FIELDS_PRESENT =
+          out.HAS_user_id && out.HAS_zip_code && out.HAS_profession_id && out.HAS_signup_date;
+
+        // location fields only. No names, no emails, no phones.
+        out.sample = rows.slice(0, 3).map((m) => ({
+          user_id: m.user_id,
+          profession_id: m.profession_id,
+          zip_code: m.zip_code,
+          city: m.city,
+          state_code: m.state_code,
+          lat: m.lat,
+          lon: m.lon,
+          signup_date: m.signup_date,
+          onJunkCoordinate: isJunkCoord(num(m.lat), num(m.lon))
+        }));
+      }
     }
   }
 
   if (out.BULK_LIST_WORKS) {
-    const pages = out.reportedTotalPages || 0;
-    out.estimatedCalls = pages;
-    out.verdict = "Bulk list WORKS. " + out.reportedTotal + " members across " + pages + " pages at limit " + out.WORKING_LIMIT + ".";
+    out.verdict = "Bulk list WORKS. " + out.reportedTotal + " members, " + out.reportedTotalPages +
+                  " pages at limit " + out.WORKING_LIMIT + " (padMode " + out.WORKING_PADMODE + ").";
   } else {
-    out.verdict = "Cursor calls returned no rows. Format may have changed. Fall back to sequential ID scan.";
+    out.verdict = "Still no rows. Send me the ladder. Fallback is the sequential ID scan.";
   }
   return out;
 }
