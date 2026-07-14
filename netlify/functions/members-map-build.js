@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v10
+// FN_VERSION: mmb-v12
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v10";
+const FN_VERSION = "mmb-v12";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -73,7 +73,12 @@ const MAX_GEOCODE_PER_WARM = 400;
 
 let   PAGE_LIMIT = 100;  // BD rows per page. Discovery may lower this.
 const PAGE_BATCH = 1;     // ⚠️ SERIAL. BD rate-limits. See the banner below.
-const MAX_PAGES = 60;     // hard stop, ~12,000 members
+// ⚠️ mmb-v12 BUG FIX. This was 60. At limit 50, 3,873 members is 78 PAGES, so the
+// build stopped at page 60, read ~3,000 members, and reported SUCCESS. A silent
+// truncation that would have shipped a map missing 800 people with a green light on
+// it. Any cap on a paged read is a landmine. Set it far above the real ceiling and
+// let BD's own total_pages do the stopping.
+const MAX_PAGES = 400;
 
 const BLOB_STORE = "members-map";
 const KEY_SNAPSHOT = "snapshot";
@@ -326,12 +331,47 @@ function listPath(page, limit) {
 //      half-built map.
 // ---------------------------------------------------------------------------
 const REQUEST_DELAY_MS = 320;   // between BD calls. Politeness is the feature.
-const PAGE_RETRIES = 4;
-const BACKOFF_MS = [600, 1600, 4000];
-const TIME_BUDGET_MS = 7000;    // stop, checkpoint, and hand back before Netlify kills us
-const MAX_GAPFILL_IDS = 300;
+// mmb-v12: was 4 retries at 600/1600/4000ms. A single dead page cost 6.2 SECONDS,
+// so two of them ate the entire 10s window and we advanced three pages. Dead pages
+// get recovered by ID in the gapfill phase anyway, so grinding on them is wasted
+// time. Fail fast, recover later.
+const PAGE_RETRIES = 3;
+const BACKOFF_MS = [400, 1100];
+const TIME_BUDGET_MS = 6000;    // stop, checkpoint, and hand back well before Netlify kills us
+const MAX_GAPFILL_IDS = 1000;
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// ---------------------------------------------------------------------------
+// SELF-CHAINING (mmb-v11)
+//
+// Netlify kills a synchronous function at 10 seconds. BD's throttle means the read
+// takes ~30s of wall time no matter how we slice it. So the function checkpoints,
+// then RE-INVOKES ITSELF and returns. Each link picks up at the exact page the last
+// one stopped on.
+//
+// One call finishes the whole build. The nightly cron fires once and walks away.
+// You never refresh a URL six times.
+//
+// Guarded by MAX_CHAIN. A runaway loop would hammer BD, which is exactly the thing
+// that started this whole mess.
+// ---------------------------------------------------------------------------
+const MAX_CHAIN = 40;
+const SELF_URL = process.env.URL || "https://renters-story-writer.netlify.app";
+
+async function chainSelf(key, chain) {
+  const url = SELF_URL + "/.netlify/functions/members-map-build?build=1&chain=" + chain +
+              "&key=" + encodeURIComponent(key);
+  log("chaining -> link", chain);
+  try {
+    // Fire it and let go. The request reaches Netlify and a fresh invocation starts
+    // with its own 10s budget. We abort our WAIT, not the downstream run.
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 1200);
+    await fetch(url, { signal: ctrl.signal }).catch(() => {});
+    clearTimeout(t);
+  } catch (e) { /* aborting our own wait is the expected path */ }
+}
 
 async function fetchPage(page, limit) {
   const data = await bdGet(listPath(page, limit));
@@ -339,7 +379,7 @@ async function fetchPage(page, limit) {
 }
 
 // One page, serially, with backoff. A 400 from BD is a "wait", not a "no".
-async function fetchPageResilient(page, limit) {
+async function fetchPageResilient(page, limit, deadline) {
   let last = null;
   for (let attempt = 1; attempt <= PAGE_RETRIES; attempt++) {
     const r = await bdTry(listPath(page, limit));
@@ -348,7 +388,10 @@ async function fetchPageResilient(page, limit) {
       return { ok: true, rows: rowsFrom(r.raw), meta: r.meta, attempts: attempt };
     }
     last = r;
-    if (attempt < PAGE_RETRIES) await sleep(BACKOFF_MS[attempt - 1] || 4000);
+    // Do not burn the remaining budget grinding on one page. The gapfill will get
+    // its members by ID.
+    if (deadline && Date.now() + (BACKOFF_MS[attempt - 1] || 1100) > deadline) break;
+    if (attempt < PAGE_RETRIES) await sleep(BACKOFF_MS[attempt - 1] || 1100);
   }
   log("PAGE", page, "DEAD after", PAGE_RETRIES, "tries | http", last && last.httpStatus, "| bd:", last && last.bdMessage);
   return {
@@ -451,6 +494,7 @@ function emptyState() {
       uncategorized: 0, new7: 0, placed: 0, unplaced: 0, onJunkCoordinate: 0
     },
     gapFilled: 0,
+    chain: 0,
     phase: "paging"   // paging -> gapfill -> done
   };
 }
@@ -489,7 +533,7 @@ async function pageBd(store, state, deadline) {
       return { done: false };
     }
 
-    const r = await fetchPageResilient(state.nextPage, state.limit);
+    const r = await fetchPageResilient(state.nextPage, state.limit, deadline);
     if (r.ok) {
       for (const m of r.rows) foldMember(state, m, weekAgo);
     } else {
@@ -589,23 +633,33 @@ async function loadZipCache(store) {
 async function build(opts) {
   const warmOnly = !!(opts && opts.warmOnly);
   const fresh = !!(opts && opts.fresh);
+  const noChain = !!(opts && opts.noChain);
+  const key = (opts && opts.key) || "";
   const started = Date.now();
   const deadline = started + TIME_BUDGET_MS;
 
   const store = rdcStore(BLOB_STORE);
   const state = await loadProgress(store, fresh);
+  state.chain = (state.chain || 0) + 1;
+
+  if (state.chain > MAX_CHAIN) {
+    console.error("[mmb] MAX_CHAIN hit. Refusing to continue. Something is wrong.");
+    return { ok: false, done: false, _v: FN_VERSION, error: "MAX_CHAIN exceeded at link " + state.chain + ". Run ?build=1&fresh=1 to reset." };
+  }
 
   // ---- PHASE 1: read BD, serially, checkpointing ----
   if (state.phase === "paging") {
     const r = await pageBd(store, state, deadline);
     if (!r.done) {
+      if (!noChain && key) await chainSelf(key, state.chain);
       return {
         ok: true, done: false, _v: FN_VERSION, phase: "paging",
         progress: (state.nextPage - 1) + " / " + state.totalPages + " pages",
         membersSoFar: state.totals.members,
         bdTotal: state.bdTotal,
         deadPages: state.deadPages.length,
-        RUN_AGAIN: "call ?build=1 again to continue",
+        chainLink: state.chain,
+        NOTE: noChain ? "chaining off, call ?build=1 again" : "still running in the background. Poll ?status=1 to watch it.",
         ms: Date.now() - started
       };
     }
@@ -615,11 +669,13 @@ async function build(opts) {
   if (state.phase === "gapfill") {
     const r = await gapFill(store, state, deadline);
     if (!r.done) {
+      if (!noChain && key) await chainSelf(key, state.chain);
       return {
         ok: true, done: false, _v: FN_VERSION, phase: "gapfill",
         membersSoFar: state.totals.members,
         gapFilled: state.gapFilled,
-        RUN_AGAIN: "call ?build=1 again to continue",
+        chainLink: state.chain,
+        NOTE: noChain ? "chaining off, call ?build=1 again" : "still running in the background. Poll ?status=1 to watch it.",
         ms: Date.now() - started
       };
     }
@@ -920,6 +976,32 @@ async function rawPassthrough(p) {
 }
 
 // ---------------------------------------------------------------------------
+// STATUS — watch the build without touching it. Safe to refresh as often as you like.
+// ---------------------------------------------------------------------------
+async function status() {
+  const store = rdcStore(BLOB_STORE);
+  let prog = null, snap = null;
+  try { prog = JSON.parse(await store.get(KEY_PROGRESS)); } catch (e) {}
+  try {
+    const s = JSON.parse(await store.get(KEY_SNAPSHOT));
+    snap = { builtAt: s.builtAt, pins: (s.pins || []).length, totals: s.totals, v: s.v };
+  } catch (e) {}
+
+  return {
+    _v: FN_VERSION,
+    running: !!(prog && prog.phase !== "done" && prog.totals && prog.totals.members > 0),
+    phase: prog ? prog.phase : "no build has run",
+    progress: prog && prog.totalPages ? (prog.nextPage - 1) + " / " + prog.totalPages + " pages" : null,
+    membersSoFar: prog && prog.totals ? prog.totals.members : 0,
+    bdTotal: prog ? prog.bdTotal : null,
+    zipsSoFar: prog && prog.byZip ? Object.keys(prog.byZip).length : 0,
+    deadPages: prog && prog.deadPages ? prog.deadPages.length : 0,
+    gapFilled: prog ? prog.gapFilled : 0,
+    chainLink: prog ? prog.chain : 0,
+    LIVE_SNAPSHOT: snap || "none yet"
+  };
+}
+
 exports.handler = async (event) => {
   const q = (event && event.queryStringParameters) || {};
 
@@ -934,18 +1016,19 @@ exports.handler = async (event) => {
     });
   }
 
-  const isScheduled = !q.probe && !q.build && !q.warm && !q.filters && !q.raw;
+  const isScheduled = !q.probe && !q.build && !q.warm && !q.filters && !q.raw && !q.status;
   const authed = PROBE_KEY && q.key === PROBE_KEY;
 
-  if (!isScheduled && !authed) return json(403, { error: "bad or missing key" });
+  if (!isScheduled && !authed && !q.status) return json(403, { error: "bad or missing key" });
   if (!BD_KEY) return json(500, { error: "BD_API_KEY not configured" });
 
   try {
+    if (q.status) return json(200, await status());
     if (q.probe) return json(200, await probe());
     if (q.filters) return json(200, await filterLadder());
     if (q.raw) return json(200, await rawPassthrough(q.p));
-    if (q.warm) return json(200, await build({ warmOnly: true, fresh: !!q.fresh }));
-    const report = await build({ fresh: !!q.fresh });
+    if (q.warm) return json(200, await build({ warmOnly: true, fresh: !!q.fresh, noChain: true }));
+    const report = await build({ fresh: !!q.fresh, key: q.key, noChain: !!q.nochain });
     return json(report.ok ? 200 : 500, report);
   } catch (e) {
     console.error("[mmb] FAILED:", e.message);
