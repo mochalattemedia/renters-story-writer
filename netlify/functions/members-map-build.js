@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v6
+// FN_VERSION: mmb-v7
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v6";
+const FN_VERSION = "mmb-v7";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -637,72 +637,76 @@ async function build(opts) {
 // this site" and "do the rows carry user_id + zip_code + profession_id together".
 // Writes nothing.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// CURSOR WALK (mmb-v7)
+//
+// THE CONTRADICTION WE ARE RESOLVING:
+//   /user/get?page=MipfKjI1   (base64 "2*_*25")  RETURNED 25 ROWS. Proven, logged.
+//   That same response carried  prev_page: "MSpfKjI1"  (base64 "1*_*25").
+//   /user/get?page=MSpfKjI1   NOW RETURNS HTTP 400.
+//
+// BD is rejecting a token BD itself issued. Two explanations, different fixes:
+//   (a) PAGE 1 IS SPECIAL. BD serves pages 2..N by cursor but will not accept its
+//       own page-1 token. Fix: fetch page 1 some other way, cursor the rest.
+//   (b) THE GROUND MOVED. Rate limit, key scope, anything. Then page 2 fails too
+//       and the whole cursor theory rests on a result that no longer reproduces.
+//
+// MipfKjI1 is the CONTROL. If the control fails, stop and rethink. Do not build a
+// map on a result that will not reproduce.
+// ---------------------------------------------------------------------------
 async function probe() {
-  const out = {
-    _v: FN_VERSION,
-    BULK_LIST_WORKS: false,
-    cursorFormat: 'base64("<page>*_*<limit>"), sent as ?page=<cursor>. NO separate &limit param.',
-    ladder: []
-  };
+  const TOKENS = [
+    { id: "CONTROL page2 limit25", token: "MipfKjI1",     note: "KNOWN GOOD. Returned 25 rows earlier today." },
+    { id: "page1 limit25",         token: "MSpfKjI1",     note: "BD issued this as prev_page. Now 400s?" },
+    { id: "page3 limit25",         token: "MypfKjI1",     note: "BD issued this as next_page." },
+    { id: "page4 limit25",         token: cursor(4, 25),  note: "generated, no padding" },
+    { id: "page9 limit25",         token: cursor(9, 25),  note: "last single-digit page, no padding" },
+    { id: "page10 limit25 padded", token: cursor(10, 25), note: "THE PADDING TEST. base64 ends in =" },
+    { id: "page10 limit25 strip",  token: cursor(10, 25).replace(/=+$/, ""), note: "same, padding removed" },
+    { id: "page155 limit25",       token: cursor(155, 25),note: "last page" },
+    { id: "page2 limit100 padded", token: cursor(2, 100), note: "can we get a bigger page?" },
+    { id: "page2 limit50",         token: cursor(2, 50),  note: "no padding at limit 50" }
+  ];
 
-  for (const padMode of ["raw", "stripped"]) {
-    for (const l of [100, 50, 25]) {
-      const p1r = await bdTry(listPath(1, l, padMode));
-      const p10r = p1r.rows ? await bdTry(listPath(10, l, padMode)) : null;
+  const out = { _v: FN_VERSION, walk: [] };
 
-      out.ladder.push({
-        limit: l,
-        padMode: padMode,
-        page1_cursor: padMode === "stripped" ? cursor(1, l).replace(/=+$/, "") : cursor(1, l),
-        page1_http: p1r.httpStatus,
-        page1_rows: p1r.rows,
-        page10_cursor: padMode === "stripped" ? cursor(10, l).replace(/=+$/, "") : cursor(10, l),
-        page10_http: p10r ? p10r.httpStatus : null,
-        page10_rows: p10r ? p10r.rows : null,
-        total: p1r.meta && p1r.meta.total,
-        total_pages: p1r.meta && p1r.meta.total_pages
-      });
-
-      if (p1r.rows > 0 && p10r && p10r.rows > 0 && !out.BULK_LIST_WORKS) {
-        out.BULK_LIST_WORKS = true;
-        out.WORKING_LIMIT = l;
-        out.WORKING_PADMODE = padMode;
-        out.rowsPerPage = p1r.rows;
-        out.reportedTotal = p1r.meta && p1r.meta.total;
-        out.reportedTotalPages = p1r.meta && p1r.meta.total_pages;
-
-        const rows = rowsFrom(p1r.raw);
-        const row0 = rows[0] || {};
-        out.HAS_user_id = "user_id" in row0;
-        out.HAS_zip_code = "zip_code" in row0;
-        out.HAS_profession_id = "profession_id" in row0;
-        out.HAS_signup_date = "signup_date" in row0;
-        out.HAS_lat_lon = "lat" in row0 && "lon" in row0;
-        out.ALL_MAP_FIELDS_PRESENT =
-          out.HAS_user_id && out.HAS_zip_code && out.HAS_profession_id && out.HAS_signup_date;
-
-        // location fields only. No names, no emails, no phones.
-        out.sample = rows.slice(0, 3).map((m) => ({
-          user_id: m.user_id,
-          profession_id: m.profession_id,
-          zip_code: m.zip_code,
-          city: m.city,
-          state_code: m.state_code,
-          lat: m.lat,
-          lon: m.lon,
-          signup_date: m.signup_date,
-          onJunkCoordinate: isJunkCoord(num(m.lat), num(m.lon))
-        }));
-      }
-    }
+  for (const t of TOKENS) {
+    const r = await bdTry("/user/get?page=" + encodeURIComponent(t.token));
+    out.walk.push({
+      id: t.id,
+      token: t.token,
+      decoded: Buffer.from(t.token + "===".slice(0, (4 - (t.token.length % 4)) % 4), "base64").toString("utf8"),
+      http: r.httpStatus,
+      bdMessage: r.bdMessage,
+      rows: r.rows,
+      current_page: r.meta && r.meta.current_page,
+      total: r.meta && r.meta.total,
+      next_page: r.raw && r.raw.next_page,
+      note: t.note
+    });
   }
 
-  if (out.BULK_LIST_WORKS) {
-    out.verdict = "Bulk list WORKS. " + out.reportedTotal + " members, " + out.reportedTotalPages +
-                  " pages at limit " + out.WORKING_LIMIT + " (padMode " + out.WORKING_PADMODE + ").";
-  } else {
-    out.verdict = "Still no rows. Send me the ladder. Fallback is the sequential ID scan.";
+  const control = out.walk[0];
+  out.CONTROL_STILL_WORKS = control.rows > 0;
+
+  if (!out.CONTROL_STILL_WORKS) {
+    out.verdict = "CONTROL FAILED. The page-2 cursor that returned 25 rows earlier now returns " +
+                  control.http + ". This is not a page-1 problem. Something else changed (rate limit, key scope, BD-side). STOP AND RETHINK.";
+    return out;
   }
+
+  const working = out.walk.filter((w) => w.rows > 0);
+  out.WORKING_TOKENS = working.length;
+  out.PAGE_1_WORKS = out.walk.filter((w) => w.id === "page1 limit25")[0].rows > 0;
+  out.PAGE_10_PADDED_WORKS = out.walk.filter((w) => w.id === "page10 limit25 padded")[0].rows > 0;
+  out.PAGE_10_STRIPPED_WORKS = out.walk.filter((w) => w.id === "page10 limit25 strip")[0].rows > 0;
+  out.BIGGER_PAGES_WORK = out.walk.filter((w) => w.id === "page2 limit100 padded")[0].rows > 0;
+
+  const row0 = rowsFrom(control.rowsRaw || {})[0];
+  out.verdict = "Control OK. page1=" + out.PAGE_1_WORKS +
+                " page10padded=" + out.PAGE_10_PADDED_WORKS +
+                " page10stripped=" + out.PAGE_10_STRIPPED_WORKS +
+                " limit100=" + out.BIGGER_PAGES_WORK;
   return out;
 }
 
