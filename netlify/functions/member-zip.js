@@ -1,5 +1,7 @@
 // ============================================================
-//  member-zip.js   ·   VERSION: mz-v1  (2026-07-13)
+//  member-zip.js   ·   VERSION: mz-v2  (2026-07-13)
+//  mz-v2: ?version=1 now reports whether ADMIN_PROBE_KEY actually reached the
+//        function, so a 403 can be told apart from a missing/unscoped env var.
 //
 //  WHY THIS FILE EXISTS
 //  The onboarding wizard replaced BD's About Me force-march and killed
@@ -37,7 +39,7 @@ const https = require("https");
 const { URL } = require("url");
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 
-const FN_VERSION = "mz-v1";
+const FN_VERSION = "mz-v2";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const PROBE_KEY = process.env.ADMIN_PROBE_KEY || "";
 
@@ -225,7 +227,16 @@ exports.handler = async function (event) {
 
   // ---------- version (public, harmless) ----------
   if (event.httpMethod === "GET" && q.version) {
-    return reply(200, { fn: "member-zip", FN_VERSION, zipField: ZIP_FIELD });
+    // Reports CONFIGURATION only. Never echoes a secret. probeKeyLength lets you
+    // spot a truncated or whitespace-padded paste without revealing the value.
+    return reply(200, {
+      fn: "member-zip",
+      FN_VERSION,
+      zipField: ZIP_FIELD,
+      bdApiKeyConfigured: !!process.env.BD_API_KEY,
+      probeKeyConfigured: PROBE_KEY.length > 0,
+      probeKeyLength: PROBE_KEY.length,
+    });
   }
 
   if (!process.env.BD_API_KEY) {
