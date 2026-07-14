@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v8
+// FN_VERSION: mmb-v9
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v8";
+const FN_VERSION = "mmb-v9";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -244,6 +244,38 @@ function metaFrom(data) {
 // cause. BD said "user not found" about a request that had nothing to do with a
 // user being found.
 // ---------------------------------------------------------------------------
+
+// Soft fetch. NEVER throws. Returns the whole story: HTTP code, BD's own message,
+// the parsed rows, the pagination meta, and the raw body. Everything that reads BD
+// defensively (the pager, the retries, the probes) goes through this.
+//
+// mmb-v9: this function was accidentally deleted in the v8 rewrite. Five call sites
+// referenced it and the build died with "bdTry is not defined". Restored.
+async function bdTry(path) {
+  try {
+    const res = await fetch(BD_BASE + path, {
+      method: "GET",
+      headers: { "X-Api-Key": BD_KEY, Accept: "application/json" },
+      redirect: "manual"
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (e) {}
+    return {
+      path: path,
+      httpStatus: res.status,
+      redirected: res.status >= 300 && res.status < 400,
+      bdStatus: data && data.status,
+      bdMessage: data && typeof data.message === "string" ? data.message : undefined,
+      rows: data ? rowsFrom(data).length : 0,
+      meta: data ? metaFrom(data) : null,
+      raw: data,
+      snippet: data ? undefined : text.slice(0, 200)
+    };
+  } catch (e) {
+    return { path: path, error: e.message, rows: 0 };
+  }
+}
 
 // base64( "<page>*_*<limit>" ) — BD's cursor format, reproduced.
 function cursor(page, limit) {
