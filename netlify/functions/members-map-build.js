@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v3
+// FN_VERSION: mmb-v5
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v3";
+const FN_VERSION = "mmb-v5";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -137,10 +137,19 @@ function num(v) {
   return isFinite(n) ? n : null;
 }
 
-// BD signup_date is a 14-digit YYYYMMDDHHMMSS string. Tolerate other shapes.
+// BD hands back signup_date in TWO shapes, depending on where you read it:
+//   - the API list/get returns ISO:      "2024-10-21T00:10:31+00:00"
+//   - the admin CSV export returns:      "20241021001031"
+// Handle both. ISO first, because it carries an explicit timezone.
 function signupMs(raw) {
   if (!raw) return null;
   const s = String(raw).trim();
+
+  if (s.indexOf("T") > 0 && s.indexOf("-") > 0) {
+    const iso = Date.parse(s);
+    if (isFinite(iso)) return iso;
+  }
+
   const digits = s.replace(/[^0-9]/g, "");
   if (digits.length >= 8) {
     const y = Number(digits.substring(0, 4));
@@ -216,34 +225,36 @@ function metaFrom(data) {
 
 
 // ---------------------------------------------------------------------------
-// LIST-PATH DISCOVERY (Open Thread #26)
+// ⭐ BD'S BULK MEMBER LIST — SOLVED (Open Thread #26, July 14)
 //
-// BD returned this on /user/get?page=1&limit=200 :
-//   {"status":"error","message":"user not found","total":0,"current_page":0,
-//    "total_pages":0,"next_page":"","prev_page":""}
+// THE TRAP: BD's `page` parameter is NOT an integer. It is an opaque CURSOR.
+//   next_page: "MipfKjI1"   ->  base64 decode  ->  "2*_*25"
+//   i.e.  base64( "<page>*_*<limit>" )
 //
-// Those pagination fields only appear on a LIST response. So the endpoint is
-// real and a PARAMETER was wrong. Rather than guess, we try every plausible
-// shape, take the first that returns rows, and CACHE THE WINNER in a blob so we
-// only ever pay for discovery once.
+// Send page=1 and BD feeds "1" to a base64 decoder, gets garbage, and replies
+//   HTTP 400 {"status":"error","message":"user not found"}
+// That message is a LIE about the cause. It cost us an entire probe cycle chasing
+// a filter problem that never existed. The filters were fine. The cursor was wrong.
 //
-// Do not trust a vendor 200 and do not trust a vendor 400 either. Read the body.
+// The envelope was telling us the truth the whole time. Even /user/get/3664 came
+// back carrying  total: 3871, total_pages: 155, next_page: "MipfKjI1".
+// A single-member GET was reporting global pagination. That was the tell.
+//
+// LESSON (for the Bible): when a vendor's error message names a cause, verify the
+// cause. BD said "user not found" about a request that had nothing to do with a
+// user being found.
 // ---------------------------------------------------------------------------
-const LIST_CANDIDATES = [
-  { id: "page+limit100",      tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l, limit: 100 },
-  { id: "page+limit50",       tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l, limit: 50 },
-  { id: "page+limit25",       tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l, limit: 25 },
-  { id: "page0-indexed",      tpl: (p, l) => "/user/get?page=" + (p - 1) + "&limit=" + l, limit: 100 },
-  { id: "limit-only",         tpl: (p, l) => "/user/get?limit=" + l, limit: 100 },
-  { id: "bare",               tpl: () => "/user/get", limit: 100 },
-  { id: "renters-filter",     tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l + "&property=profession_id&property_value=20", limit: 100 },
-  { id: "renters-filter-LIKE",tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l + "&property=profession_id&property_value=20&property_operator=LIKE", limit: 100 },
-  { id: "status-filter",      tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l + "&property=status&property_value=active", limit: 100 },
-  { id: "user-search",        tpl: (p, l) => "/user/search?page=" + p + "&limit=" + l, limit: 100 },
-  { id: "users-plural",       tpl: (p, l) => "/users/get?page=" + p + "&limit=" + l, limit: 100 }
-];
 
-// Soft version of bdGet: never throws, returns the whole story.
+// base64( "<page>*_*<limit>" ) — BD's cursor format, reproduced.
+function cursor(page, limit) {
+  return Buffer.from(String(page) + "*_*" + String(limit), "utf8").toString("base64");
+}
+
+function listPath(page, limit) {
+  return "/user/get?page=" + encodeURIComponent(cursor(page, limit)) + "&limit=" + limit;
+}
+
+// Soft fetch: never throws, returns the whole story. Used by the probes.
 async function bdTry(path) {
   try {
     const res = await fetch(BD_BASE + path, {
@@ -270,85 +281,67 @@ async function bdTry(path) {
   }
 }
 
-async function discoverListPath(store) {
-  // cached winner?
-  try {
-    const cached = await store.get(KEY_LISTPATH);
-    if (cached) {
-      const c = JSON.parse(cached);
-      const found = LIST_CANDIDATES.filter((x) => x.id === c.id)[0];
-      if (found) {
-        const check = await bdTry(found.tpl(1, c.limit || found.limit));
-        if (check.rows > 0) {
-          log("list path from cache:", c.id, "limit", c.limit || found.limit);
-          return { cand: found, limit: c.limit || found.limit, firstPage: check };
-        }
-        log("cached list path stopped working, rediscovering");
-      }
-    }
-  } catch (e) {}
+async function fetchPage(page, limit) {
+  const data = await bdGet(listPath(page, limit));
+  return { rows: rowsFrom(data), meta: metaFrom(data), raw: data };
+}
 
-  for (const cand of LIST_CANDIDATES) {
-    const r = await bdTry(cand.tpl(1, cand.limit));
-    log("try", cand.id, "->", r.httpStatus, "rows:", r.rows, "bd:", r.bdMessage || r.bdStatus);
+// BD may or may not honour a limit above its default 25. Find out, once, and use
+// the biggest that actually works. Fewer pages, fewer calls, faster cron.
+async function pickLimit() {
+  for (const l of [100, 50, 25]) {
+    const r = await bdTry(listPath(1, l));
+    log("limit probe", l, "-> http", r.httpStatus, "rows", r.rows, "total", r.meta && r.meta.total);
     if (r.rows > 0) {
-      await store.set(KEY_LISTPATH, JSON.stringify({ id: cand.id, limit: cand.limit }));
-      log("LIST PATH FOUND:", cand.id, "limit", cand.limit, "rows", r.rows);
-      return { cand: cand, limit: cand.limit, firstPage: r };
+      // BD honoured it if it gave us more than its default page of 25.
+      if (r.rows >= l || l === 25) {
+        log("using limit", l, "(" + r.rows + " rows on page 1)");
+        return { limit: l, firstPage: r };
+      }
+      log("asked for", l, "got", r.rows, "— BD capped it, using", r.rows);
+      return { limit: r.rows, firstPage: r };
     }
   }
   return null;
 }
 
-async function fetchPage(cand, limit, page) {
-  const data = await bdGet(cand.tpl(page, limit));
-  return { rows: rowsFrom(data), meta: metaFrom(data), raw: data };
-}
-
-async function fetchAllMembers(store) {
-  const found = await discoverListPath(store);
-  if (!found) {
-    throw new Error("BD bulk member list DOES NOT WORK on this site. Every candidate returned zero rows. Run ?probe=1 and send the ladder.");
+async function fetchAllMembers() {
+  const picked = await pickLimit();
+  if (!picked) {
+    throw new Error("BD bulk list returned zero rows at every limit. The cursor format may have changed. Run ?probe=1.");
   }
 
-  const cand = found.cand;
-  const limit = found.limit;
+  const limit = picked.limit;
   PAGE_LIMIT = limit;
 
-  const first = found.firstPage;
+  const first = picked.firstPage;
   const all = rowsFrom(first.raw).slice();
 
-  // Single-page shapes (bare / limit-only) cannot be paged. Take what they gave.
-  const pageable = cand.id !== "bare" && cand.id !== "limit-only";
-
-  let totalPages = first.meta && first.meta.total_pages;
-  if (!totalPages || totalPages < 1) totalPages = pageable ? MAX_PAGES : 1;
+  let totalPages = (first.meta && first.meta.total_pages) || 0;
+  if (!totalPages || totalPages < 1) totalPages = MAX_PAGES;
   totalPages = Math.min(totalPages, MAX_PAGES);
 
-  log("list path:", cand.id, "| limit:", limit, "| page 1:", all.length, "rows | total:", first.meta && first.meta.total, "| total_pages:", totalPages);
+  log("BULK LIST OK | limit:", limit, "| page 1:", all.length, "rows | total:", first.meta && first.meta.total, "| pages:", totalPages);
 
-  if (pageable) {
-    let page = 2;
-    while (page <= totalPages) {
-      const batch = [];
-      for (let i = 0; i < PAGE_BATCH && page + i <= totalPages; i++) batch.push(fetchPage(cand, limit, page + i));
-      const results = await Promise.all(batch);
-      let short = false;
-      for (const r of results) {
-        all.push.apply(all, r.rows);
-        if (r.rows.length < limit) short = true;
-      }
-      page += batch.length;
-      if (short && !(first.meta && first.meta.total_pages)) break;
+  let page = 2;
+  while (page <= totalPages) {
+    const batch = [];
+    for (let i = 0; i < PAGE_BATCH && page + i <= totalPages; i++) batch.push(fetchPage(page + i, limit));
+    const results = await Promise.all(batch);
+    let empty = false;
+    for (const r of results) {
+      all.push.apply(all, r.rows);
+      if (!r.rows.length) empty = true;
     }
+    page += batch.length;
+    if (empty) break; // ran off the end
   }
 
-  log("fetched", all.length, "member rows");
+  log("fetched", all.length, "member rows across", Math.min(totalPages, page - 1), "pages");
   return {
     members: all,
     reportedTotal: first.meta && first.meta.total,
     reportedPages: first.meta && first.meta.total_pages,
-    listPath: cand.id,
     listLimit: limit
   };
 }
@@ -401,7 +394,7 @@ async function build(opts) {
   const cache = await loadZipCache(store);
   const cacheSizeBefore = Object.keys(cache).length;
 
-  const { members, reportedTotal, reportedPages, listPath, listLimit } = await fetchAllMembers(store);
+  const { members, reportedTotal, reportedPages, listLimit } = await fetchAllMembers();
 
   const now = Date.now();
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -593,7 +586,6 @@ async function build(opts) {
     _v: FN_VERSION,
     builtAt: snapshot.builtAt,
     landed: landed,
-    listPath: listPath,
     listLimit: listLimit,
     bdReportedTotal: reportedTotal,
     bdReportedPages: reportedPages,
@@ -619,36 +611,35 @@ async function build(opts) {
 // Writes nothing.
 // ---------------------------------------------------------------------------
 async function probe() {
-  const out = { _v: FN_VERSION, BULK_LIST_WORKS: false, ladder: [] };
+  const out = {
+    _v: FN_VERSION,
+    BULK_LIST_WORKS: false,
+    cursorFormat: 'base64("<page>*_*<limit>")',
+    ladder: []
+  };
 
-  for (const cand of LIST_CANDIDATES) {
-    const r = await bdTry(cand.tpl(1, cand.limit));
-    const entry = {
-      id: cand.id,
-      path: r.path,
+  for (const l of [100, 50, 25]) {
+    const r = await bdTry(listPath(1, l));
+    out.ladder.push({
+      limit: l,
+      cursor: cursor(1, l),
       http: r.httpStatus,
-      redirected: r.redirected || false,
       bdMessage: r.bdMessage,
       rows: r.rows,
       total: r.meta && r.meta.total,
       total_pages: r.meta && r.meta.total_pages
-    };
-    if (r.error) entry.error = r.error;
-    if (r.snippet) entry.nonJson = r.snippet;
-    out.ladder.push(entry);
+    });
 
-    if (r.rows > 0 && !out.WINNER) {
+    if (r.rows > 0 && !out.BULK_LIST_WORKS) {
       out.BULK_LIST_WORKS = true;
-      out.WINNER = cand.id;
-      out.WINNER_PATH = r.path;
-      out.WINNER_LIMIT = cand.limit;
+      out.WORKING_LIMIT = l;
+      out.rowsReturned = r.rows;
       out.reportedTotal = r.meta && r.meta.total;
       out.reportedTotalPages = r.meta && r.meta.total_pages;
       out.topLevelKeys = Object.keys(r.raw || {});
 
       const rows = rowsFrom(r.raw);
       const row0 = rows[0] || {};
-      out.rowKeys = Object.keys(row0);
       out.HAS_user_id = "user_id" in row0;
       out.HAS_zip_code = "zip_code" in row0;
       out.HAS_profession_id = "profession_id" in row0;
@@ -657,7 +648,7 @@ async function probe() {
       out.ALL_MAP_FIELDS_PRESENT =
         out.HAS_user_id && out.HAS_zip_code && out.HAS_profession_id && out.HAS_signup_date;
 
-      // 3 sample rows, location fields only. No names, no emails, no phones.
+      // location fields only. No names, no emails, no phones.
       out.sample = rows.slice(0, 3).map((m) => ({
         user_id: m.user_id,
         profession_id: m.profession_id,
@@ -672,12 +663,15 @@ async function probe() {
     }
   }
 
-  if (!out.BULK_LIST_WORKS) {
-    out.verdict = "No candidate returned rows. BD may not expose a bulk list on this plan. Fallback: sequential ID scan (member IDs are contiguous to ~3900).";
+  if (out.BULK_LIST_WORKS) {
+    const pages = out.reportedTotalPages || 0;
+    out.estimatedCalls = pages;
+    out.verdict = "Bulk list WORKS. " + out.reportedTotal + " members across " + pages + " pages at limit " + out.WORKING_LIMIT + ".";
+  } else {
+    out.verdict = "Cursor calls returned no rows. Format may have changed. Fall back to sequential ID scan.";
   }
   return out;
 }
-
 
 // ---------------------------------------------------------------------------
 // FILTER LADDER (mmb-v3)
