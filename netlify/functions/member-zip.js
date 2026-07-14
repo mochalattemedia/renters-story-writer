@@ -1,811 +1,563 @@
-// members-map-build.js
-// Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
+// ============================================================
+//  member-zip.js   ·   VERSION: mz-v4  (2026-07-14)
+//  mz-v2: ?version=1 now reports whether ADMIN_PROBE_KEY actually reached the
+//        function, so a 403 can be told apart from a missing/unscoped env var.
+//  mz-v3: a 403 now returns a SHA-256 fingerprint + length of BOTH the stored key
+//        and the supplied key. Neither secret is revealed, but a mismatch is now
+//        diagnosable instead of guessable. Debug the silent failure, do not guess.
+//  mz-v4: CENTROID WRITE. Geocodes the zip server-side (Google Geocoding API) and
+//        writes lat/lon/city/state_code alongside zip_code in the SAME /user/update.
+//        WHY:
+//          1. BD stamps new members with a junk fallback coordinate
+//             (38.7945952, -106.5348379 = rural Saguache County, CO). It sits on
+//             1,764 members. Proven live on member 3664. Writing a real coordinate
+//             overwrites it, so we stop caring what put it there: we are the last
+//             writer. BD admin lists and BD's own location search start working.
+//          2. PRIVACY, and this is the important half. The alternative path is the
+//             About Me form's Google Places widget, which derives lat/lon from a
+//             STREET ADDRESS. The Live Members Map privacy model (Element T)
+//             explicitly forbids an address-precise coordinate entering the
+//             pipeline. A ZIP CENTROID is coarse by construction (~90 sq mi). By
+//             writing it ourselves at capture time, the precise coordinate never
+//             exists in the first place.
+//          3. The map's nightly build can then skip geocoding entirely.
+//        The geocode is BEST EFFORT. If it fails, we still write the zip. Capture
+//        never depends on Google being up.
 //
-// FN_VERSION: mmb-v5
+//  WHY THIS FILE EXISTS
+//  The onboarding wizard replaced BD's About Me force-march and killed
+//  location capture (57% -> 3%, week of June 22 2026). 1,897 of 3,822
+//  members have no city and no zip. This writes the member's zip to BD's
+//  NATIVE zip_code column, and PROVES it landed by reading it back.
 //
-// WHAT IT DOES
-//   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
-//   and writes a finished payload to a Netlify Blob. The public page reads the blob.
-//   Precise member data never leaves this function.
+//  THE TRAP THIS FILE IS BUILT AROUND  (from BD's own API docs)
+//  /user/update accepts data for ANY column. Columns that do NOT exist in
+//  the users_data table are silently written to the users_meta table
+//  instead, and BD still returns {"status":"success"}.
+//  A wrong field name = HTTP 200 + stored where nothing can read it.
+//  This is the write-API twin of the "no-swal" trap that cost us Search Areas.
+//  So: EVERY WRITE IS READ BACK. A vendor 200 is not a save.
 //
-// THE PRIVACY MODEL (locked in the Build Bible, Element T — do not loosen)
-//   1. One pin per ZIP. Never one dot per member. There is no member in the payload.
-//   2. No member IDs. No join dates. No per-member rows. Nothing to trace.
-//   3. Type counts ship EXACT, down to 1. A count is a fact about a place.
-//   4. newCount is FORCED TO 0 on any pin holding fewer than MIN_MEMBERS_FOR_NEW
-//      members. A timestamp on a thin pin is a fact about a PERSON. Suppressed
-//      here, server-side, so it never reaches the browser at all.
-//   5. We geocode the ZIP to a CENTROID ourselves. A street-address-precise
-//      coordinate never enters the pipeline because we never ask for one.
+//  ENDPOINTS
+//  GET  ?version=1                          -> { FN_VERSION }
+//  GET  ?status=1&memberId=ID               -> { hasZip }        (head code calls this)
+//  GET  ?keys=1&memberId=ID&key=KEY         -> location keys on the live record  [ADMIN]
+//  GET  ?raw=1&memberId=ID&key=KEY          -> BD's unmodified /user/get JSON    [ADMIN]
+//  GET  ?list=1&page=1&limit=100&key=KEY    -> bulk member-list probe            [ADMIN]
+//  POST { memberId, zip }                   -> write + read-back verify
 //
-// BD COORDINATE RULE (Bible: the Colorado junk pile)
-//   1,764 members sit on the identical fallback coordinate 38.7945952,-106.5348379.
-//   NEVER trust BD's lat/lon blind. Use the stored coordinate ONLY when a zip is
-//   present AND the coordinate is not the junk value. Otherwise geocode the zip.
+//  ⚠️ BD API KEY PERMISSIONS. The key needs PUT on the "Users (users_data)" row in
+//     BD admin -> Developer Hub -> API Keys -> Permissions. It shipped with GET only,
+//     which returned a silent-ish 403 on every write. GET alone is not enough.
+//     Grant PUT, NOT POST: POST on /user/* is user/create, and this function has no
+//     business creating members.
 //
-// ENDPOINTS
-//   ?version=1                        -> FN_VERSION + env check
-//   ?probe=1&key=ADMIN_PROBE_KEY      -> [ADMIN] runs Open Thread #26. Hits BD's bulk
-//                                        list, reports whether it works and what the
-//                                        rows carry. Writes NOTHING.
-//   ?build=1&key=ADMIN_PROBE_KEY      -> [ADMIN] full build, writes the snapshot.
-//   ?warm=1&key=ADMIN_PROBE_KEY       -> [ADMIN] geocode-cache warming only, batched.
-//   ?filters=1&key=ADMIN_PROBE_KEY    -> [ADMIN] filter ladder. BD's list REQUIRES a
-//                                        property filter; unfiltered calls 400 with
-//                                        "user not found". This finds the column and
-//                                        operator BD will actually accept.
-//   ?raw=1&p=/path&key=ADMIN_PROBE_KEY-> [ADMIN] passthrough. Returns BD's unmodified
-//                                        JSON for any path. The artifact, not the config.
-//   (scheduled)                       -> full build, nightly via netlify.toml
-//
-// ENV: BD_API_KEY, ADMIN_PROBE_KEY, GOOGLE_MAPS_API_KEY,
-//      optional NETLIFY_SITE_ID + NETLIFY_BLOBS_TOKEN
+//  Required Netlify env vars:
+//    BD_API_KEY              - Brilliant Directories API key (X-Api-Key header)
+//    ADMIN_PROBE_KEY         - gates the three [ADMIN] probes (they return PII)
+//    GOOGLE_MAPS_API_KEY     - Geocoding API, for the zip -> centroid lookup
+//    SES_ACCESS_KEY_ID       - already set
+//    SES_SECRET_ACCESS_KEY   - already set
+//  Optional:
+//    BD_API_BASE             - defaults to https://www.renters.com/api/v2
+//    SES_REGION              - defaults to us-east-2
+// ============================================================
 
-const { getStore } = require("@netlify/blobs");
+const https = require("https");
+const crypto = require("crypto");
+const { URL } = require("url");
+const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 
-const FN_VERSION = "mmb-v5";
-
+const FN_VERSION = "mz-v4";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const BD_KEY = process.env.BD_API_KEY || "";
-const GKEY = process.env.GOOGLE_MAPS_API_KEY || "";
 const PROBE_KEY = process.env.ADMIN_PROBE_KEY || "";
 
-// BD member category IDs (confirmed live, Bible Element T)
-const TYPE_BY_PROFESSION = {
-  5: "realtors",
-  6: "propertyManagers",
-  19: "landlords",
-  20: "renters"
+// BD's users_data column for the member zip. Confirmed in BD's API docs
+// (/user/get, /user/create and /user/update all use zip_code). Re-confirm on
+// the LIVE site with ?keys=1 before trusting it. If this is wrong, the write
+// still returns success and the value lands in users_meta where nothing reads
+// it — which is exactly what the read-back below is here to catch.
+const ZIP_FIELD = "zip_code";
+
+const ses = new SESClient({
+  region: process.env.SES_REGION || "us-east-2",
+  credentials: {
+    accessKeyId: process.env.SES_ACCESS_KEY_ID,
+    secretAccessKey: process.env.SES_SECRET_ACCESS_KEY,
+  },
+});
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Content-Type": "application/json",
 };
 
-// The Colorado fallback. 1,764 members sit on it. It is not a location.
-const JUNK_LAT = 38.7945952;
-const JUNK_LON = -106.5348379;
-const JUNK_EPS = 0.0005;
-
-// A pin below this many members carries NO new-this-week signal. See privacy model.
-const MIN_MEMBERS_FOR_NEW = 3;
-
-// Bounded per-run geocoding so a scheduled run can never time out. Unknown zips
-// left over get picked up on the next run. Self-healing.
-const MAX_GEOCODE_PER_RUN = 120;
-const MAX_GEOCODE_PER_WARM = 400;
-
-let   PAGE_LIMIT = 100;  // BD rows per page. Discovery may lower this.
-const PAGE_BATCH = 6;     // pages fetched in parallel
-const MAX_PAGES = 60;     // hard stop, ~12,000 members
-
-const BLOB_STORE = "members-map";
-const KEY_SNAPSHOT = "snapshot";
-const KEY_ZIPCACHE = "zipcache";
-const KEY_LISTPATH = "listpath";
-
-// ---------------------------------------------------------------------------
-// Blobs — explicit siteID/token fallback. getStore() does NOT throw on creation,
-// only on read/write, which makes silent failures easy. (Bible, Netlify Blobs.)
-// ---------------------------------------------------------------------------
-function rdcStore(name) {
-  const siteID = process.env.NETLIFY_SITE_ID;
-  const token = process.env.NETLIFY_BLOBS_TOKEN;
-  if (siteID && token) return getStore({ name, siteID, token });
-  return getStore(name);
+function reply(status, obj) {
+  return { statusCode: status, headers: corsHeaders, body: JSON.stringify(obj) };
 }
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-function json(status, body) {
-  return {
-    statusCode: status,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-      "Access-Control-Allow-Origin": "*"
-    },
-    body: JSON.stringify(body, null, 2)
-  };
-}
+// ------------------------------------------------------------------
+// BD API helper. Lifted verbatim from landlord-optin.js v16 (proven in
+// production). Node https, not fetch. Keeps the redirect guard: BD redirects
+// to the admin dashboard when auth is NOT accepted, and blindly following that
+// redirect turns an auth failure into a confusing HTML 200.
+// ------------------------------------------------------------------
+function bd(path, opts) {
+  opts = opts || {};
+  const method = opts.method || "GET";
+  const body = opts.body || null;
 
-function log() {
-  console.log.apply(console, ["[mmb]"].concat(Array.prototype.slice.call(arguments)));
-}
-
-// Normalize whatever BD hands back into a clean 5-digit US zip, or "".
-function zip5(raw) {
-  if (raw === null || raw === undefined) return "";
-  let s = String(raw).trim();
-  if (!s) return "";
-  s = s.split("-")[0];
-  let d = "";
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charAt(i);
-    if (c >= "0" && c <= "9") d += c;
-  }
-  if (d.length === 4) d = "0" + d;          // leading zero eaten somewhere upstream
-  if (d.length > 5) d = d.substring(0, 5);
-  return d.length === 5 ? d : "";
-}
-
-function isJunkCoord(lat, lon) {
-  if (lat === null || lon === null) return false;
-  return Math.abs(lat - JUNK_LAT) < JUNK_EPS && Math.abs(lon - JUNK_LON) < JUNK_EPS;
-}
-
-function num(v) {
-  if (v === null || v === undefined || v === "") return null;
-  const n = Number(v);
-  return isFinite(n) ? n : null;
-}
-
-// BD hands back signup_date in TWO shapes, depending on where you read it:
-//   - the API list/get returns ISO:      "2024-10-21T00:10:31+00:00"
-//   - the admin CSV export returns:      "20241021001031"
-// Handle both. ISO first, because it carries an explicit timezone.
-function signupMs(raw) {
-  if (!raw) return null;
-  const s = String(raw).trim();
-
-  if (s.indexOf("T") > 0 && s.indexOf("-") > 0) {
-    const iso = Date.parse(s);
-    if (isFinite(iso)) return iso;
-  }
-
-  const digits = s.replace(/[^0-9]/g, "");
-  if (digits.length >= 8) {
-    const y = Number(digits.substring(0, 4));
-    const mo = Number(digits.substring(4, 6));
-    const d = Number(digits.substring(6, 8));
-    const h = digits.length >= 10 ? Number(digits.substring(8, 10)) : 0;
-    const mi = digits.length >= 12 ? Number(digits.substring(10, 12)) : 0;
-    const se = digits.length >= 14 ? Number(digits.substring(12, 14)) : 0;
-    if (y > 2000 && mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
-      return Date.UTC(y, mo - 1, d, h, mi, se);
+  return new Promise((resolve) => {
+    const urlStr = `${BD_BASE}${path}`;
+    let payload = null;
+    const headers = { "X-Api-Key": process.env.BD_API_KEY, Accept: "application/json" };
+    if (body) {
+      payload = new URLSearchParams(body).toString();
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+      headers["Content-Length"] = Buffer.byteLength(payload);
     }
-  }
-  const t = Date.parse(s);
-  return isFinite(t) ? t : null;
-}
 
-function typeOf(member) {
-  const pid = num(member.profession_id);
-  if (pid !== null && TYPE_BY_PROFESSION[pid]) return TYPE_BY_PROFESSION[pid];
-  return null; // uncategorized. Counted in totals, never guessed at.
-}
+    let u;
+    try {
+      u = new URL(urlStr);
+    } catch (e) {
+      return resolve({ ok: false, status: 0, data: null, raw: "", error: "bad url: " + urlStr });
+    }
 
-// ---------------------------------------------------------------------------
-// BD bulk member list
-// Never follow BD's redirect. It bounces to the admin dashboard when auth is not
-// accepted, which turns an auth failure into a confusing HTML 200. (Bible.)
-// ---------------------------------------------------------------------------
-async function bdGet(path) {
-  const url = BD_BASE + path;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { "X-Api-Key": BD_KEY, Accept: "application/json" },
-    redirect: "manual"
-  });
-
-  if (res.status >= 300 && res.status < 400) {
-    throw new Error("BD redirected (" + res.status + ") on " + path + " — auth was NOT accepted. Check BD_API_KEY and its GET permission on users_data.");
-  }
-
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error("BD " + res.status + " on " + path + " :: " + text.slice(0, 300));
-  }
-
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch (e) {
-    throw new Error("BD returned non-JSON on " + path + " :: " + text.slice(0, 300));
-  }
-  return data;
-}
-
-// BD wraps rows differently in different places. Find the array, wherever it is.
-function rowsFrom(data) {
-  if (Array.isArray(data)) return data;
-  if (!data || typeof data !== "object") return [];
-  if (Array.isArray(data.message)) return data.message;
-  if (Array.isArray(data.data)) return data.data;
-  if (data.message && Array.isArray(data.message.data)) return data.message.data;
-  if (data.message && Array.isArray(data.message.users)) return data.message.users;
-  return [];
-}
-
-function metaFrom(data) {
-  const m = (data && data.message && typeof data.message === "object" && !Array.isArray(data.message)) ? data.message : data;
-  return {
-    total: num(m && m.total),
-    current_page: num(m && m.current_page),
-    total_pages: num(m && m.total_pages)
-  };
-}
-
-
-// ---------------------------------------------------------------------------
-// ⭐ BD'S BULK MEMBER LIST — SOLVED (Open Thread #26, July 14)
-//
-// THE TRAP: BD's `page` parameter is NOT an integer. It is an opaque CURSOR.
-//   next_page: "MipfKjI1"   ->  base64 decode  ->  "2*_*25"
-//   i.e.  base64( "<page>*_*<limit>" )
-//
-// Send page=1 and BD feeds "1" to a base64 decoder, gets garbage, and replies
-//   HTTP 400 {"status":"error","message":"user not found"}
-// That message is a LIE about the cause. It cost us an entire probe cycle chasing
-// a filter problem that never existed. The filters were fine. The cursor was wrong.
-//
-// The envelope was telling us the truth the whole time. Even /user/get/3664 came
-// back carrying  total: 3871, total_pages: 155, next_page: "MipfKjI1".
-// A single-member GET was reporting global pagination. That was the tell.
-//
-// LESSON (for the Bible): when a vendor's error message names a cause, verify the
-// cause. BD said "user not found" about a request that had nothing to do with a
-// user being found.
-// ---------------------------------------------------------------------------
-
-// base64( "<page>*_*<limit>" ) — BD's cursor format, reproduced.
-function cursor(page, limit) {
-  return Buffer.from(String(page) + "*_*" + String(limit), "utf8").toString("base64");
-}
-
-function listPath(page, limit) {
-  return "/user/get?page=" + encodeURIComponent(cursor(page, limit)) + "&limit=" + limit;
-}
-
-// Soft fetch: never throws, returns the whole story. Used by the probes.
-async function bdTry(path) {
-  try {
-    const res = await fetch(BD_BASE + path, {
-      method: "GET",
-      headers: { "X-Api-Key": BD_KEY, Accept: "application/json" },
-      redirect: "manual"
-    });
-    const text = await res.text();
-    let data = null;
-    try { data = JSON.parse(text); } catch (e) {}
-    return {
-      path: path,
-      httpStatus: res.status,
-      redirected: res.status >= 300 && res.status < 400,
-      bdStatus: data && data.status,
-      bdMessage: data && typeof data.message === "string" ? data.message : undefined,
-      rows: data ? rowsFrom(data).length : 0,
-      meta: data ? metaFrom(data) : null,
-      raw: data,
-      snippet: data ? undefined : text.slice(0, 200)
-    };
-  } catch (e) {
-    return { path: path, error: e.message, rows: 0 };
-  }
-}
-
-async function fetchPage(page, limit) {
-  const data = await bdGet(listPath(page, limit));
-  return { rows: rowsFrom(data), meta: metaFrom(data), raw: data };
-}
-
-// BD may or may not honour a limit above its default 25. Find out, once, and use
-// the biggest that actually works. Fewer pages, fewer calls, faster cron.
-async function pickLimit() {
-  for (const l of [100, 50, 25]) {
-    const r = await bdTry(listPath(1, l));
-    log("limit probe", l, "-> http", r.httpStatus, "rows", r.rows, "total", r.meta && r.meta.total);
-    if (r.rows > 0) {
-      // BD honoured it if it gave us more than its default page of 25.
-      if (r.rows >= l || l === 25) {
-        log("using limit", l, "(" + r.rows + " rows on page 1)");
-        return { limit: l, firstPage: r };
+    const req = https.request(
+      { hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search, method, headers },
+      (res) => {
+        if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+          const loc = res.headers.location;
+          res.resume();
+          console.log(`[mz] ${method} ${urlStr} -> REDIRECT ${res.statusCode} to ${loc}`);
+          return resolve({
+            ok: false,
+            status: res.statusCode,
+            data: null,
+            raw: "",
+            error: `redirected to ${loc} (auth likely not accepted)`,
+          });
+        }
+        let raw = "";
+        res.on("data", (c) => (raw += c));
+        res.on("end", () => {
+          let data = null;
+          try { data = raw ? JSON.parse(raw) : null; } catch (e) { /* non-JSON */ }
+          const ok = res.statusCode >= 200 && res.statusCode < 300;
+          if (!ok) {
+            console.log(`[mz] ${method} ${urlStr} -> HTTP ${res.statusCode}; body(300): ${raw.slice(0, 300)}`);
+          }
+          resolve({ ok, status: res.statusCode, data, raw });
+        });
       }
-      log("asked for", l, "got", r.rows, "— BD capped it, using", r.rows);
-      return { limit: r.rows, firstPage: r };
-    }
-  }
-  return null;
+    );
+    req.on("error", (e) => {
+      console.log(`[mz] ${method} ${urlStr} -> REQ ERROR ${e.code || e.name}: ${e.message}`);
+      resolve({ ok: false, status: 0, data: null, raw: "", error: (e.code || e.name) + ": " + e.message });
+    });
+    req.setTimeout(10000, () => {
+      req.destroy();
+      resolve({ ok: false, status: 0, data: null, raw: "", error: "timeout after 10s" });
+    });
+    if (payload) req.write(payload);
+    req.end();
+  });
 }
 
-async function fetchAllMembers() {
-  const picked = await pickLimit();
-  if (!picked) {
-    throw new Error("BD bulk list returned zero rows at every limit. The cursor format may have changed. Run ?probe=1.");
-  }
-
-  const limit = picked.limit;
-  PAGE_LIMIT = limit;
-
-  const first = picked.firstPage;
-  const all = rowsFrom(first.raw).slice();
-
-  let totalPages = (first.meta && first.meta.total_pages) || 0;
-  if (!totalPages || totalPages < 1) totalPages = MAX_PAGES;
-  totalPages = Math.min(totalPages, MAX_PAGES);
-
-  log("BULK LIST OK | limit:", limit, "| page 1:", all.length, "rows | total:", first.meta && first.meta.total, "| pages:", totalPages);
-
-  let page = 2;
-  while (page <= totalPages) {
-    const batch = [];
-    for (let i = 0; i < PAGE_BATCH && page + i <= totalPages; i++) batch.push(fetchPage(page + i, limit));
-    const results = await Promise.all(batch);
-    let empty = false;
-    for (const r of results) {
-      all.push.apply(all, r.rows);
-      if (!r.rows.length) empty = true;
-    }
-    page += batch.length;
-    if (empty) break; // ran off the end
-  }
-
-  log("fetched", all.length, "member rows across", Math.min(totalPages, page - 1), "pages");
-  return {
-    members: all,
-    reportedTotal: first.meta && first.meta.total,
-    reportedPages: first.meta && first.meta.total_pages,
-    listLimit: limit
-  };
+// --- Read one member's full record ---
+async function getMember(userId) {
+  const { ok, data } = await bd(`/user/get/${encodeURIComponent(userId)}`);
+  if (!ok || !data || data.status !== "success") return null;
+  const arr = Array.isArray(data.message) ? data.message : [data.message];
+  return arr[0] || null;
 }
 
-// ---------------------------------------------------------------------------
-// Geocoding — POSTAL CODE ONLY. No street address is ever sent to Google and none
-// can come back. What returns is the centroid of the zip area (~90 sq mi), coarse
-// by construction. Same model as member-zip.js mz-v4.
-// ---------------------------------------------------------------------------
-async function geocodeZip(z) {
-  if (!GKEY) return null;
-  const url =
-    "https://maps.googleapis.com/maps/api/geocode/json?components=" +
-    encodeURIComponent("postal_code:" + z + "|country:US") +
-    "&key=" + GKEY;
-  try {
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data.status !== "OK" || !data.results || !data.results.length) {
-      log("geocode miss", z, data.status);
-      return null;
-    }
-    const loc = data.results[0].geometry && data.results[0].geometry.location;
-    if (!loc) return null;
-    return [Number(loc.lat.toFixed(5)), Number(loc.lng.toFixed(5))];
-  } catch (e) {
-    log("geocode error", z, e.message);
-    return null;
-  }
-}
-
-async function loadZipCache(store) {
-  try {
-    const raw = await store.get(KEY_ZIPCACHE);
-    if (!raw) return {};
-    return JSON.parse(raw);
-  } catch (e) {
-    log("zipcache empty or unreadable:", e.message);
-    return {};
-  }
-}
-
-// ---------------------------------------------------------------------------
-// THE BUILD
-// ---------------------------------------------------------------------------
-async function build(opts) {
-  const warmOnly = !!(opts && opts.warmOnly);
-  const started = Date.now();
-  const store = rdcStore(BLOB_STORE);
-  const cache = await loadZipCache(store);
-  const cacheSizeBefore = Object.keys(cache).length;
-
-  const { members, reportedTotal, reportedPages, listLimit } = await fetchAllMembers();
-
-  const now = Date.now();
-  const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-
-  const totals = {
-    members: 0,
-    renters: 0,
-    landlords: 0,
-    propertyManagers: 0,
-    realtors: 0,
-    uncategorized: 0,
-    new7: 0,
-    placed: 0,
-    unplaced: 0,
-    onJunkCoordinate: 0
-  };
-
-  // zip -> { counts, new, labels:{}, coord }
-  const byZip = {};
-  const needGeocode = {};
-
-  for (const m of members) {
-    totals.members++;
-
-    const t = typeOf(m);
-    if (t) totals[t]++; else totals.uncategorized++;
-
-    const ms = signupMs(m.signup_date || m.created || m.date_added);
-    const isNew = ms !== null && ms >= weekAgo;
-    if (isNew) totals.new7++;
-
-    const z = zip5(m.zip_code);
-    if (!z) {
-      totals.unplaced++;
+// --- Write. BD's docs conflict: the Users API article says PUT, the API
+//     Overview says POST with x-www-form-urlencoded. We try PUT, and on a 405
+//     (Invalid Request Method) we retry POST — and we LOG which one worked so
+//     the next function that writes to a member column does not have to guess.
+async function updateMember(fields) {
+  let last = null;
+  for (const method of ["PUT", "POST"]) {
+    const res = await bd("/user/update", { method, body: fields });
+    last = res;
+    if (res.status === 405) {
+      console.log(`[mz] ${method} rejected (405 Invalid Request Method), retrying`);
       continue;
     }
-    totals.placed++;
-
-    if (!byZip[z]) {
-      byZip[z] = {
-        renters: 0, landlords: 0, propertyManagers: 0, realtors: 0,
-        total: 0, newCount: 0, labels: {}, coord: null
-      };
-    }
-    const bucket = byZip[z];
-    bucket.total++;
-    if (t) bucket[t]++;
-    if (isNew) bucket.newCount++;
-
-    // Friendly label for the tooltip. Modal city/state per zip, so one member's
-    // typo cannot rename a zip. Adds no information: the pin IS the zip already.
-    const city = (m.city || "").trim();
-    const st = (m.state_code || "").trim();
-    if (city && st) {
-      const lbl = city + ", " + st.toUpperCase();
-      bucket.labels[lbl] = (bucket.labels[lbl] || 0) + 1;
-    }
-
-    // Coordinate: trust BD ONLY when a zip is present and the coord is not junk.
-    // mz-v4 wrote real centroids for every member the gate touched, so this is
-    // usually a free, correct centroid with no geocode call.
-    if (!bucket.coord) {
-      const la = num(m.lat), lo = num(m.lon);
-      if (la !== null && lo !== null && !isJunkCoord(la, lo)) {
-        bucket.coord = [Number(la.toFixed(5)), Number(lo.toFixed(5))];
-        if (!cache[z]) cache[z] = bucket.coord; // seed the cache for free
-      } else if (isJunkCoord(la, lo)) {
-        totals.onJunkCoordinate++;
-      }
-    }
+    console.log(`[mz] WRITE METHOD THAT WORKED: ${method} (HTTP ${res.status})`);
+    return { method, res };
   }
-
-  // Fill missing coords from cache, then geocode whatever is still unknown.
-  for (const z of Object.keys(byZip)) {
-    if (byZip[z].coord) continue;
-    if (cache[z]) { byZip[z].coord = cache[z]; continue; }
-    needGeocode[z] = true;
-  }
-
-  const pending = Object.keys(needGeocode);
-  const budget = warmOnly ? MAX_GEOCODE_PER_WARM : MAX_GEOCODE_PER_RUN;
-  const toDo = pending.slice(0, budget);
-  log("zips:", Object.keys(byZip).length, "| cached:", cacheSizeBefore, "| need geocode:", pending.length, "| doing:", toDo.length);
-
-  for (let i = 0; i < toDo.length; i += 8) {
-    const slice = toDo.slice(i, i + 8);
-    const got = await Promise.all(slice.map((z) => geocodeZip(z)));
-    for (let j = 0; j < slice.length; j++) {
-      if (got[j]) {
-        cache[slice[j]] = got[j];
-        byZip[slice[j]].coord = got[j];
-      }
-    }
-  }
-
-  await store.set(KEY_ZIPCACHE, JSON.stringify(cache));
-  log("zipcache written:", Object.keys(cache).length, "zips");
-
-  if (warmOnly) {
-    return {
-      ok: true,
-      mode: "warm",
-      _v: FN_VERSION,
-      membersRead: totals.members,
-      zipsSeen: Object.keys(byZip).length,
-      zipCacheSize: Object.keys(cache).length,
-      geocodedThisRun: toDo.length,
-      stillMissing: Math.max(0, pending.length - toDo.length),
-      ms: Date.now() - started
-    };
-  }
-
-  // -------------------------------------------------------------------------
-  // Assemble the pins. THIS is where the privacy rule is enforced, server-side.
-  // -------------------------------------------------------------------------
-  const pins = [];
-  let suppressedNew = 0;
-  let unresolvedZips = 0;
-
-  for (const z of Object.keys(byZip)) {
-    const b = byZip[z];
-    if (!b.coord) { unresolvedZips++; continue; }
-
-    // THE ONE SUPPRESSION. A count is a fact about a place. A timestamp on a thin
-    // pin is a fact about a person. Zeroed HERE so it never reaches the browser.
-    let newCount = b.newCount;
-    if (b.total < MIN_MEMBERS_FOR_NEW && newCount > 0) {
-      suppressedNew += newCount;
-      newCount = 0;
-    }
-
-    let label = "";
-    let best = 0;
-    for (const k of Object.keys(b.labels)) {
-      if (b.labels[k] > best) { best = b.labels[k]; label = k; }
-    }
-
-    pins.push([
-      z,
-      label,
-      b.coord[0],
-      b.coord[1],
-      b.renters,
-      b.landlords,
-      b.propertyManagers,
-      b.realtors,
-      newCount
-    ]);
-  }
-
-  pins.sort((a, b) => (b[4] + b[5] + b[6] + b[7]) - (a[4] + a[5] + a[6] + a[7]));
-
-  const snapshot = {
-    v: FN_VERSION,
-    builtAt: new Date().toISOString(),
-    totals: {
-      members: totals.members,
-      renters: totals.renters,
-      landlords: totals.landlords,
-      propertyManagers: totals.propertyManagers,
-      realtors: totals.realtors,
-      new7: totals.new7,
-      placed: totals.placed,
-      unplaced: totals.unplaced
-    },
-    pinCount: pins.length,
-    // schema is documented in the payload so the page can never drift from it
-    schema: ["zip", "label", "lat", "lon", "renters", "landlords", "propertyManagers", "realtors", "newCount"],
-    pins: pins
-  };
-
-  await store.set(KEY_SNAPSHOT, JSON.stringify(snapshot));
-
-  // READ IT BACK. Every third-party write, every time. (Bible, Workflow Rule 15.)
-  let landed = false;
-  let landedPins = 0;
-  try {
-    const back = await store.get(KEY_SNAPSHOT);
-    const parsed = JSON.parse(back);
-    landedPins = (parsed.pins || []).length;
-    landed = parsed.builtAt === snapshot.builtAt && landedPins === pins.length;
-  } catch (e) {
-    log("READ-BACK FAILED:", e.message);
-  }
-  if (!landed) console.error("[mmb] SNAPSHOT DID NOT LAND. Wrote " + pins.length + " pins, read back " + landedPins + ".");
-
-  const report = {
-    ok: landed,
-    _v: FN_VERSION,
-    builtAt: snapshot.builtAt,
-    landed: landed,
-    listLimit: listLimit,
-    bdReportedTotal: reportedTotal,
-    bdReportedPages: reportedPages,
-    membersRead: totals.members,
-    totals: snapshot.totals,
-    pins: pins.length,
-    zipsUnresolved: unresolvedZips,
-    zipCacheSize: Object.keys(cache).length,
-    geocodedThisRun: toDo.length,
-    geocodeStillPending: Math.max(0, pending.length - toDo.length),
-    newSuppressedOnThinPins: suppressedNew,
-    membersStillOnJunkCoordinate: totals.onJunkCoordinate,
-    uncategorizedMembers: totals.uncategorized,
-    ms: Date.now() - started
-  };
-  log("BUILD DONE", JSON.stringify(report));
-  return report;
+  return { method: null, res: last };
 }
 
-// ---------------------------------------------------------------------------
-// PROBE — Open Thread #26. Answers "does BD's bulk member list actually work on
-// this site" and "do the rows carry user_id + zip_code + profession_id together".
-// Writes nothing.
-// ---------------------------------------------------------------------------
-async function probe() {
+// ------------------------------------------------------------------
+// ZIP -> CENTROID. Google Geocoding API, server-side.
+// We ask for a POSTAL CODE, not an address, so what comes back is the centroid of
+// the zip area. That is the coarsest useful coordinate and it is the ONLY kind the
+// privacy model permits. We never resolve a street address, so we never hold one.
+// Best effort: a failure here must never block the zip write.
+// ------------------------------------------------------------------
+function httpsGetJson(urlStr) {
+  return new Promise((resolve) => {
+    let u;
+    try { u = new URL(urlStr); } catch (e) { return resolve(null); }
+    const req = https.request(
+      { hostname: u.hostname, port: 443, path: u.pathname + u.search, method: "GET" },
+      (res) => {
+        let raw = "";
+        res.on("data", (c) => (raw += c));
+        res.on("end", () => {
+          try { resolve(JSON.parse(raw)); } catch (e) { resolve(null); }
+        });
+      }
+    );
+    req.on("error", (e) => { console.log("[mz] geocode req error: " + e.message); resolve(null); });
+    req.setTimeout(8000, () => { req.destroy(); console.log("[mz] geocode timeout"); resolve(null); });
+    req.end();
+  });
+}
+
+async function geocodeZip(zip) {
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (!key) {
+    console.log("[mz] GOOGLE_MAPS_API_KEY missing - skipping centroid, writing zip only");
+    return null;
+  }
+  // components= restricts the lookup to a US postal code. No street address is ever
+  // sent to Google and no street address can come back.
+  const url =
+    "https://maps.googleapis.com/maps/api/geocode/json?components=" +
+    encodeURIComponent("postal_code:" + zip + "|country:US") +
+    "&key=" + encodeURIComponent(key);
+
+  const data = await httpsGetJson(url);
+  if (!data || data.status !== "OK" || !Array.isArray(data.results) || !data.results.length) {
+    console.log("[mz] geocode failed for " + zip + " status=" + (data ? data.status : "no_response"));
+    return null;
+  }
+
+  const r = data.results[0];
+  const loc = r.geometry && r.geometry.location;
+  if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") {
+    console.log("[mz] geocode returned no location for " + zip);
+    return null;
+  }
+
+  // Pull city + state out of the address components so BD's own location search
+  // and the admin member list read correctly.
+  let city = "";
+  let stateCode = "";
+  let stateLong = "";
+  const comps = r.address_components || [];
+  for (const c of comps) {
+    const t = c.types || [];
+    if (!city && (t.indexOf("locality") !== -1 || t.indexOf("postal_town") !== -1)) city = c.long_name;
+    if (!city && t.indexOf("sublocality") !== -1) city = c.long_name;
+    if (t.indexOf("administrative_area_level_1") !== -1) {
+      stateCode = c.short_name;
+      stateLong = c.long_name;
+    }
+  }
+
   const out = {
-    _v: FN_VERSION,
-    BULK_LIST_WORKS: false,
-    cursorFormat: 'base64("<page>*_*<limit>")',
-    ladder: []
+    lat: String(loc.lat),
+    lon: String(loc.lng),
+    city: city,
+    state_code: stateCode,
+    state_ln: stateLong,
   };
-
-  for (const l of [100, 50, 25]) {
-    const r = await bdTry(listPath(1, l));
-    out.ladder.push({
-      limit: l,
-      cursor: cursor(1, l),
-      http: r.httpStatus,
-      bdMessage: r.bdMessage,
-      rows: r.rows,
-      total: r.meta && r.meta.total,
-      total_pages: r.meta && r.meta.total_pages
-    });
-
-    if (r.rows > 0 && !out.BULK_LIST_WORKS) {
-      out.BULK_LIST_WORKS = true;
-      out.WORKING_LIMIT = l;
-      out.rowsReturned = r.rows;
-      out.reportedTotal = r.meta && r.meta.total;
-      out.reportedTotalPages = r.meta && r.meta.total_pages;
-      out.topLevelKeys = Object.keys(r.raw || {});
-
-      const rows = rowsFrom(r.raw);
-      const row0 = rows[0] || {};
-      out.HAS_user_id = "user_id" in row0;
-      out.HAS_zip_code = "zip_code" in row0;
-      out.HAS_profession_id = "profession_id" in row0;
-      out.HAS_signup_date = "signup_date" in row0;
-      out.HAS_lat_lon = "lat" in row0 && "lon" in row0;
-      out.ALL_MAP_FIELDS_PRESENT =
-        out.HAS_user_id && out.HAS_zip_code && out.HAS_profession_id && out.HAS_signup_date;
-
-      // location fields only. No names, no emails, no phones.
-      out.sample = rows.slice(0, 3).map((m) => ({
-        user_id: m.user_id,
-        profession_id: m.profession_id,
-        zip_code: m.zip_code,
-        city: m.city,
-        state_code: m.state_code,
-        lat: m.lat,
-        lon: m.lon,
-        signup_date: m.signup_date,
-        onJunkCoordinate: isJunkCoord(num(m.lat), num(m.lon))
-      }));
-    }
-  }
-
-  if (out.BULK_LIST_WORKS) {
-    const pages = out.reportedTotalPages || 0;
-    out.estimatedCalls = pages;
-    out.verdict = "Bulk list WORKS. " + out.reportedTotal + " members across " + pages + " pages at limit " + out.WORKING_LIMIT + ".";
-  } else {
-    out.verdict = "Cursor calls returned no rows. Format may have changed. Fall back to sequential ID scan.";
-  }
+  console.log("[mz] centroid " + zip + " -> " + out.lat + "," + out.lon + " " + city + ", " + stateCode);
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// FILTER LADDER (mmb-v3)
-//
-// What the mmb-v2 probe proved:
-//   - NO filter          -> HTTP 400 "user not found"      (list refuses to enumerate)
-//   - property + value   -> HTTP 200, total 0              (filter ACCEPTED, matched none)
-//   - property_operator=LIKE -> HTTP 400 "Invalid filter parameters"
-//   - /user/search       -> HTTP 405 "Invalid Request Method"  (wants POST)
-//
-// So the endpoint is real and gated behind a filter whose column/operator
-// vocabulary we do not yet know. This tries the plausible ones in one pass.
-// ---------------------------------------------------------------------------
-const Q = "/user/get?page=1&limit=100";
-
-const FILTER_CANDIDATES = [
-  // 1. Does the filter mechanism work AT ALL? Aim it at a member we know exists.
-  { id: "user_id=3664",            path: Q + "&property=user_id&property_value=3664" },
-  { id: "user_id=3664 op:=",       path: Q + "&property=user_id&property_value=3664&property_operator=" + encodeURIComponent("=") },
-  { id: "user_id=3664 op:equal",   path: Q + "&property=user_id&property_value=3664&property_operator=equal" },
-  { id: "user_id=3664 op:eq",      path: Q + "&property=user_id&property_value=3664&property_operator=eq" },
-
-  // 2. Match-everything shapes. If one of these works, it IS the bulk list.
-  { id: "user_id>0",               path: Q + "&property=user_id&property_value=0&property_operator=" + encodeURIComponent(">") },
-  { id: "user_id op:greater",      path: Q + "&property=user_id&property_value=0&property_operator=greater_than" },
-  { id: "email like %",            path: Q + "&property=email&property_value=" + encodeURIComponent("%") + "&property_operator=like" },
-  { id: "email like @",            path: Q + "&property=email&property_value=" + encodeURIComponent("@") + "&property_operator=like" },
-  { id: "email like % (LIKE caps)",path: Q + "&property=email&property_value=" + encodeURIComponent("%") + "&property_operator=LIKE" },
-
-  // 3. Is the member-type column named something else?
-  { id: "profession_id=20",        path: Q + "&property=profession_id&property_value=20" },
-  { id: "profession=20",           path: Q + "&property=profession&property_value=20" },
-  { id: "category_id=20",          path: Q + "&property=category_id&property_value=20" },
-  { id: "subscription_id",         path: Q + "&property=subscription_id&property_value=1" },
-  { id: "profession_id=19",        path: Q + "&property=profession_id&property_value=19" },
-
-  // 4. Columns we have SEEN on a live record (Bible: confirmed on member 3835).
-  { id: "verified=0",              path: Q + "&property=verified&property_value=0" },
-  { id: "state_code=IL",           path: Q + "&property=state_code&property_value=IL" },
-  { id: "zip_code=61802",          path: Q + "&property=zip_code&property_value=61802" },
-  { id: "city=Urbana",             path: Q + "&property=city&property_value=Urbana" }
-];
-
-async function filterLadder() {
-  const out = { _v: FN_VERSION, note: "BD's list requires a filter. Unfiltered calls 400. Looking for one that returns rows.", ladder: [] };
-
-  for (const c of FILTER_CANDIDATES) {
-    const r = await bdTry(c.path);
-    const e = {
-      id: c.id,
-      http: r.httpStatus,
-      bdMessage: r.bdMessage,
-      rows: r.rows,
-      total: r.meta && r.meta.total,
-      total_pages: r.meta && r.meta.total_pages
-    };
-    if (r.error) e.error = r.error;
-    out.ladder.push(e);
-
-    if (r.rows > 0 && !out.WINNER) {
-      out.WINNER = c.id;
-      out.WINNER_PATH = c.path;
-      out.reportedTotal = r.meta && r.meta.total;
-      const rows = rowsFrom(r.raw);
-      out.rowKeys = Object.keys(rows[0] || {});
-      out.sample = rows.slice(0, 2).map((m) => ({
-        user_id: m.user_id,
-        profession_id: m.profession_id,
-        zip_code: m.zip_code,
-        city: m.city,
-        state_code: m.state_code,
-        lat: m.lat,
-        lon: m.lon,
-        signup_date: m.signup_date
-      }));
-    }
+// --- Zip normalize. Digits only, exactly 5. ---
+function cleanZip(raw) {
+  const s = String(raw == null ? "" : raw);
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charAt(i);
+    if (c >= "0" && c <= "9") out += c;
   }
-
-  if (!out.WINNER) out.verdict = "No filter returned rows. Next: POST /user/search (405 says it wants POST), or the sequential ID scan.";
-  return out;
+  return out.slice(0, 5);
 }
 
-// ---------------------------------------------------------------------------
-// RAW PASSTHROUGH — the artifact, not the config. Returns BD's unmodified JSON
-// for any path, so we can iterate without a redeploy.
-//   ?raw=1&p=/user/get/3664&key=...
-// [ADMIN] Returns full member records (email, phone). Key-gated, same as the
-// member-zip probes.
-// ---------------------------------------------------------------------------
-async function rawPassthrough(p) {
-  if (!p || p.charAt(0) !== "/") return { error: "p must be a path starting with /" };
-  const r = await bdTry(p);
-  return {
-    _v: FN_VERSION,
-    path: p,
-    http: r.httpStatus,
-    redirected: r.redirected,
-    rowsParsed: r.rows,
-    meta: r.meta,
-    nonJson: r.snippet,
-    raw: r.raw
-  };
-}
-
-// ---------------------------------------------------------------------------
-exports.handler = async (event) => {
-  const q = (event && event.queryStringParameters) || {};
-
-  if (q.version) {
-    return json(200, {
-      _v: FN_VERSION,
-      bdApiKeyConfigured: !!BD_KEY,
-      googleKeyConfigured: !!GKEY,
-      probeKeyConfigured: !!PROBE_KEY,
-      blobsExplicitAuth: !!(process.env.NETLIFY_SITE_ID && process.env.NETLIFY_BLOBS_TOKEN),
-      minMembersForNewFlag: MIN_MEMBERS_FOR_NEW
-    });
-  }
-
-  const isScheduled = !q.probe && !q.build && !q.warm && !q.filters && !q.raw;
-  const authed = PROBE_KEY && q.key === PROBE_KEY;
-
-  if (!isScheduled && !authed) return json(403, { error: "bad or missing key" });
-  if (!BD_KEY) return json(500, { error: "BD_API_KEY not configured" });
-
+// --- Alarm. Fires ONLY when a write does not land. If the field name is right
+//     this never sends. If it is ever wrong, the inbox should be screaming,
+//     because that is precisely the failure that ran silently for three weeks.
+async function alarm(memberId, zip, detail) {
   try {
-    if (q.probe) return json(200, await probe());
-    if (q.filters) return json(200, await filterLadder());
-    if (q.raw) return json(200, await rawPassthrough(q.p));
-    if (q.warm) return json(200, await build({ warmOnly: true }));
-    const report = await build({});
-    return json(report.ok ? 200 : 500, report);
+    const lines = [
+      "A member zip write did NOT land in BD.",
+      "",
+      "This means the value was accepted by BD (HTTP 200) but is not on the",
+      "member record. Most likely the field name is wrong and BD filed it in",
+      "users_meta instead of users_data.",
+      "",
+      `Member ID: ${memberId}`,
+      `Zip sent: ${zip}`,
+      `Field used: ${ZIP_FIELD}`,
+      `Function: member-zip ${FN_VERSION}`,
+      "",
+      "Detail:",
+      String(detail).slice(0, 800),
+      "",
+      "Check the live field name:",
+      `  /.netlify/functions/member-zip?keys=1&memberId=${memberId}&key=YOUR_ADMIN_PROBE_KEY`,
+      "",
+      "---",
+      "Renters.com zip capture alarm",
+    ];
+    await ses.send(
+      new SendEmailCommand({
+        Source: "verify@renters.com",
+        Destination: { ToAddresses: ["kenny@renters.com"] },
+        Message: {
+          Subject: { Data: `ZIP WRITE FAILED - member ${memberId} (field ${ZIP_FIELD})` },
+          Body: { Text: { Data: lines.join(String.fromCharCode(10)) } },
+        },
+      })
+    );
   } catch (e) {
-    console.error("[mmb] FAILED:", e.message);
-    return json(500, { _v: FN_VERSION, ok: false, error: e.message });
+    console.log("[mz] alarm email failed: " + e.message);
   }
+}
+
+// ==================================================================
+exports.handler = async function (event) {
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: corsHeaders, body: "" };
+  }
+
+  const q = event.queryStringParameters || {};
+
+  // ---------- version (public, harmless) ----------
+  if (event.httpMethod === "GET" && q.version) {
+    // Reports CONFIGURATION only. Never echoes a secret. probeKeyLength lets you
+    // spot a truncated or whitespace-padded paste without revealing the value.
+    return reply(200, {
+      fn: "member-zip",
+      FN_VERSION,
+      zipField: ZIP_FIELD,
+      bdApiKeyConfigured: !!process.env.BD_API_KEY,
+      probeKeyConfigured: PROBE_KEY.length > 0,
+      probeKeyLength: PROBE_KEY.length,
+    });
+  }
+
+  if (!process.env.BD_API_KEY) {
+    console.log("[mz] FATAL: BD_API_KEY missing from env");
+    return reply(500, { ok: false, error: "bd_api_key_missing", FN_VERSION });
+  }
+
+  if (event.httpMethod === "GET") {
+    // ---------- status: does this member already have a zip? ----------
+    // Returns a BOOLEAN only. Never echoes the zip back, so this endpoint
+    // cannot be walked to enumerate member locations.
+    if (q.status === "1" && q.memberId) {
+      const m = await getMember(q.memberId);
+      if (!m) {
+        // Unknown. The head code treats this as "do not block" (fail open).
+        return reply(200, { FN_VERSION, memberId: q.memberId, hasZip: null, note: "member_not_read" });
+      }
+      const z = cleanZip(m[ZIP_FIELD]);
+      return reply(200, { FN_VERSION, memberId: q.memberId, hasZip: z.length === 5 });
+    }
+
+    // ---------- ADMIN PROBES (gated: /user/get returns email, phone, address) ----
+    const isProbe = q.raw || q.keys || q.list;
+    if (isProbe) {
+      const supplied = q.key == null ? "" : String(q.key);
+      if (!PROBE_KEY || supplied !== PROBE_KEY) {
+        // Fingerprint both sides. Reveals neither, but tells us WHICH is wrong:
+        //   lengths differ            -> the URL truncated it, or the stored value
+        //                                has stray whitespace
+        //   lengths match, fp differs -> the two strings are simply not the same
+        //   fp match                  -> impossible (would not be in this branch)
+        const fp = (v) => crypto.createHash("sha256").update(v, "utf8").digest("hex").slice(0, 12);
+        return reply(403, {
+          ok: false,
+          error: "probe_key_required",
+          FN_VERSION,
+          storedLength: PROBE_KEY.length,
+          suppliedLength: supplied.length,
+          storedFingerprint: PROBE_KEY ? fp(PROBE_KEY) : null,
+          suppliedFingerprint: supplied ? fp(supplied) : null,
+          // Was the value in Netlify saved with invisible whitespace on it?
+          storedHasOuterWhitespace: PROBE_KEY !== PROBE_KEY.trim(),
+          storedLengthTrimmed: PROBE_KEY.trim().length,
+          // Would it have matched if we trimmed the stored value? If true, the
+          // env var has a stray space or newline and that is the entire bug.
+          wouldMatchIfStoredTrimmed: supplied.length > 0 && supplied === PROBE_KEY.trim(),
+        });
+      }
+
+      // ?list=1 -> DOES BD HAVE A BULK MEMBER LIST?
+      // This is the question that has blocked Open Thread #6 (Verification Ops
+      // Dashboard) and #9 / Element T (Live Members Map). BD's docs say
+      // /user/get with no params enumerates all users, paginated.
+      if (q.list) {
+        let path = `/user/get?page=${encodeURIComponent(q.page || 1)}&limit=${encodeURIComponent(q.limit || 100)}`;
+        if (q.property) {
+          path += `&property=${encodeURIComponent(q.property)}&property_value=${encodeURIComponent(q.property_value || "")}`;
+        }
+        const res = await bd(path);
+        const msg = res.data && res.data.message;
+        const rows = Array.isArray(msg) ? msg : [];
+        return reply(200, {
+          ok: true,
+          FN_VERSION,
+          BULK_LIST_WORKS: rows.length > 0,
+          returnedThisPage: rows.length,
+          total: res.data && res.data.total,
+          current_page: res.data && res.data.current_page,
+          total_pages: res.data && res.data.total_pages,
+          // Exactly the fields members-map-build.js needs, and nothing else.
+          sample: rows.slice(0, 5).map((u) => ({
+            user_id: u.user_id,
+            zip_code: u.zip_code,
+            city: u.city,
+            profession_id: u.profession_id,
+            subscription_id: u.subscription_id,
+          })),
+          httpStatus: res.status,
+          error: res.error || null,
+        });
+      }
+
+      // ?raw=1 -> BD's unmodified /user/get JSON.
+      if (q.raw) {
+        if (!q.memberId) return reply(400, { ok: false, error: "memberId_required" });
+        const res = await bd(`/user/get/${encodeURIComponent(q.memberId)}`);
+        return reply(200, {
+          ok: true,
+          FN_VERSION,
+          httpStatus: res.status,
+          raw: res.data || res.raw,
+          error: res.error || null,
+        });
+      }
+
+      // ?keys=1 -> the same answer, readable on a phone. Read LOCATION_KEYS.
+      if (q.keys) {
+        if (!q.memberId) return reply(400, { ok: false, error: "memberId_required" });
+        const rec = await getMember(q.memberId);
+        if (!rec) return reply(200, { ok: false, error: "no_record", FN_VERSION });
+
+        const keys = Object.keys(rec);
+        const hits = {};
+        keys.forEach((k) => {
+          const lk = k.toLowerCase();
+          if (
+            lk.indexOf("zip") !== -1 ||
+            lk.indexOf("postal") !== -1 ||
+            lk.indexOf("city") !== -1 ||
+            lk.indexOf("state") !== -1 ||
+            lk.indexOf("address") !== -1 ||
+            lk === "lat" ||
+            lk === "lon"
+          ) {
+            hits[k] = rec[k];
+          }
+        });
+        return reply(200, {
+          ok: true,
+          FN_VERSION,
+          memberId: q.memberId,
+          LOCATION_KEYS: hits, // <-- the answer, in one line
+          weWillWriteTo: ZIP_FIELD,
+          allKeys: keys,
+        });
+      }
+    }
+
+    return reply(200, { FN_VERSION, fn: "member-zip" });
+  }
+
+  // ==================================================================
+  // POST: the write. Called by the wizard zip gate (head code block zip1).
+  // ==================================================================
+  if (event.httpMethod !== "POST") {
+    return reply(405, { ok: false, error: "method_not_allowed", FN_VERSION });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(event.body || "{}");
+  } catch (e) {
+    return reply(400, { ok: false, error: "bad_json", FN_VERSION });
+  }
+
+  const memberId = String(body.memberId || "").trim();
+  const zip = cleanZip(body.zip);
+
+  if (!memberId) return reply(400, { ok: false, error: "memberId_required", FN_VERSION });
+  if (zip.length !== 5) {
+    return reply(400, { ok: false, error: "zip_must_be_5_digits", got: zip, FN_VERSION });
+  }
+
+  console.log(`[mz] WRITE member=${memberId} zip=${zip} field=${ZIP_FIELD}`);
+
+  const fields = { user_id: memberId };
+  fields[ZIP_FIELD] = zip;
+
+  // Centroid. Best effort — if Google is down or the key is missing, we still write
+  // the zip. Capture NEVER depends on the geocode.
+  const geo = await geocodeZip(zip);
+  if (geo) {
+    fields.lat = geo.lat;
+    fields.lon = geo.lon;
+    // Only fill city/state if the geocode actually produced them. Never blank out
+    // a value a member already supplied.
+    if (geo.city) fields.city = geo.city;
+    if (geo.state_code) fields.state_code = geo.state_code;
+    if (geo.state_ln) fields.state_ln = geo.state_ln;
+  }
+
+  const w = await updateMember(fields);
+  const wStatus = w.res ? w.res.status : 0;
+  const wRaw = w.res ? String(w.res.raw || w.res.error || "").slice(0, 300) : "";
+
+  // ------------------------------------------------------------------
+  // READ IT BACK. THIS IS THE ENTIRE POINT OF THIS FUNCTION.
+  // BD returns success even when it quietly files the value in users_meta.
+  // The only proof is reading the member record and finding the value ON it.
+  // ------------------------------------------------------------------
+  const after = await getMember(memberId);
+  const stored = after ? cleanZip(after[ZIP_FIELD]) : "";
+  const landed = stored === zip;
+
+  if (landed) {
+    console.log(`[mz] LANDED. member=${memberId} ${ZIP_FIELD}=${stored} lat=${after.lat} lon=${after.lon}`);
+  } else {
+    console.log(
+      `[mz] *** DID NOT LAND *** member=${memberId} sent=${zip} field=${ZIP_FIELD} ` +
+        `readBack=${JSON.stringify(stored)} writeMethod=${w.method} writeStatus=${wStatus} writeBody=${wRaw}`
+    );
+    await alarm(memberId, zip, `writeMethod=${w.method} writeStatus=${wStatus} body=${wRaw} readBack=${stored}`);
+  }
+
+  // Did the centroid land too? BD's junk fallback is 38.7945952 / -106.5348379.
+  const junk = after && String(after.lat || "").indexOf("38.794") === 0;
+
+  return reply(landed ? 200 : 502, {
+    ok: landed,
+    landed, // false = the value is NOT on the member record. Field name is wrong.
+    zip,
+    field: ZIP_FIELD,
+    readBack: stored,
+    writeMethod: w.method,
+    writeStatus: wStatus,
+    // The centroid we sent, and what BD now holds.
+    centroidSent: geo ? geo.lat + "," + geo.lon : null,
+    citySent: geo ? geo.city : null,
+    lat: after ? after.lat : null,
+    lon: after ? after.lon : null,
+    city: after ? after.city : null,
+    stillOnJunkCoordinate: junk, // true = the Colorado fallback survived our write
+    FN_VERSION,
+  });
 };
