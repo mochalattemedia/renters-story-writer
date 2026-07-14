@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v1
+// FN_VERSION: mmb-v2
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -37,7 +37,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v1";
+const FN_VERSION = "mmb-v2";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -65,13 +65,14 @@ const MIN_MEMBERS_FOR_NEW = 3;
 const MAX_GEOCODE_PER_RUN = 120;
 const MAX_GEOCODE_PER_WARM = 400;
 
-const PAGE_LIMIT = 200;   // BD rows per page
+let   PAGE_LIMIT = 100;  // BD rows per page. Discovery may lower this.
 const PAGE_BATCH = 6;     // pages fetched in parallel
 const MAX_PAGES = 60;     // hard stop, ~12,000 members
 
 const BLOB_STORE = "members-map";
 const KEY_SNAPSHOT = "snapshot";
 const KEY_ZIPCACHE = "zipcache";
+const KEY_LISTPATH = "listpath";
 
 // ---------------------------------------------------------------------------
 // Blobs — explicit siteID/token fallback. getStore() does NOT throw on creation,
@@ -207,44 +208,143 @@ function metaFrom(data) {
   };
 }
 
-async function fetchPage(page) {
-  const data = await bdGet("/user/get?page=" + page + "&limit=" + PAGE_LIMIT);
+
+// ---------------------------------------------------------------------------
+// LIST-PATH DISCOVERY (Open Thread #26)
+//
+// BD returned this on /user/get?page=1&limit=200 :
+//   {"status":"error","message":"user not found","total":0,"current_page":0,
+//    "total_pages":0,"next_page":"","prev_page":""}
+//
+// Those pagination fields only appear on a LIST response. So the endpoint is
+// real and a PARAMETER was wrong. Rather than guess, we try every plausible
+// shape, take the first that returns rows, and CACHE THE WINNER in a blob so we
+// only ever pay for discovery once.
+//
+// Do not trust a vendor 200 and do not trust a vendor 400 either. Read the body.
+// ---------------------------------------------------------------------------
+const LIST_CANDIDATES = [
+  { id: "page+limit100",      tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l, limit: 100 },
+  { id: "page+limit50",       tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l, limit: 50 },
+  { id: "page+limit25",       tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l, limit: 25 },
+  { id: "page0-indexed",      tpl: (p, l) => "/user/get?page=" + (p - 1) + "&limit=" + l, limit: 100 },
+  { id: "limit-only",         tpl: (p, l) => "/user/get?limit=" + l, limit: 100 },
+  { id: "bare",               tpl: () => "/user/get", limit: 100 },
+  { id: "renters-filter",     tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l + "&property=profession_id&property_value=20", limit: 100 },
+  { id: "renters-filter-LIKE",tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l + "&property=profession_id&property_value=20&property_operator=LIKE", limit: 100 },
+  { id: "status-filter",      tpl: (p, l) => "/user/get?page=" + p + "&limit=" + l + "&property=status&property_value=active", limit: 100 },
+  { id: "user-search",        tpl: (p, l) => "/user/search?page=" + p + "&limit=" + l, limit: 100 },
+  { id: "users-plural",       tpl: (p, l) => "/users/get?page=" + p + "&limit=" + l, limit: 100 }
+];
+
+// Soft version of bdGet: never throws, returns the whole story.
+async function bdTry(path) {
+  try {
+    const res = await fetch(BD_BASE + path, {
+      method: "GET",
+      headers: { "X-Api-Key": BD_KEY, Accept: "application/json" },
+      redirect: "manual"
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch (e) {}
+    return {
+      path: path,
+      httpStatus: res.status,
+      redirected: res.status >= 300 && res.status < 400,
+      bdStatus: data && data.status,
+      bdMessage: data && typeof data.message === "string" ? data.message : undefined,
+      rows: data ? rowsFrom(data).length : 0,
+      meta: data ? metaFrom(data) : null,
+      raw: data,
+      snippet: data ? undefined : text.slice(0, 200)
+    };
+  } catch (e) {
+    return { path: path, error: e.message, rows: 0 };
+  }
+}
+
+async function discoverListPath(store) {
+  // cached winner?
+  try {
+    const cached = await store.get(KEY_LISTPATH);
+    if (cached) {
+      const c = JSON.parse(cached);
+      const found = LIST_CANDIDATES.filter((x) => x.id === c.id)[0];
+      if (found) {
+        const check = await bdTry(found.tpl(1, c.limit || found.limit));
+        if (check.rows > 0) {
+          log("list path from cache:", c.id, "limit", c.limit || found.limit);
+          return { cand: found, limit: c.limit || found.limit, firstPage: check };
+        }
+        log("cached list path stopped working, rediscovering");
+      }
+    }
+  } catch (e) {}
+
+  for (const cand of LIST_CANDIDATES) {
+    const r = await bdTry(cand.tpl(1, cand.limit));
+    log("try", cand.id, "->", r.httpStatus, "rows:", r.rows, "bd:", r.bdMessage || r.bdStatus);
+    if (r.rows > 0) {
+      await store.set(KEY_LISTPATH, JSON.stringify({ id: cand.id, limit: cand.limit }));
+      log("LIST PATH FOUND:", cand.id, "limit", cand.limit, "rows", r.rows);
+      return { cand: cand, limit: cand.limit, firstPage: r };
+    }
+  }
+  return null;
+}
+
+async function fetchPage(cand, limit, page) {
+  const data = await bdGet(cand.tpl(page, limit));
   return { rows: rowsFrom(data), meta: metaFrom(data), raw: data };
 }
 
-async function fetchAllMembers() {
-  const first = await fetchPage(1);
-  if (!first.rows.length) {
-    throw new Error("BD bulk list returned ZERO rows on page 1. The endpoint may not be enabled on this site. Run ?probe=1 and read the rawKeys.");
+async function fetchAllMembers(store) {
+  const found = await discoverListPath(store);
+  if (!found) {
+    throw new Error("BD bulk member list DOES NOT WORK on this site. Every candidate returned zero rows. Run ?probe=1 and send the ladder.");
   }
 
-  let totalPages = first.meta.total_pages;
-  if (!totalPages || totalPages < 1) {
-    // BD did not tell us. Page until a short page comes back.
-    totalPages = MAX_PAGES;
-  }
+  const cand = found.cand;
+  const limit = found.limit;
+  PAGE_LIMIT = limit;
+
+  const first = found.firstPage;
+  const all = rowsFrom(first.raw).slice();
+
+  // Single-page shapes (bare / limit-only) cannot be paged. Take what they gave.
+  const pageable = cand.id !== "bare" && cand.id !== "limit-only";
+
+  let totalPages = first.meta && first.meta.total_pages;
+  if (!totalPages || totalPages < 1) totalPages = pageable ? MAX_PAGES : 1;
   totalPages = Math.min(totalPages, MAX_PAGES);
 
-  const all = first.rows.slice();
-  log("page 1:", first.rows.length, "rows | total:", first.meta.total, "| total_pages:", first.meta.total_pages);
+  log("list path:", cand.id, "| limit:", limit, "| page 1:", all.length, "rows | total:", first.meta && first.meta.total, "| total_pages:", totalPages);
 
-  let page = 2;
-  while (page <= totalPages) {
-    const batch = [];
-    for (let i = 0; i < PAGE_BATCH && page + i <= totalPages; i++) batch.push(fetchPage(page + i));
-    const results = await Promise.all(batch);
-
-    let short = false;
-    for (const r of results) {
-      all.push.apply(all, r.rows);
-      if (r.rows.length < PAGE_LIMIT) short = true;
+  if (pageable) {
+    let page = 2;
+    while (page <= totalPages) {
+      const batch = [];
+      for (let i = 0; i < PAGE_BATCH && page + i <= totalPages; i++) batch.push(fetchPage(cand, limit, page + i));
+      const results = await Promise.all(batch);
+      let short = false;
+      for (const r of results) {
+        all.push.apply(all, r.rows);
+        if (r.rows.length < limit) short = true;
+      }
+      page += batch.length;
+      if (short && !(first.meta && first.meta.total_pages)) break;
     }
-    page += batch.length;
-    if (short && !first.meta.total_pages) break; // ran off the end of an unknown list
   }
 
-  log("fetched", all.length, "member rows across", Math.min(totalPages, page - 1), "pages");
-  return { members: all, reportedTotal: first.meta.total, reportedPages: first.meta.total_pages };
+  log("fetched", all.length, "member rows");
+  return {
+    members: all,
+    reportedTotal: first.meta && first.meta.total,
+    reportedPages: first.meta && first.meta.total_pages,
+    listPath: cand.id,
+    listLimit: limit
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +395,7 @@ async function build(opts) {
   const cache = await loadZipCache(store);
   const cacheSizeBefore = Object.keys(cache).length;
 
-  const { members, reportedTotal, reportedPages } = await fetchAllMembers();
+  const { members, reportedTotal, reportedPages, listPath, listLimit } = await fetchAllMembers(store);
 
   const now = Date.now();
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -487,6 +587,8 @@ async function build(opts) {
     _v: FN_VERSION,
     builtAt: snapshot.builtAt,
     landed: landed,
+    listPath: listPath,
+    listLimit: listLimit,
     bdReportedTotal: reportedTotal,
     bdReportedPages: reportedPages,
     membersRead: totals.members,
@@ -511,27 +613,46 @@ async function build(opts) {
 // Writes nothing.
 // ---------------------------------------------------------------------------
 async function probe() {
-  const out = { _v: FN_VERSION, BULK_LIST_WORKS: false };
-  try {
-    const first = await fetchPage(1);
-    out.rowsOnPage1 = first.rows.length;
-    out.reportedTotal = first.meta.total;
-    out.reportedCurrentPage = first.meta.current_page;
-    out.reportedTotalPages = first.meta.total_pages;
-    out.topLevelKeys = Object.keys(first.raw || {});
+  const out = { _v: FN_VERSION, BULK_LIST_WORKS: false, ladder: [] };
 
-    if (first.rows.length) {
-      const r = first.rows[0];
-      out.rowKeys = Object.keys(r);
-      out.HAS_user_id = "user_id" in r;
-      out.HAS_zip_code = "zip_code" in r;
-      out.HAS_profession_id = "profession_id" in r;
-      out.HAS_signup_date = "signup_date" in r;
-      out.HAS_lat_lon = "lat" in r && "lon" in r;
-      out.BULK_LIST_WORKS = out.HAS_user_id && out.HAS_zip_code && out.HAS_profession_id;
+  for (const cand of LIST_CANDIDATES) {
+    const r = await bdTry(cand.tpl(1, cand.limit));
+    const entry = {
+      id: cand.id,
+      path: r.path,
+      http: r.httpStatus,
+      redirected: r.redirected || false,
+      bdMessage: r.bdMessage,
+      rows: r.rows,
+      total: r.meta && r.meta.total,
+      total_pages: r.meta && r.meta.total_pages
+    };
+    if (r.error) entry.error = r.error;
+    if (r.snippet) entry.nonJson = r.snippet;
+    out.ladder.push(entry);
+
+    if (r.rows > 0 && !out.WINNER) {
+      out.BULK_LIST_WORKS = true;
+      out.WINNER = cand.id;
+      out.WINNER_PATH = r.path;
+      out.WINNER_LIMIT = cand.limit;
+      out.reportedTotal = r.meta && r.meta.total;
+      out.reportedTotalPages = r.meta && r.meta.total_pages;
+      out.topLevelKeys = Object.keys(r.raw || {});
+
+      const rows = rowsFrom(r.raw);
+      const row0 = rows[0] || {};
+      out.rowKeys = Object.keys(row0);
+      out.HAS_user_id = "user_id" in row0;
+      out.HAS_zip_code = "zip_code" in row0;
+      out.HAS_profession_id = "profession_id" in row0;
+      out.HAS_signup_date = "signup_date" in row0;
+      out.HAS_lat_lon = "lat" in row0 && "lon" in row0;
+      out.ALL_MAP_FIELDS_PRESENT =
+        out.HAS_user_id && out.HAS_zip_code && out.HAS_profession_id && out.HAS_signup_date;
 
       // 3 sample rows, location fields only. No names, no emails, no phones.
-      out.sample = first.rows.slice(0, 3).map((m) => ({
+      out.sample = rows.slice(0, 3).map((m) => ({
         user_id: m.user_id,
         profession_id: m.profession_id,
         zip_code: m.zip_code,
@@ -543,8 +664,10 @@ async function probe() {
         onJunkCoordinate: isJunkCoord(num(m.lat), num(m.lon))
       }));
     }
-  } catch (e) {
-    out.error = e.message;
+  }
+
+  if (!out.BULK_LIST_WORKS) {
+    out.verdict = "No candidate returned rows. BD may not expose a bulk list on this plan. Fallback: sequential ID scan (member IDs are contiguous to ~3900).";
   }
   return out;
 }
