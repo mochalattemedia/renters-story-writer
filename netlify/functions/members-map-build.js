@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v2
+// FN_VERSION: mmb-v3
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -30,6 +30,12 @@
 //                                        rows carry. Writes NOTHING.
 //   ?build=1&key=ADMIN_PROBE_KEY      -> [ADMIN] full build, writes the snapshot.
 //   ?warm=1&key=ADMIN_PROBE_KEY       -> [ADMIN] geocode-cache warming only, batched.
+//   ?filters=1&key=ADMIN_PROBE_KEY    -> [ADMIN] filter ladder. BD's list REQUIRES a
+//                                        property filter; unfiltered calls 400 with
+//                                        "user not found". This finds the column and
+//                                        operator BD will actually accept.
+//   ?raw=1&p=/path&key=ADMIN_PROBE_KEY-> [ADMIN] passthrough. Returns BD's unmodified
+//                                        JSON for any path. The artifact, not the config.
 //   (scheduled)                       -> full build, nightly via netlify.toml
 //
 // ENV: BD_API_KEY, ADMIN_PROBE_KEY, GOOGLE_MAPS_API_KEY,
@@ -37,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v2";
+const FN_VERSION = "mmb-v3";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -672,6 +678,110 @@ async function probe() {
   return out;
 }
 
+
+// ---------------------------------------------------------------------------
+// FILTER LADDER (mmb-v3)
+//
+// What the mmb-v2 probe proved:
+//   - NO filter          -> HTTP 400 "user not found"      (list refuses to enumerate)
+//   - property + value   -> HTTP 200, total 0              (filter ACCEPTED, matched none)
+//   - property_operator=LIKE -> HTTP 400 "Invalid filter parameters"
+//   - /user/search       -> HTTP 405 "Invalid Request Method"  (wants POST)
+//
+// So the endpoint is real and gated behind a filter whose column/operator
+// vocabulary we do not yet know. This tries the plausible ones in one pass.
+// ---------------------------------------------------------------------------
+const Q = "/user/get?page=1&limit=100";
+
+const FILTER_CANDIDATES = [
+  // 1. Does the filter mechanism work AT ALL? Aim it at a member we know exists.
+  { id: "user_id=3664",            path: Q + "&property=user_id&property_value=3664" },
+  { id: "user_id=3664 op:=",       path: Q + "&property=user_id&property_value=3664&property_operator=" + encodeURIComponent("=") },
+  { id: "user_id=3664 op:equal",   path: Q + "&property=user_id&property_value=3664&property_operator=equal" },
+  { id: "user_id=3664 op:eq",      path: Q + "&property=user_id&property_value=3664&property_operator=eq" },
+
+  // 2. Match-everything shapes. If one of these works, it IS the bulk list.
+  { id: "user_id>0",               path: Q + "&property=user_id&property_value=0&property_operator=" + encodeURIComponent(">") },
+  { id: "user_id op:greater",      path: Q + "&property=user_id&property_value=0&property_operator=greater_than" },
+  { id: "email like %",            path: Q + "&property=email&property_value=" + encodeURIComponent("%") + "&property_operator=like" },
+  { id: "email like @",            path: Q + "&property=email&property_value=" + encodeURIComponent("@") + "&property_operator=like" },
+  { id: "email like % (LIKE caps)",path: Q + "&property=email&property_value=" + encodeURIComponent("%") + "&property_operator=LIKE" },
+
+  // 3. Is the member-type column named something else?
+  { id: "profession_id=20",        path: Q + "&property=profession_id&property_value=20" },
+  { id: "profession=20",           path: Q + "&property=profession&property_value=20" },
+  { id: "category_id=20",          path: Q + "&property=category_id&property_value=20" },
+  { id: "subscription_id",         path: Q + "&property=subscription_id&property_value=1" },
+  { id: "profession_id=19",        path: Q + "&property=profession_id&property_value=19" },
+
+  // 4. Columns we have SEEN on a live record (Bible: confirmed on member 3835).
+  { id: "verified=0",              path: Q + "&property=verified&property_value=0" },
+  { id: "state_code=IL",           path: Q + "&property=state_code&property_value=IL" },
+  { id: "zip_code=61802",          path: Q + "&property=zip_code&property_value=61802" },
+  { id: "city=Urbana",             path: Q + "&property=city&property_value=Urbana" }
+];
+
+async function filterLadder() {
+  const out = { _v: FN_VERSION, note: "BD's list requires a filter. Unfiltered calls 400. Looking for one that returns rows.", ladder: [] };
+
+  for (const c of FILTER_CANDIDATES) {
+    const r = await bdTry(c.path);
+    const e = {
+      id: c.id,
+      http: r.httpStatus,
+      bdMessage: r.bdMessage,
+      rows: r.rows,
+      total: r.meta && r.meta.total,
+      total_pages: r.meta && r.meta.total_pages
+    };
+    if (r.error) e.error = r.error;
+    out.ladder.push(e);
+
+    if (r.rows > 0 && !out.WINNER) {
+      out.WINNER = c.id;
+      out.WINNER_PATH = c.path;
+      out.reportedTotal = r.meta && r.meta.total;
+      const rows = rowsFrom(r.raw);
+      out.rowKeys = Object.keys(rows[0] || {});
+      out.sample = rows.slice(0, 2).map((m) => ({
+        user_id: m.user_id,
+        profession_id: m.profession_id,
+        zip_code: m.zip_code,
+        city: m.city,
+        state_code: m.state_code,
+        lat: m.lat,
+        lon: m.lon,
+        signup_date: m.signup_date
+      }));
+    }
+  }
+
+  if (!out.WINNER) out.verdict = "No filter returned rows. Next: POST /user/search (405 says it wants POST), or the sequential ID scan.";
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// RAW PASSTHROUGH — the artifact, not the config. Returns BD's unmodified JSON
+// for any path, so we can iterate without a redeploy.
+//   ?raw=1&p=/user/get/3664&key=...
+// [ADMIN] Returns full member records (email, phone). Key-gated, same as the
+// member-zip probes.
+// ---------------------------------------------------------------------------
+async function rawPassthrough(p) {
+  if (!p || p.charAt(0) !== "/") return { error: "p must be a path starting with /" };
+  const r = await bdTry(p);
+  return {
+    _v: FN_VERSION,
+    path: p,
+    http: r.httpStatus,
+    redirected: r.redirected,
+    rowsParsed: r.rows,
+    meta: r.meta,
+    nonJson: r.snippet,
+    raw: r.raw
+  };
+}
+
 // ---------------------------------------------------------------------------
 exports.handler = async (event) => {
   const q = (event && event.queryStringParameters) || {};
@@ -687,7 +797,7 @@ exports.handler = async (event) => {
     });
   }
 
-  const isScheduled = !q.probe && !q.build && !q.warm;
+  const isScheduled = !q.probe && !q.build && !q.warm && !q.filters && !q.raw;
   const authed = PROBE_KEY && q.key === PROBE_KEY;
 
   if (!isScheduled && !authed) return json(403, { error: "bad or missing key" });
@@ -695,6 +805,8 @@ exports.handler = async (event) => {
 
   try {
     if (q.probe) return json(200, await probe());
+    if (q.filters) return json(200, await filterLadder());
+    if (q.raw) return json(200, await rawPassthrough(q.p));
     if (q.warm) return json(200, await build({ warmOnly: true }));
     const report = await build({});
     return json(report.ok ? 200 : 500, report);
