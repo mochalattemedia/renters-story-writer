@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v7
+// FN_VERSION: mmb-v8
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v7";
+const FN_VERSION = "mmb-v8";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -72,7 +72,7 @@ const MAX_GEOCODE_PER_RUN = 120;
 const MAX_GEOCODE_PER_WARM = 400;
 
 let   PAGE_LIMIT = 100;  // BD rows per page. Discovery may lower this.
-const PAGE_BATCH = 6;     // pages fetched in parallel
+const PAGE_BATCH = 8;     // pages fetched in parallel
 const MAX_PAGES = 60;     // hard stop, ~12,000 members
 
 const BLOB_STORE = "members-map";
@@ -250,80 +250,87 @@ function cursor(page, limit) {
   return Buffer.from(String(page) + "*_*" + String(limit), "utf8").toString("base64");
 }
 
-// ⚠️ mmb-v6 FIX — DO NOT ADD &limit= BACK.
-// The limit is ALREADY inside the cursor ("1*_*25"). Sending it again as its own
-// query param makes BD 400 the whole request. mmb-v5 did exactly that and every
-// page failed, even though the cursors were byte-identical to BD's own tokens.
+function listPath(page, limit) {
+  return "/user/get?page=" + encodeURIComponent(cursor(page, limit));
+  // ⚠️ NEVER add &limit= here. The limit lives INSIDE the cursor. Sending it again
+  // as its own query param makes BD 400 the entire request (mmb-v5 did this).
+}
+
+// ---------------------------------------------------------------------------
+// ⚠️⚠️ BD'S PAGINATION IS NOT RELIABLE. SOME PAGES SIMPLY WILL NOT SERVE.
 //
-// PADDING: base64("1*_*25") has no "=" padding, but base64("10*_*25") does, and at
-// 155 pages we cannot avoid page 10. Whether BD's decoder tolerates padding is
-// UNKNOWN, so we discover it rather than assume. padMode:
-//   "raw"     -> send the "=" (URL-encoded as %3D)
-//   "stripped"-> drop the "=" entirely (many base64 decoders accept unpadded)
-function listPath(page, limit, padMode) {
-  let c = cursor(page, limit);
-  if (padMode === "stripped") c = c.replace(/=+$/, "");
-  return "/user/get?page=" + encodeURIComponent(c);
-}
+// Proven by the mmb-v7 cursor walk, all at limit 25:
+//     page 2, 3, 4   -> 200, 25 rows
+//     page 155       -> 200, 23 rows   (and its token IS base64-padded)
+//     page 1, 9, 10  -> HTTP 400
+//
+// Page 4 and page 155 were cursors WE generated. Both worked. Page 9 is built
+// identically and 400s. So this is NOT a token-format problem, NOT a padding
+// problem, and NOT a page-1 problem. Specific pages are unserveable, and BD's
+// message ("user not found") suggests a page containing a member row BD itself
+// cannot resolve. Page 1 is the oldest members, thick with dead test accounts.
+//
+// We are not going to make BD fix this. We route around it.
+//
+// THE STRATEGY:
+//   1. Page at limit 50 (limit 100 is rejected; 50 is the proven ceiling).
+//   2. Retry any page that fails. Some of it may be transient.
+//   3. Any page that STAYS dead becomes an ID RANGE, and we fetch those members
+//      one at a time via /user/get/{id} — the single most proven call we have.
+//      Pages come back sorted by user_id, so a dead page is bracketed by its
+//      neighbours. Page 1 is bracketed by 1 and (first id on page 2) - 1.
+//
+// A hole in BD's pagination costs us a few dozen individual lookups. It does not
+// cost us members. Never ship a map that silently omits people because a vendor's
+// pager coughed.
+// ---------------------------------------------------------------------------
+const PAGE_RETRIES = 3;
+const MAX_GAPFILL_IDS = 400;   // bounded so a scheduled run cannot run away
+const GAPFILL_BATCH = 8;
 
-// Soft fetch: never throws, returns the whole story. Used by the probes.
-async function bdTry(path) {
-  try {
-    const res = await fetch(BD_BASE + path, {
-      method: "GET",
-      headers: { "X-Api-Key": BD_KEY, Accept: "application/json" },
-      redirect: "manual"
-    });
-    const text = await res.text();
-    let data = null;
-    try { data = JSON.parse(text); } catch (e) {}
-    return {
-      path: path,
-      httpStatus: res.status,
-      redirected: res.status >= 300 && res.status < 400,
-      bdStatus: data && data.status,
-      bdMessage: data && typeof data.message === "string" ? data.message : undefined,
-      rows: data ? rowsFrom(data).length : 0,
-      meta: data ? metaFrom(data) : null,
-      raw: data,
-      snippet: data ? undefined : text.slice(0, 200)
-    };
-  } catch (e) {
-    return { path: path, error: e.message, rows: 0 };
-  }
-}
-
-async function fetchPage(page, limit, padMode) {
-  const data = await bdGet(listPath(page, limit, padMode));
+async function fetchPage(page, limit) {
+  const data = await bdGet(listPath(page, limit));
   return { rows: rowsFrom(data), meta: metaFrom(data), raw: data };
 }
 
-// Discover TWO things in one pass:
-//   1. the biggest page size BD actually honours (fewer pages, fewer calls)
-//   2. whether BD's base64 decoder accepts padded cursors
-// Page 10 is the real test for padding, because page 1 at limit 25 happens to have
-// none. A format that works on page 1 and dies on page 10 would be a silent
-// half-build, which is the worst outcome available.
+async function fetchPageResilient(page, limit) {
+  let last = null;
+  for (let attempt = 1; attempt <= PAGE_RETRIES; attempt++) {
+    const r = await bdTry(listPath(page, limit));
+    if (r.rows > 0) {
+      if (attempt > 1) log("page", page, "recovered on attempt", attempt);
+      return { ok: true, rows: rowsFrom(r.raw), attempts: attempt };
+    }
+    last = r;
+    if (attempt < PAGE_RETRIES) await new Promise((res) => setTimeout(res, 150 * attempt));
+  }
+  log("PAGE", page, "DEAD after", PAGE_RETRIES, "attempts | http", last && last.httpStatus, "| bd:", last && last.bdMessage);
+  return {
+    ok: false,
+    rows: [],
+    attempts: PAGE_RETRIES,
+    http: last && last.httpStatus,
+    bdMessage: last && last.bdMessage,
+    bdBody: last && last.raw ? JSON.stringify(last.raw).slice(0, 200) : (last && last.snippet)
+  };
+}
+
+// One member, by ID. The most reliable call BD gives us.
+async function fetchMemberById(id) {
+  const r = await bdTry("/user/get/" + id);
+  const rows = r.rows ? rowsFrom(r.raw) : [];
+  return rows.length ? rows[0] : null;
+}
+
+// Which page size does BD actually honour? 100 is rejected. Find the ceiling.
 async function pickLimit() {
-  for (const padMode of ["raw", "stripped"]) {
-    for (const l of [100, 50, 25]) {
-      const p1 = await bdTry(listPath(1, l, padMode));
-      if (!p1.rows) {
-        log("limit", l, padMode, "-> page1 http", p1.httpStatus, "rows 0");
-        continue;
-      }
-
-      // Page 1 works. Now prove a PADDED cursor works, or this dies at page 10.
-      const p10 = await bdTry(listPath(10, l, padMode));
-      log("limit", l, padMode, "-> page1 rows", p1.rows, "| page10 rows", p10.rows, "http", p10.httpStatus);
-      if (!p10.rows) {
-        log("page 10 failed under padMode=" + padMode + " — cursor padding rejected");
-        continue;
-      }
-
-      const effective = p1.rows >= l ? l : p1.rows;
-      log("USING limit", effective, "padMode", padMode, "| total", p1.meta && p1.meta.total, "| pages", p1.meta && p1.meta.total_pages);
-      return { limit: effective, padMode: padMode, firstPage: p1 };
+  for (const l of [50, 25]) {
+    // Probe on page 2, NOT page 1. Page 1 is one of the dead ones.
+    const r = await bdTry(listPath(2, l));
+    log("limit probe", l, "-> http", r.httpStatus, "rows", r.rows, "total", r.meta && r.meta.total);
+    if (r.rows > 0) {
+      log("USING limit", l, "| total", r.meta && r.meta.total, "| pages", r.meta && r.meta.total_pages);
+      return { limit: l, probe: r };
     }
   }
   return null;
@@ -331,44 +338,93 @@ async function pickLimit() {
 
 async function fetchAllMembers() {
   const picked = await pickLimit();
-  if (!picked) {
-    throw new Error("BD bulk list returned zero rows at every limit. The cursor format may have changed. Run ?probe=1.");
-  }
+  if (!picked) throw new Error("BD list returned zero rows at limit 50 AND 25, probed on page 2. Run ?probe=1.");
 
   const limit = picked.limit;
-  const padMode = picked.padMode;
   PAGE_LIMIT = limit;
 
-  const first = picked.firstPage;
-  const all = rowsFrom(first.raw).slice();
-
-  let totalPages = (first.meta && first.meta.total_pages) || 0;
+  const totalMembers = picked.probe.meta && picked.probe.meta.total;
+  let totalPages = (picked.probe.meta && picked.probe.meta.total_pages) || 0;
   if (!totalPages || totalPages < 1) totalPages = MAX_PAGES;
   totalPages = Math.min(totalPages, MAX_PAGES);
 
-  log("BULK LIST OK | limit:", limit, "| padMode:", padMode, "| page 1:", all.length, "rows | total:", first.meta && first.meta.total, "| pages:", totalPages);
+  log("PAGING | limit:", limit, "| total members:", totalMembers, "| pages:", totalPages);
 
-  let page = 2;
-  while (page <= totalPages) {
+  const byId = {};            // dedupe: a member could appear on a retry and a gapfill
+  const deadPages = [];
+  let attemptsTotal = 0;
+
+  for (let page = 1; page <= totalPages; page += PAGE_BATCH) {
     const batch = [];
-    for (let i = 0; i < PAGE_BATCH && page + i <= totalPages; i++) batch.push(fetchPage(page + i, limit, padMode));
-    const results = await Promise.all(batch);
-    let empty = false;
-    for (const r of results) {
-      all.push.apply(all, r.rows);
-      if (!r.rows.length) empty = true;
+    for (let i = 0; i < PAGE_BATCH && page + i <= totalPages; i++) batch.push(page + i);
+    const results = await Promise.all(batch.map((p) => fetchPageResilient(p, limit)));
+
+    for (let i = 0; i < batch.length; i++) {
+      const r = results[i];
+      attemptsTotal += r.attempts;
+      if (!r.ok) {
+        deadPages.push({ page: batch[i], http: r.http, bdMessage: r.bdMessage, bdBody: r.bdBody });
+        continue;
+      }
+      for (const m of r.rows) {
+        const id = num(m.user_id);
+        if (id !== null) byId[id] = m;
+      }
     }
-    page += batch.length;
-    if (empty) break; // ran off the end
   }
 
-  log("fetched", all.length, "member rows across", Math.min(totalPages, page - 1), "pages");
+  const fetched = Object.keys(byId).map(Number).sort((a, b) => a - b);
+  log("pages done |", fetched.length, "members |", deadPages.length, "dead pages");
+
+  // -------------------------------------------------------------------------
+  // GAP FILL. A dead page is an ID range, and we fetch it one member at a time.
+  // -------------------------------------------------------------------------
+  let gapFilled = 0;
+  let gapAttempted = 0;
+
+  if (deadPages.length && fetched.length) {
+    const missing = new Set();
+    const minId = fetched[0];
+    const maxId = fetched[fetched.length - 1];
+
+    // Any dead page BEFORE the lowest id we got (i.e. page 1): IDs 1..minId-1.
+    for (let id = 1; id < minId && missing.size < MAX_GAPFILL_IDS; id++) missing.add(id);
+
+    // Any ID inside the range we DID see, that we never got. Those are the holes
+    // punched by dead pages in the middle.
+    const have = new Set(fetched);
+    for (let id = minId; id <= maxId && missing.size < MAX_GAPFILL_IDS; id++) {
+      if (!have.has(id)) missing.add(id);
+    }
+
+    const ids = Array.from(missing);
+    gapAttempted = ids.length;
+    log("gap-filling", ids.length, "ids (bounded at", MAX_GAPFILL_IDS + ")");
+
+    for (let i = 0; i < ids.length; i += GAPFILL_BATCH) {
+      const slice = ids.slice(i, i + GAPFILL_BATCH);
+      const got = await Promise.all(slice.map((id) => fetchMemberById(id)));
+      for (const m of got) {
+        if (m) {
+          const id = num(m.user_id);
+          if (id !== null && !byId[id]) { byId[id] = m; gapFilled++; }
+        }
+      }
+    }
+    log("gap-filled", gapFilled, "of", gapAttempted, "(the rest are deleted members, correctly absent)");
+  }
+
+  const members = Object.keys(byId).map((k) => byId[k]);
+  log("TOTAL MEMBERS READ:", members.length, "| BD says:", totalMembers);
+
   return {
-    members: all,
-    reportedTotal: first.meta && first.meta.total,
-    reportedPages: first.meta && first.meta.total_pages,
+    members: members,
+    reportedTotal: totalMembers,
+    reportedPages: totalPages,
     listLimit: limit,
-    padMode: padMode
+    deadPages: deadPages,
+    gapFilled: gapFilled,
+    gapAttempted: gapAttempted
   };
 }
 
@@ -420,7 +476,7 @@ async function build(opts) {
   const cache = await loadZipCache(store);
   const cacheSizeBefore = Object.keys(cache).length;
 
-  const { members, reportedTotal, reportedPages, listLimit, padMode } = await fetchAllMembers();
+  const { members, reportedTotal, reportedPages, listLimit, deadPages, gapFilled, gapAttempted } = await fetchAllMembers();
 
   const now = Date.now();
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -613,8 +669,14 @@ async function build(opts) {
     builtAt: snapshot.builtAt,
     landed: landed,
     listLimit: listLimit,
-    padMode: padMode,
     bdReportedTotal: reportedTotal,
+    // BD refuses to serve some pages. These are the ones it refused, and how many
+    // members we recovered by fetching them individually instead.
+    deadPageCount: deadPages.length,
+    deadPages: deadPages,
+    gapFilledMembers: gapFilled,
+    gapAttemptedIds: gapAttempted,
+    membersReadVsBdTotal: totals.members + " / " + reportedTotal,
     bdReportedPages: reportedPages,
     membersRead: totals.members,
     totals: snapshot.totals,
