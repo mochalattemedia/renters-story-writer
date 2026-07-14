@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v12
+// FN_VERSION: mmb-v13
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v12";
+const FN_VERSION = "mmb-v13";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -295,7 +295,30 @@ function listPath(page, limit) {
 }
 
 // ---------------------------------------------------------------------------
-// ⚠️⚠️⚠️  BD RATE-LIMITS THE API, AND CALLS IT "user not found".
+// ⚠️⚠️⚠️  BD'S LIST CANNOT SERVE ~44% OF ITS OWN PAGES.
+//
+// ❌ CORRECTION (mmb-v13). The banner below claimed a RATE LIMIT. That was WRONG,
+//    and it is worth leaving here as a warning about my own reasoning.
+//
+//    THE DISPROOF: at limit 50, 34 of 78 pages failed. They failed on attempt 1,
+//    attempt 2 and attempt 3, with backoff between. A throttle yields to patience.
+//    These do not. The SAME pages fail every time. In the mmb-v7 walk, pages 1, 9
+//    and 10 failed repeatedly while 2, 3, 4 and 155 always worked. Deterministic.
+//
+//    THE REAL CAUSE: a page containing a member record BD cannot resolve fails as a
+//    WHOLE PAGE. "user not found" was literal. It just was not about the user we
+//    asked for. Bigger pages are likelier to contain a bad row, which is why 44% of
+//    50-row pages die.
+//
+//    CONSEQUENCE: paging can never be complete on this site. /user/get/{id} is the
+//    only reliable read, and it has never failed once. So: sweep the pages we CAN
+//    get (cheap, ~2,200 members), then fetch the rest BY ID, in parallel.
+//
+//    The politeness machinery below (serial fetching, 320ms delays, backoff) was
+//    built to appease a throttle that does not exist. Retained only where harmless.
+//
+// -- the original, incorrect banner, kept deliberately --
+// ⚠️  BD RATE-LIMITS THE API, AND CALLS IT "user not found".
 //
 // This cost us three versions. Read it before you touch the pager.
 //
@@ -330,7 +353,7 @@ function listPath(page, limit) {
 //      stopped. This also means the nightly cron cannot fail halfway and leave a
 //      half-built map.
 // ---------------------------------------------------------------------------
-const REQUEST_DELAY_MS = 320;   // between BD calls. Politeness is the feature.
+const REQUEST_DELAY_MS = 60;    // mmb-v13: was 320, for a throttle that does not exist.
 // mmb-v12: was 4 retries at 600/1600/4000ms. A single dead page cost 6.2 SECONDS,
 // so two of them ate the entire 10s window and we advanced three pages. Dead pages
 // get recovered by ID in the gapfill phase anyway, so grinding on them is wasted
@@ -338,7 +361,7 @@ const REQUEST_DELAY_MS = 320;   // between BD calls. Politeness is the feature.
 const PAGE_RETRIES = 3;
 const BACKOFF_MS = [400, 1100];
 const TIME_BUDGET_MS = 6000;    // stop, checkpoint, and hand back well before Netlify kills us
-const MAX_GAPFILL_IDS = 1000;
+const MAX_GAPFILL_IDS = 4200;   // the whole ID space if need be
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -356,7 +379,7 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 // Guarded by MAX_CHAIN. A runaway loop would hammer BD, which is exactly the thing
 // that started this whole mess.
 // ---------------------------------------------------------------------------
-const MAX_CHAIN = 40;
+const MAX_CHAIN = 60;
 const SELF_URL = process.env.URL || "https://renters-story-writer.netlify.app";
 
 async function chainSelf(key, chain) {
@@ -401,13 +424,15 @@ async function fetchPageResilient(page, limit, deadline) {
   };
 }
 
+// /user/get/{id} has never failed on this site. Two tries, no backoff.
+// A null here means the member is genuinely deleted, and is correctly absent.
 async function fetchMemberById(id) {
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
     const r = await bdTry("/user/get/" + id);
     if (r.rows > 0) return rowsFrom(r.raw)[0];
-    await sleep(BACKOFF_MS[attempt - 1] || 2000);
+    if (attempt === 1) await sleep(120);
   }
-  return null; // deleted member. Correctly absent.
+  return null;
 }
 
 // Which page size does BD honour? 100 is rejected outright. 50 works.
@@ -553,62 +578,57 @@ async function pageBd(store, state, deadline) {
 // GAP FILL. Any member ID inside the range we saw, that we never got, gets fetched
 // individually. That is how a page BD refused to serve stops costing us members.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// GAP FILL — the part that actually gets us to 3,873.
+//
+// BD's pager drops ~44% of its pages. /user/get/{id} has NEVER failed. So every
+// member the pager lost gets fetched individually, IN PARALLEL (no throttle exists,
+// see the correction banner). ~1,700 lookups, 8 at a time, is about a minute of
+// chained runs.
+//
+// Ceiling: we scan past the highest ID we saw, because if the LAST page is one of
+// the dead ones, the newest members are exactly the ones missing. A map that
+// silently omits this week's signups is worse than no map.
+// ---------------------------------------------------------------------------
+const GAPFILL_PARALLEL = 8;
+
 async function gapFill(store, state, deadline) {
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const ids = Object.keys(state.seen).map(Number).sort((a, b) => a - b);
   if (!ids.length) return { done: true };
 
-  const maxId = ids[ids.length - 1];
+  const maxSeen = ids[ids.length - 1];
+  const ceiling = maxSeen + 120;   // covers a dead final page
+
   const missing = [];
-  for (let id = 1; id <= maxId && missing.length < MAX_GAPFILL_IDS; id++) {
+  for (let id = 1; id <= ceiling && missing.length < MAX_GAPFILL_IDS; id++) {
     if (!state.seen[id]) missing.push(id);
   }
 
-  if (!missing.length) { state.phase = "done"; await store.set(KEY_PROGRESS, JSON.stringify(state)); return { done: true }; }
-  log("gap-filling", missing.length, "ids");
+  if (!missing.length) {
+    state.phase = "done";
+    await store.set(KEY_PROGRESS, JSON.stringify(state));
+    return { done: true };
+  }
+  log("gap-filling", missing.length, "ids (ceiling", ceiling + ")");
 
-  for (const id of missing) {
+  for (let i = 0; i < missing.length; i += GAPFILL_PARALLEL) {
     if (Date.now() > deadline) {
-      log("time budget reached during gapfill - checkpointing");
       await store.set(KEY_PROGRESS, JSON.stringify(state));
       return { done: false };
     }
-    const m = await fetchMemberById(id);
-    if (m) { foldMember(state, m, weekAgo); state.gapFilled++; }
-    else { state.seen[id] = 1; } // deleted member. Mark it so we never chase it again.
-    await sleep(REQUEST_DELAY_MS);
+    const slice = missing.slice(i, i + GAPFILL_PARALLEL);
+    const got = await Promise.all(slice.map((id) => fetchMemberById(id)));
+    for (let j = 0; j < slice.length; j++) {
+      const m = got[j];
+      if (m) { foldMember(state, m, weekAgo); state.gapFilled++; }
+      else { state.seen[slice[j]] = 1; state.gapDeleted = (state.gapDeleted || 0) + 1; }
+    }
   }
 
   state.phase = "done";
   await store.set(KEY_PROGRESS, JSON.stringify(state));
   return { done: true };
-}
-
-// ---------------------------------------------------------------------------
-// Geocoding — POSTAL CODE ONLY. No street address is ever sent to Google and none
-// can come back. What returns is the centroid of the zip area (~90 sq mi), coarse
-// by construction. Same model as member-zip.js mz-v4.
-// ---------------------------------------------------------------------------
-async function geocodeZip(z) {
-  if (!GKEY) return null;
-  const url =
-    "https://maps.googleapis.com/maps/api/geocode/json?components=" +
-    encodeURIComponent("postal_code:" + z + "|country:US") +
-    "&key=" + GKEY;
-  try {
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data.status !== "OK" || !data.results || !data.results.length) {
-      log("geocode miss", z, data.status);
-      return null;
-    }
-    const loc = data.results[0].geometry && data.results[0].geometry.location;
-    if (!loc) return null;
-    return [Number(loc.lat.toFixed(5)), Number(loc.lng.toFixed(5))];
-  } catch (e) {
-    log("geocode error", z, e.message);
-    return null;
-  }
 }
 
 async function loadZipCache(store) {
@@ -786,6 +806,7 @@ async function build(opts) {
     deadPageCount: state.deadPages.length,
     deadPages: state.deadPages.slice(0, 10),
     gapFilledMembers: state.gapFilled,
+    idsThatWereDeletedMembers: state.gapDeleted || 0,
     zipsUnresolved: unresolvedZips,
     zipCacheSize: Object.keys(cache).length,
     geocodedThisRun: toDo.length,
@@ -997,6 +1018,7 @@ async function status() {
     zipsSoFar: prog && prog.byZip ? Object.keys(prog.byZip).length : 0,
     deadPages: prog && prog.deadPages ? prog.deadPages.length : 0,
     gapFilled: prog ? prog.gapFilled : 0,
+    deletedIds: prog ? (prog.gapDeleted || 0) : 0,
     chainLink: prog ? prog.chain : 0,
     LIVE_SNAPSHOT: snap || "none yet"
   };
