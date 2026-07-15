@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v16b
+// FN_VERSION: mmb-v17
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v16b";
+const FN_VERSION = "mmb-v17";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -65,6 +65,12 @@ const JUNK_EPS = 0.0005;
 
 // A pin below this many members carries NO new-this-week signal. See privacy model.
 const MIN_MEMBERS_FOR_NEW = 3;
+
+// --- scan pacing + runtime limits (restored; were clipped with the old pager) ---
+const REQUEST_DELAY_MS = 650;              // ~92 req/min. Do not lower. BD throttles bursts.
+const TIME_BUDGET_MS = 8000;               // checkpoint + hand back before Netlify's 10s kill
+const MAX_CHAIN = 200;                      // links per full scan at ~10 ids/link
+const SELF_URL = process.env.URL || "https://renters-story-writer.netlify.app";
 
 // Bounded per-run geocoding so a scheduled run can never time out. Unknown zips
 // left over get picked up on the next run. Self-healing.
