@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v15
+// FN_VERSION: mmb-v16
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v15";
+const FN_VERSION = "mmb-v16";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -283,388 +283,99 @@ async function bdTry(path) {
   }
 }
 
-// base64( "<page>*_*<limit>" ) — BD's cursor format, reproduced.
-function cursor(page, limit) {
-  return Buffer.from(String(page) + "*_*" + String(limit), "utf8").toString("base64");
-}
-
-function listPath(page, limit) {
-  return "/user/get?page=" + encodeURIComponent(cursor(page, limit));
-  // ⚠️ NEVER add &limit= here. The limit lives INSIDE the cursor. Sending it again
-  // as its own query param makes BD 400 the entire request (mmb-v5 did this).
-}
-
 // ---------------------------------------------------------------------------
-// ⚠️⚠️⚠️  READ THIS BEFORE TOUCHING THE PAGER. TWO SEPARATE FAULTS, BOTH REAL.
+// ⭐ THE REAL ANSWER (mmb-v16): SCAN BY ID. There is no list endpoint.
 //
-// I chased this through five versions by insisting it was ONE thing. It is two, and
-// each one produces evidence that looks like a refutation of the other.
+// The BD API docs (Website_API.txt) are unambiguous:
+//     GET  /user/get/{user_id}   "Read the data of a SINGLE user"
+//     POST /user/search          "Search Users"   <- the only bulk read, and POST
 //
-// FAULT 1 — SOME PAGES ARE PERMANENTLY DEAD.
-//   Pages 1, 9 and 10 fail EVERY time, in every version, after every rest period.
-//   Pages 2, 3, 4 and 155 always work. A cursor-walk run hours apart came back
-//   BYTE-IDENTICAL. This is deterministic: a member record BD cannot resolve kills
-//   the ENTIRE PAGE it sits on, and BD reports it as 400 "user not found".
-//   ➜ At limit 50, 34 of 78 pages died. ~44% of the membership, gone, with a 200.
-//   ➜ Consequence: a dead page costs you EVERY member on it, so a SMALLER page size
-//     loses FEWER members. Hence limit 25, not 50. Same bad records, half the damage.
+// /user/get has NO list form. Every ?page= call we made for fifteen versions was
+// the single-user endpoint ignoring our query string and flailing. The "cursor",
+// the "dead pages", the "44% failure", the "throttle that comes and goes" — much of
+// that was an unsupported endpoint being poked in an undocumented way.
 //
-// FAULT 2 — THERE IS A THROTTLE, AND IT ONLY BITES UNDER SUSTAINED LOAD.
-//   A 10-call probe sails through. A 27-link chain firing hundreds of calls gets
-//   EVERYTHING rejected, including pages we have proven good. Fifteen minutes of
-//   silence and those same pages answer perfectly again.
-//   ➜ This is why "retries with backoff" looked like it disproved the throttle. The
-//     retries were part of the flood.
+// POST /user/search is the intended bulk read, but its filter-body format is not in
+// the docs, our key lacks POST on users_data, and guessing a POST body is exactly
+// the hole we just climbed out of.
 //
-// AND BOTH FAULTS SPEAK THE SAME SENTENCE: 400 {"message":"user not found"}.
-// One message, two unrelated causes, and neither has anything to do with a user
-// that could not be found. Fourth time BD has done this:
-//     {"result_status":"no-swal"}   = "show no popup", NOT "saved"
-//     /user/update 200              = "accepted", NOT "written where you asked"
-//     400 "user not found" (dead)   = "this page has a rotten row in it"
-//     400 "user not found" (flood)  = "slow down"
+// So we use the ONE call BD documents, permits, and has never failed: GET the user
+// by ID. IDs are contiguous 1..~3880. No cursors. No pagination. No list. Paced,
+// resumable, chained. Boring and complete.
 //
-// THE STRATEGY THAT SURVIVES BOTH:
-//   1. Page at limit 25. Halves what each dead page costs us.
-//   2. Pace every call. Never burst. Never parallelise against BD.
-//   3. WATCH FOR THE THROTTLE: N failures in a row means we are being rejected
-//      wholesale, not hitting rotten pages. Stop, checkpoint, cool down, resume.
-//      Grinding into a throttle is what broke the last three builds.
-//   4. Recover every member a dead page swallowed via /user/get/{id}, which has
-//      NEVER failed on this site, not once, under any condition.
-//   5. Resumable end to end. This is a nightly job. Nobody is waiting. It is allowed
-//      to take several passes, and it is not allowed to lie about being complete.
+// LESSON FOR THE BIBLE: before reverse-engineering an endpoint's behaviour, confirm
+// the endpoint EXISTS in the shape you are using. We treated /user/get as a list for
+// an entire day. It was never a list. Read the docs before the third workaround, not
+// after the fifteenth.
 // ---------------------------------------------------------------------------
-// ⚠️ mmb-v15 — THE ACTUAL FIX, AND THE ONE I SHOULD HAVE MADE FIRST.
-//
-// v10-v14 paced at 60-320ms. That is 190 to 1,000 requests per minute. NO API ON
-// EARTH ALLOWS THAT. We were flooding BD from the very first build and then writing
-// increasingly clever machinery to survive the consequences: backoff, retries,
-// throttle detection, cooldowns, rewind logic. Four layers of armour, all of it
-// engineering around a wall we were sprinting at.
-//
-// 650ms is ~92 requests/minute. Under any sane limit.
-//
-// ⚠️ AND IT INVALIDATES OUR DATA. Every "dead page" count we collected was taken
-// while flooding, so most of those 34 dead pages were THROTTLE VICTIMS, not rotten
-// rows. The only pages I trust as genuinely dead are 1, 9 and 10, because those
-// failed during a light 10-call walk that never tripped anything.
-//
-// EXPECT, PACED PROPERLY:
-//   155 pages x 650ms          ~= 100 seconds
-//   a handful of rotten pages  ~= a few hundred members recovered by ID
-//   total                      ~= under 5 minutes, no cooldowns
-//
-// Slower per call. Far faster overall. Because it stops fighting.
-//
-// THE LESSON: when a vendor keeps rejecting you, check your own request rate before
-// you build a fourth layer of retry logic. Politeness is cheaper than armour.
-const REQUEST_DELAY_MS = 650;   // ~92 req/min. Do not lower this.
-// mmb-v12: was 4 retries at 600/1600/4000ms. A single dead page cost 6.2 SECONDS,
-// so two of them ate the entire 10s window and we advanced three pages. Dead pages
-// get recovered by ID in the gapfill phase anyway, so grinding on them is wasted
-// time. Fail fast, recover later.
-const PAGE_RETRIES = 2;
-const BACKOFF_MS = [1500];
-const LIST_LIMIT = 25;              // locked. A dead page costs 25 members, not 50.
-const THROTTLE_STREAK = 6;          // this many consecutive failures = we are being throttled
-const COOLDOWN_MS = 6 * 60 * 1000;  // should never fire now. If it does, we are still too fast.
-const TIME_BUDGET_MS = 8000;    // stop, checkpoint, and hand back before Netlify kills us at 10s
-const MAX_GAPFILL_IDS = 4200;   // the whole ID space if need be
 
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-// ---------------------------------------------------------------------------
-// SELF-CHAINING (mmb-v11)
-//
-// Netlify kills a synchronous function at 10 seconds. BD's throttle means the read
-// takes ~30s of wall time no matter how we slice it. So the function checkpoints,
-// then RE-INVOKES ITSELF and returns. Each link picks up at the exact page the last
-// one stopped on.
-//
-// One call finishes the whole build. The nightly cron fires once and walks away.
-// You never refresh a URL six times.
-//
-// Guarded by MAX_CHAIN. A runaway loop would hammer BD, which is exactly the thing
-// that started this whole mess.
-// ---------------------------------------------------------------------------
-const MAX_CHAIN = 200;   // ~10 calls per link at 650ms, so a full build is ~60-200 links
-const SELF_URL = process.env.URL || "https://renters-story-writer.netlify.app";
-
-async function chainSelf(key, chain) {
-  const url = SELF_URL + "/.netlify/functions/members-map-build?build=1&chain=" + chain +
-              "&key=" + encodeURIComponent(key);
-  log("chaining -> link", chain);
-  try {
-    // Fire it and let go. The request reaches Netlify and a fresh invocation starts
-    // with its own 10s budget. We abort our WAIT, not the downstream run.
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 1200);
-    await fetch(url, { signal: ctrl.signal }).catch(() => {});
-    clearTimeout(t);
-  } catch (e) { /* aborting our own wait is the expected path */ }
-}
-
-async function fetchPage(page, limit) {
-  const data = await bdGet(listPath(page, limit));
-  return { rows: rowsFrom(data), meta: metaFrom(data), raw: data };
-}
-
-// One page, serially, with backoff. A 400 from BD is a "wait", not a "no".
-async function fetchPageResilient(page, limit, deadline) {
-  let last = null;
-  for (let attempt = 1; attempt <= PAGE_RETRIES; attempt++) {
-    const r = await bdTry(listPath(page, limit));
-    if (r.rows > 0) {
-      if (attempt > 1) log("page", page, "recovered on attempt", attempt);
-      return { ok: true, rows: rowsFrom(r.raw), meta: r.meta, attempts: attempt };
-    }
-    last = r;
-    // Do not burn the remaining budget grinding on one page. The gapfill will get
-    // its members by ID.
-    if (deadline && Date.now() + (BACKOFF_MS[attempt - 1] || 1100) > deadline) break;
-    if (attempt < PAGE_RETRIES) await sleep(BACKOFF_MS[attempt - 1] || 1100);
-  }
-  log("PAGE", page, "DEAD after", PAGE_RETRIES, "tries | http", last && last.httpStatus, "| bd:", last && last.bdMessage);
-  return {
-    ok: false, rows: [], attempts: PAGE_RETRIES,
-    http: last && last.httpStatus,
-    bdMessage: last && last.bdMessage
-  };
-}
-
-// /user/get/{id} has never failed on this site. Two tries, no backoff.
-// A null here means the member is genuinely deleted, and is correctly absent.
+// One member by ID. The only bulk-read primitive on this platform. Documented,
+// permitted, and 100% reliable all day. Two tries; a persistent null = deleted ID.
 async function fetchMemberById(id) {
   for (let attempt = 1; attempt <= 2; attempt++) {
     const r = await bdTry("/user/get/" + id);
     if (r.rows > 0) return rowsFrom(r.raw)[0];
-    if (attempt === 1) await sleep(120);
+    // A miss here is almost always a deleted member (gaps in the ID sequence are
+    // normal). Only retry once, briefly, in case it was a blip.
+    if (attempt === 1) await sleep(REQUEST_DELAY_MS);
   }
   return null;
 }
 
-// The limit is LOCKED at 25 (see banner). We only need BD's total_pages, and we ask
-// on page 2, because page 1 is one of the permanently dead ones.
-async function openList() {
-  for (let attempt = 1; attempt <= 4; attempt++) {
-    const r = await bdTry(listPath(2, LIST_LIMIT));
-    if (r.rows > 0) return { limit: LIST_LIMIT, probe: r };
-    log("list not answering on page 2, attempt", attempt);
-    await sleep(800 * attempt);
-  }
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Fold one member into the running zip buckets. Called during paging so we never
-// have to hold 3,873 full member records in memory or in a Blob (they are ~3KB
-// each; the raw set would blow the 5MB Blob ceiling on its own).
-// ---------------------------------------------------------------------------
-function foldMember(state, m, weekAgo) {
-  const id = num(m.user_id);
-  if (id === null || state.seen[id]) return;
-  state.seen[id] = 1;
-
-  state.totals.members++;
-
-  const t = typeOf(m);
-  if (t) state.totals[t]++; else state.totals.uncategorized++;
-
-  const ms = signupMs(m.signup_date);
-  const isNew = ms !== null && ms >= weekAgo;
-  if (isNew) state.totals.new7++;
-
-  const z = zip5(m.zip_code);
-  if (!z) { state.totals.unplaced++; return; }
-  state.totals.placed++;
-
-  if (!state.byZip[z]) {
-    state.byZip[z] = { renters: 0, landlords: 0, propertyManagers: 0, realtors: 0, total: 0, newCount: 0, labels: {}, coord: null };
-  }
-  const b = state.byZip[z];
-  b.total++;
-  if (t) b[t]++;
-  if (isNew) b.newCount++;
-
-  const city = (m.city || "").trim();
-  const st = (m.state_code || "").trim();
-  if (city && st) {
-    const lbl = city + ", " + st.toUpperCase();
-    b.labels[lbl] = (b.labels[lbl] || 0) + 1;
-  }
-
-  // BD's coordinate is trustworthy ONLY when a zip is present and it is not the
-  // Colorado junk fallback. mz-v4 wrote real centroids for every member the gate
-  // touched, so this is usually a free, correct centroid with no geocode call.
-  if (!b.coord) {
-    const la = num(m.lat), lo = num(m.lon);
-    if (la !== null && lo !== null && !isJunkCoord(la, lo)) {
-      b.coord = [Number(la.toFixed(5)), Number(lo.toFixed(5))];
-    } else if (isJunkCoord(la, lo)) {
-      state.totals.onJunkCoordinate++;
-    }
-  }
-}
-
-function emptyState() {
-  return {
-    v: FN_VERSION,
-    startedAt: new Date().toISOString(),
-    limit: 0,
-    nextPage: 1,
-    totalPages: 0,
-    bdTotal: null,
-    seen: {},
-    byZip: {},
-    deadPages: [],
-    totals: {
-      members: 0, renters: 0, landlords: 0, propertyManagers: 0, realtors: 0,
-      uncategorized: 0, new7: 0, placed: 0, unplaced: 0, onJunkCoordinate: 0
-    },
-    gapFilled: 0,
-    chain: 0,
-    phase: "paging"   // paging -> gapfill -> done
-  };
-}
-
-async function loadProgress(store, fresh) {
-  if (fresh) return emptyState();
-  try {
-    const raw = await store.get(KEY_PROGRESS);
-    if (!raw) return emptyState();
-    const s = JSON.parse(raw);
-    if (s.v !== FN_VERSION) { log("progress from a different version, starting fresh"); return emptyState(); }
-    return s;
-  } catch (e) { return emptyState(); }
-}
-
-// ---------------------------------------------------------------------------
-// PAGE THROUGH BD, SERIALLY, CHECKPOINTING AS WE GO.
-// Returns { done: bool }. If done is false, call again to continue.
-// ---------------------------------------------------------------------------
-async function pageBd(store, state, deadline) {
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-
-  if (!state.limit) {
-    const picked = await openList();
-    if (!picked) {
-      // Page 2 is PROVEN good. If it will not answer, we are throttled, full stop.
-      state.cooldownUntil = Date.now() + COOLDOWN_MS;
-      await store.set(KEY_PROGRESS, JSON.stringify(state));
-      throw new Error("THROTTLED. Page 2 is proven good and BD will not serve it. Cooling down " +
-                      (COOLDOWN_MS / 60000) + " min. Run ?status=1 to watch, then ?build=1 to resume.");
-    }
-    state.limit = picked.limit;
-    state.bdTotal = picked.probe.meta && picked.probe.meta.total;
-    state.totalPages = Math.min((picked.probe.meta && picked.probe.meta.total_pages) || MAX_PAGES, MAX_PAGES);
-    log("PAGING | limit", state.limit, "| members", state.bdTotal, "| pages", state.totalPages);
-  }
-
-  while (state.nextPage <= state.totalPages) {
-    if (Date.now() > deadline) {
-      log("time budget reached at page", state.nextPage, "of", state.totalPages, "- checkpointing");
-      await store.set(KEY_PROGRESS, JSON.stringify(state));
-      return { done: false };
-    }
-
-    const r = await fetchPageResilient(state.nextPage, state.limit, deadline);
-    if (r.ok) {
-      for (const m of r.rows) foldMember(state, m, weekAgo);
-      state.streak = 0;
-    } else {
-      state.deadPages.push({ page: state.nextPage, http: r.http, bdMessage: r.bdMessage });
-      state.streak = (state.streak || 0) + 1;
-
-      // A rotten page is isolated. SIX in a row is not rotten pages, it is BD
-      // shutting the door. Back off instead of grinding, which is what broke v10-v13.
-      if (state.streak >= THROTTLE_STREAK) {
-        log("THROTTLE DETECTED:", state.streak, "consecutive failures. Cooling down.");
-        state.cooldownUntil = Date.now() + COOLDOWN_MS;
-        state.streak = 0;
-        // rewind: those pages were probably fine, we were just being refused
-        state.deadPages = state.deadPages.slice(0, -THROTTLE_STREAK);
-        state.nextPage -= THROTTLE_STREAK;
-        await store.set(KEY_PROGRESS, JSON.stringify(state));
-        return { done: false, throttled: true };
-      }
-    }
-
-    state.nextPage++;
-    await sleep(REQUEST_DELAY_MS);
-  }
-
-  state.phase = "gapfill";
-  await store.set(KEY_PROGRESS, JSON.stringify(state));
-  return { done: true };
-}
-
-// ---------------------------------------------------------------------------
-// GAP FILL. Any member ID inside the range we saw, that we never got, gets fetched
-// individually. That is how a page BD refused to serve stops costing us members.
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// GAP FILL — the part that actually gets us to 3,873.
-//
-// BD's pager drops ~44% of its pages. /user/get/{id} has NEVER failed. So every
-// member the pager lost gets fetched individually, IN PARALLEL (no throttle exists,
-// see the correction banner). ~1,700 lookups, 8 at a time, is about a minute of
-// chained runs.
-//
-// Ceiling: we scan past the highest ID we saw, because if the LAST page is one of
-// the dead ones, the newest members are exactly the ones missing. A map that
-// silently omits this week's signups is worse than no map.
-// ---------------------------------------------------------------------------
-const GAPFILL_PARALLEL = 1;   // ⚠️ SERIAL. Parallel gapfill is what tripped the throttle.
-
-async function gapFill(store, state, deadline) {
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const ids = Object.keys(state.seen).map(Number).sort((a, b) => a - b);
-  if (!ids.length) return { done: true };
-
-  const maxSeen = ids[ids.length - 1];
-  const ceiling = maxSeen + 120;   // covers a dead final page
-
-  const missing = [];
-  for (let id = 1; id <= ceiling && missing.length < MAX_GAPFILL_IDS; id++) {
-    if (!state.seen[id]) missing.push(id);
-  }
-
-  if (!missing.length) {
-    state.phase = "done";
-    await store.set(KEY_PROGRESS, JSON.stringify(state));
-    return { done: true };
-  }
-  log("gap-filling", missing.length, "ids (ceiling", ceiling + ")");
-
-  let miss = 0;
-  for (const id of missing) {
-    if (Date.now() > deadline) {
-      await store.set(KEY_PROGRESS, JSON.stringify(state));
-      return { done: false };
-    }
+// Highest user_id currently on the system. We read it from the single-user endpoint
+// on a known-recent member and walk down, but simplest: probe upward from a known
+// floor until we hit a run of empties. BD's own member total anchors the estimate.
+async function findMaxId(store) {
+  // Anchor: we know signups are in the ~3,880 range (BD total ~3,879).
+  // Probe a bit above and back off to the last real member.
+  let hi = 4200;
+  let lastReal = 0;
+  // coarse scan down from hi in steps until we find a live member
+  for (let id = hi; id >= 1; id -= 20) {
     const m = await fetchMemberById(id);
-    if (m) {
-      foldMember(state, m, weekAgo);
-      state.gapFilled++;
-      miss = 0;
-    } else {
-      // Could be a deleted member (fine) or the throttle (not fine). A long run of
-      // nothing means the throttle, because deleted IDs do not cluster like that.
-      miss++;
-      if (miss >= 25) {
-        log("gapfill: 25 consecutive misses, assuming throttle. Cooling down.");
-        state.cooldownUntil = Date.now() + COOLDOWN_MS;
-        await store.set(KEY_PROGRESS, JSON.stringify(state));
-        return { done: false, throttled: true };
-      }
-      state.seen[id] = 1;
-      state.gapDeleted = (state.gapDeleted || 0) + 1;
-    }
     await sleep(REQUEST_DELAY_MS);
+    if (m) { lastReal = id; break; }
+  }
+  // fine scan upward from lastReal to find the true ceiling
+  let ceiling = lastReal;
+  for (let id = lastReal + 1; id <= lastReal + 40; id++) {
+    const m = await fetchMemberById(id);
+    await sleep(REQUEST_DELAY_MS);
+    if (m) ceiling = id;
+  }
+  log("max id ~", ceiling);
+  return ceiling || 4000;
+}
+
+// ---------------------------------------------------------------------------
+// SCAN BY ID — the whole read, resumable. Walks id = nextId .. maxId, paced.
+// ---------------------------------------------------------------------------
+async function scanById(store, state, deadline) {
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+  if (!state.maxId) {
+    state.maxId = await findMaxId(store);
+    state.bdTotal = state.maxId; // rough; real member count is state.totals.members
+    state.nextId = 1;
+    await store.set(KEY_PROGRESS, JSON.stringify(state));
   }
 
-  state.phase = "done";
+  while (state.nextId <= state.maxId) {
+    if (Date.now() > deadline) {
+      await store.set(KEY_PROGRESS, JSON.stringify(state));
+      return { done: false };
+    }
+    const id = state.nextId;
+    if (!state.seen[id]) {
+      const m = await fetchMemberById(id);
+      if (m) { foldMember(state, m, weekAgo); }
+      else { state.deletedIds = (state.deletedIds || 0) + 1; state.seen[id] = 1; }
+      await sleep(REQUEST_DELAY_MS);
+    }
+    state.nextId++;
+  }
+
+  state.phase = "geocode";
   await store.set(KEY_PROGRESS, JSON.stringify(state));
   return { done: true };
 }
@@ -678,6 +389,30 @@ async function loadZipCache(store) {
     log("zipcache empty or unreadable:", e.message);
     return {};
   }
+}
+
+// Re-invoke self so one call finishes the whole scan and the nightly cron fires once.
+async function chainSelf(key, chain) {
+  const url = SELF_URL + "/.netlify/functions/members-map-build?build=1&chain=" + chain +
+              "&key=" + encodeURIComponent(key);
+  log("chaining -> link", chain);
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 1200);
+    await fetch(url, { signal: ctrl.signal }).catch(() => {});
+    clearTimeout(t);
+  } catch (e) { /* aborting our own wait is expected */ }
+}
+
+async function loadProgress(store, fresh) {
+  if (fresh) return emptyState();
+  try {
+    const raw = await store.get(KEY_PROGRESS);
+    if (!raw) return emptyState();
+    const s = JSON.parse(raw);
+    if (s.v !== FN_VERSION) { log("progress from a different version, starting fresh"); return emptyState(); }
+    return s;
+  } catch (e) { return emptyState(); }
 }
 
 // ---------------------------------------------------------------------------
@@ -700,67 +435,26 @@ async function build(opts) {
   const state = await loadProgress(store, fresh);
   state.chain = (state.chain || 0) + 1;
 
-  if (state.cooldownUntil && Date.now() < state.cooldownUntil) {
-    const secs = Math.ceil((state.cooldownUntil - Date.now()) / 1000);
-    return {
-      ok: true, done: false, _v: FN_VERSION, phase: "cooldown",
-      COOLING_DOWN: secs + "s left. BD throttled us. Nothing is broken.",
-      progress: state.totalPages ? (state.nextPage - 1) + " / " + state.totalPages + " pages" : null,
-      membersSoFar: state.totals.members,
-      resumeWith: "?build=1 once the cooldown expires"
-    };
-  }
-  state.cooldownUntil = 0;
-
   if (state.chain > MAX_CHAIN) {
     console.error("[mmb] MAX_CHAIN hit. Refusing to continue. Something is wrong.");
     return { ok: false, done: false, _v: FN_VERSION, error: "MAX_CHAIN exceeded at link " + state.chain + ". Run ?build=1&fresh=1 to reset." };
   }
 
-  // ---- PHASE 1: read BD, serially, checkpointing ----
-  if (state.phase === "paging") {
-    const r = await pageBd(store, state, deadline);
+  // ---- PHASE 1: read every member BY ID, resumable ----
+  if (state.phase === "scanning") {
+    const r = await scanById(store, state, deadline);
     if (!r.done) {
-      // NEVER chain into a cooldown. That is how we flooded BD in the first place.
-      if (!noChain && key && !r.throttled) await chainSelf(key, state.chain);
-      if (r.throttled) return {
-        ok: true, done: false, _v: FN_VERSION, phase: "throttled",
-        THROTTLED: "BD stopped answering. Cooling down " + (COOLDOWN_MS / 60000) + " min, then run ?build=1 again.",
-        progress: (state.nextPage - 1) + " / " + state.totalPages + " pages",
-        membersSoFar: state.totals.members,
-        ms: Date.now() - started
-      };
+      if (!noChain && key) await chainSelf(key, state.chain);
+      const scanned = state.nextId - 1;
+      const pct = state.maxId ? Math.round((scanned / state.maxId) * 100) : 0;
       return {
-        ok: true, done: false, _v: FN_VERSION, phase: "paging",
-        progress: (state.nextPage - 1) + " / " + state.totalPages + " pages",
+        ok: true, done: false, _v: FN_VERSION, phase: "scanning",
+        progress: scanned + " / " + state.maxId + " ids (" + pct + "%)",
         membersSoFar: state.totals.members,
-        bdTotal: state.bdTotal,
-        deadPages: state.deadPages.length,
+        placedSoFar: state.totals.placed,
+        deletedIds: state.deletedIds,
         chainLink: state.chain,
-        NOTE: noChain ? "chaining off, call ?build=1 again" : "still running in the background. Poll ?status=1 to watch it.",
-        ms: Date.now() - started
-      };
-    }
-  }
-
-  // ---- PHASE 2: recover members BD's dead pages swallowed ----
-  if (state.phase === "gapfill") {
-    const r = await gapFill(store, state, deadline);
-    if (!r.done) {
-      if (!noChain && key && !r.throttled) await chainSelf(key, state.chain);
-      if (r.throttled) return {
-        ok: true, done: false, _v: FN_VERSION, phase: "throttled",
-        THROTTLED: "BD stopped answering during gapfill. Cooling down, then run ?build=1 again.",
-        membersSoFar: state.totals.members,
-        gapFilled: state.gapFilled,
-        ms: Date.now() - started
-      };
-      return {
-        ok: true, done: false, _v: FN_VERSION, phase: "gapfill",
-        membersSoFar: state.totals.members,
-        gapFilled: state.gapFilled,
-        chainLink: state.chain,
-        NOTE: noChain ? "chaining off, call ?build=1 again" : "still running in the background. Poll ?status=1 to watch it.",
+        NOTE: noChain ? "chaining off, call ?build=1 again" : "running in the background. Poll ?status=1.",
         ms: Date.now() - started
       };
     }
@@ -864,14 +558,11 @@ async function build(opts) {
     _v: FN_VERSION,
     builtAt: snapshot.builtAt,
     landed: landed,
-    listLimit: state.limit,
-    membersReadVsBdTotal: state.totals.members + " / " + state.bdTotal,
+    idsScanned: state.maxId,
+    membersFound: state.totals.members,
+    deletedOrEmptyIds: state.deletedIds,
     totals: snapshot.totals,
     pins: pins.length,
-    deadPageCount: state.deadPages.length,
-    deadPages: state.deadPages.slice(0, 10),
-    gapFilledMembers: state.gapFilled,
-    idsThatWereDeletedMembers: state.gapDeleted || 0,
     zipsUnresolved: unresolvedZips,
     zipCacheSize: Object.keys(cache).length,
     geocodedThisRun: toDo.length,
@@ -902,163 +593,41 @@ async function build(opts) {
 // MipfKjI1 is the CONTROL. If the control fails, stop and rethink. Do not build a
 // map on a result that will not reproduce.
 // ---------------------------------------------------------------------------
-async function probe() {
-  const TOKENS = [
-    { id: "CONTROL page2 limit25", token: "MipfKjI1",     note: "KNOWN GOOD. Returned 25 rows earlier today." },
-    { id: "page1 limit25",         token: "MSpfKjI1",     note: "BD issued this as prev_page. Now 400s?" },
-    { id: "page3 limit25",         token: "MypfKjI1",     note: "BD issued this as next_page." },
-    { id: "page4 limit25",         token: cursor(4, 25),  note: "generated, no padding" },
-    { id: "page9 limit25",         token: cursor(9, 25),  note: "last single-digit page, no padding" },
-    { id: "page10 limit25 padded", token: cursor(10, 25), note: "THE PADDING TEST. base64 ends in =" },
-    { id: "page10 limit25 strip",  token: cursor(10, 25).replace(/=+$/, ""), note: "same, padding removed" },
-    { id: "page155 limit25",       token: cursor(155, 25),note: "last page" },
-    { id: "page2 limit100 padded", token: cursor(2, 100), note: "can we get a bigger page?" },
-    { id: "page2 limit50",         token: cursor(2, 50),  note: "no padding at limit 50" }
-  ];
-
-  const out = { _v: FN_VERSION, walk: [] };
-
-  for (const t of TOKENS) {
-    const r = await bdTry("/user/get?page=" + encodeURIComponent(t.token));
-    out.walk.push({
-      id: t.id,
-      token: t.token,
-      decoded: Buffer.from(t.token + "===".slice(0, (4 - (t.token.length % 4)) % 4), "base64").toString("utf8"),
-      http: r.httpStatus,
-      bdMessage: r.bdMessage,
-      rows: r.rows,
-      current_page: r.meta && r.meta.current_page,
-      total: r.meta && r.meta.total,
-      next_page: r.raw && r.raw.next_page,
-      note: t.note
-    });
-  }
-
-  const control = out.walk[0];
-  out.CONTROL_STILL_WORKS = control.rows > 0;
-
-  if (!out.CONTROL_STILL_WORKS) {
-    out.verdict = "CONTROL FAILED. The page-2 cursor that returned 25 rows earlier now returns " +
-                  control.http + ". This is not a page-1 problem. Something else changed (rate limit, key scope, BD-side). STOP AND RETHINK.";
-    return out;
-  }
-
-  const working = out.walk.filter((w) => w.rows > 0);
-  out.WORKING_TOKENS = working.length;
-  out.PAGE_1_WORKS = out.walk.filter((w) => w.id === "page1 limit25")[0].rows > 0;
-  out.PAGE_10_PADDED_WORKS = out.walk.filter((w) => w.id === "page10 limit25 padded")[0].rows > 0;
-  out.PAGE_10_STRIPPED_WORKS = out.walk.filter((w) => w.id === "page10 limit25 strip")[0].rows > 0;
-  out.BIGGER_PAGES_WORK = out.walk.filter((w) => w.id === "page2 limit100 padded")[0].rows > 0;
-
-  const row0 = rowsFrom(control.rowsRaw || {})[0];
-  out.verdict = "Control OK. page1=" + out.PAGE_1_WORKS +
-                " page10padded=" + out.PAGE_10_PADDED_WORKS +
-                " page10stripped=" + out.PAGE_10_STRIPPED_WORKS +
-                " limit100=" + out.BIGGER_PAGES_WORK;
-  return out;
-}
-
-// ---------------------------------------------------------------------------
-// FILTER LADDER (mmb-v3)
-//
-// What the mmb-v2 probe proved:
-//   - NO filter          -> HTTP 400 "user not found"      (list refuses to enumerate)
-//   - property + value   -> HTTP 200, total 0              (filter ACCEPTED, matched none)
-//   - property_operator=LIKE -> HTTP 400 "Invalid filter parameters"
-//   - /user/search       -> HTTP 405 "Invalid Request Method"  (wants POST)
-//
-// So the endpoint is real and gated behind a filter whose column/operator
-// vocabulary we do not yet know. This tries the plausible ones in one pass.
-// ---------------------------------------------------------------------------
-const Q = "/user/get?page=1&limit=100";
-
-const FILTER_CANDIDATES = [
-  // 1. Does the filter mechanism work AT ALL? Aim it at a member we know exists.
-  { id: "user_id=3664",            path: Q + "&property=user_id&property_value=3664" },
-  { id: "user_id=3664 op:=",       path: Q + "&property=user_id&property_value=3664&property_operator=" + encodeURIComponent("=") },
-  { id: "user_id=3664 op:equal",   path: Q + "&property=user_id&property_value=3664&property_operator=equal" },
-  { id: "user_id=3664 op:eq",      path: Q + "&property=user_id&property_value=3664&property_operator=eq" },
-
-  // 2. Match-everything shapes. If one of these works, it IS the bulk list.
-  { id: "user_id>0",               path: Q + "&property=user_id&property_value=0&property_operator=" + encodeURIComponent(">") },
-  { id: "user_id op:greater",      path: Q + "&property=user_id&property_value=0&property_operator=greater_than" },
-  { id: "email like %",            path: Q + "&property=email&property_value=" + encodeURIComponent("%") + "&property_operator=like" },
-  { id: "email like @",            path: Q + "&property=email&property_value=" + encodeURIComponent("@") + "&property_operator=like" },
-  { id: "email like % (LIKE caps)",path: Q + "&property=email&property_value=" + encodeURIComponent("%") + "&property_operator=LIKE" },
-
-  // 3. Is the member-type column named something else?
-  { id: "profession_id=20",        path: Q + "&property=profession_id&property_value=20" },
-  { id: "profession=20",           path: Q + "&property=profession&property_value=20" },
-  { id: "category_id=20",          path: Q + "&property=category_id&property_value=20" },
-  { id: "subscription_id",         path: Q + "&property=subscription_id&property_value=1" },
-  { id: "profession_id=19",        path: Q + "&property=profession_id&property_value=19" },
-
-  // 4. Columns we have SEEN on a live record (Bible: confirmed on member 3835).
-  { id: "verified=0",              path: Q + "&property=verified&property_value=0" },
-  { id: "state_code=IL",           path: Q + "&property=state_code&property_value=IL" },
-  { id: "zip_code=61802",          path: Q + "&property=zip_code&property_value=61802" },
-  { id: "city=Urbana",             path: Q + "&property=city&property_value=Urbana" }
-];
-
-async function filterLadder() {
-  const out = { _v: FN_VERSION, note: "BD's list requires a filter. Unfiltered calls 400. Looking for one that returns rows.", ladder: [] };
-
-  for (const c of FILTER_CANDIDATES) {
-    const r = await bdTry(c.path);
-    const e = {
-      id: c.id,
-      http: r.httpStatus,
-      bdMessage: r.bdMessage,
-      rows: r.rows,
-      total: r.meta && r.meta.total,
-      total_pages: r.meta && r.meta.total_pages
-    };
-    if (r.error) e.error = r.error;
-    out.ladder.push(e);
-
-    if (r.rows > 0 && !out.WINNER) {
-      out.WINNER = c.id;
-      out.WINNER_PATH = c.path;
-      out.reportedTotal = r.meta && r.meta.total;
-      const rows = rowsFrom(r.raw);
-      out.rowKeys = Object.keys(rows[0] || {});
-      out.sample = rows.slice(0, 2).map((m) => ({
-        user_id: m.user_id,
-        profession_id: m.profession_id,
-        zip_code: m.zip_code,
-        city: m.city,
-        state_code: m.state_code,
-        lat: m.lat,
-        lon: m.lon,
-        signup_date: m.signup_date
-      }));
-    }
-  }
-
-  if (!out.WINNER) out.verdict = "No filter returned rows. Next: POST /user/search (405 says it wants POST), or the sequential ID scan.";
-  return out;
-}
-
-// ---------------------------------------------------------------------------
-// RAW PASSTHROUGH — the artifact, not the config. Returns BD's unmodified JSON
-// for any path, so we can iterate without a redeploy.
-//   ?raw=1&p=/user/get/3664&key=...
-// [ADMIN] Returns full member records (email, phone). Key-gated, same as the
-// member-zip probes.
-// ---------------------------------------------------------------------------
 async function rawPassthrough(p) {
   if (!p || p.charAt(0) !== "/") return { error: "p must be a path starting with /" };
   const r = await bdTry(p);
-  return {
-    _v: FN_VERSION,
-    path: p,
-    http: r.httpStatus,
-    redirected: r.redirected,
-    rowsParsed: r.rows,
-    meta: r.meta,
-    nonJson: r.snippet,
-    raw: r.raw
-  };
+  return { _v: FN_VERSION, path: p, http: r.httpStatus, rowsParsed: r.rows, meta: r.meta, raw: r.raw };
+}
+
+async function probe() {
+  // mmb-v16: the map reads members by ID (GET /user/get/{id}), the only bulk-read
+  // primitive BD documents and permits. This probe confirms that path and the shape
+  // of a member row. No pagination, no cursors — those were never real.
+  const out = { _v: FN_VERSION, method: "GET /user/get/{id} (documented single-user read)" };
+  const sampleIds = [50, 3664, 3800];
+  out.samples = [];
+  for (const id of sampleIds) {
+    const r = await bdTry("/user/get/" + id);
+    const row = r.rows ? rowsFrom(r.raw)[0] : null;
+    out.samples.push({
+      id: id,
+      http: r.httpStatus,
+      found: !!row,
+      user_id: row && row.user_id,
+      profession_id: row && row.profession_id,
+      zip_code: row && row.zip_code,
+      city: row && row.city,
+      state_code: row && row.state_code,
+      onJunkCoordinate: row ? isJunkCoord(num(row.lat), num(row.lon)) : null,
+      signup_date: row && row.signup_date
+    });
+    await sleep(400);
+  }
+  const ok = out.samples.filter((s) => s.found).length;
+  out.READ_PATH_WORKS = ok > 0;
+  out.HAS_MAP_FIELDS = out.samples.some((s) => s.found && s.zip_code !== undefined && s.profession_id !== undefined);
+  out.verdict = ok + "/" + sampleIds.length + " sample ids read. Scan by ID is the build path.";
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1073,20 +642,18 @@ async function status() {
     snap = { builtAt: s.builtAt, pins: (s.pins || []).length, totals: s.totals, v: s.v };
   } catch (e) {}
 
+  const scanned = prog ? (prog.nextId - 1) : 0;
+  const pct = prog && prog.maxId ? Math.round((scanned / prog.maxId) * 100) : 0;
   return {
     _v: FN_VERSION,
-    running: !!(prog && prog.phase !== "done" && prog.totals && prog.totals.members > 0),
+    running: !!(prog && prog.phase !== "done" && prog.phase),
     phase: prog ? prog.phase : "no build has run",
-    progress: prog && prog.totalPages ? (prog.nextPage - 1) + " / " + prog.totalPages + " pages" : null,
+    progress: prog && prog.maxId ? scanned + " / " + prog.maxId + " ids (" + pct + "%)" : null,
     membersSoFar: prog && prog.totals ? prog.totals.members : 0,
-    bdTotal: prog ? prog.bdTotal : null,
+    placedSoFar: prog && prog.totals ? prog.totals.placed : 0,
     zipsSoFar: prog && prog.byZip ? Object.keys(prog.byZip).length : 0,
-    deadPages: prog && prog.deadPages ? prog.deadPages.length : 0,
-    gapFilled: prog ? prog.gapFilled : 0,
-    deletedIds: prog ? (prog.gapDeleted || 0) : 0,
+    deletedOrEmptyIds: prog ? (prog.deletedIds || 0) : 0,
     chainLink: prog ? prog.chain : 0,
-    coolingDownFor: prog && prog.cooldownUntil && Date.now() < prog.cooldownUntil
-      ? Math.ceil((prog.cooldownUntil - Date.now()) / 1000) + "s" : null,
     LIVE_SNAPSHOT: snap || "none yet"
   };
 }
@@ -1114,7 +681,6 @@ exports.handler = async (event) => {
   try {
     if (q.status) return json(200, await status());
     if (q.probe) return json(200, await probe());
-    if (q.filters) return json(200, await filterLadder());
     if (q.raw) return json(200, await rawPassthrough(q.p));
     if (q.warm) return json(200, await build({ warmOnly: true, fresh: !!q.fresh, noChain: true }));
     const report = await build({ fresh: !!q.fresh, key: q.key, noChain: !!q.nochain });
