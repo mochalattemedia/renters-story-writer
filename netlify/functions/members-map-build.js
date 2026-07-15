@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v14
+// FN_VERSION: mmb-v15
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v14";
+const FN_VERSION = "mmb-v15";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -335,17 +335,41 @@ function listPath(page, limit) {
 //   5. Resumable end to end. This is a nightly job. Nobody is waiting. It is allowed
 //      to take several passes, and it is not allowed to lie about being complete.
 // ---------------------------------------------------------------------------
-const REQUEST_DELAY_MS = 140;   // paced. Never burst against BD.
+// ⚠️ mmb-v15 — THE ACTUAL FIX, AND THE ONE I SHOULD HAVE MADE FIRST.
+//
+// v10-v14 paced at 60-320ms. That is 190 to 1,000 requests per minute. NO API ON
+// EARTH ALLOWS THAT. We were flooding BD from the very first build and then writing
+// increasingly clever machinery to survive the consequences: backoff, retries,
+// throttle detection, cooldowns, rewind logic. Four layers of armour, all of it
+// engineering around a wall we were sprinting at.
+//
+// 650ms is ~92 requests/minute. Under any sane limit.
+//
+// ⚠️ AND IT INVALIDATES OUR DATA. Every "dead page" count we collected was taken
+// while flooding, so most of those 34 dead pages were THROTTLE VICTIMS, not rotten
+// rows. The only pages I trust as genuinely dead are 1, 9 and 10, because those
+// failed during a light 10-call walk that never tripped anything.
+//
+// EXPECT, PACED PROPERLY:
+//   155 pages x 650ms          ~= 100 seconds
+//   a handful of rotten pages  ~= a few hundred members recovered by ID
+//   total                      ~= under 5 minutes, no cooldowns
+//
+// Slower per call. Far faster overall. Because it stops fighting.
+//
+// THE LESSON: when a vendor keeps rejecting you, check your own request rate before
+// you build a fourth layer of retry logic. Politeness is cheaper than armour.
+const REQUEST_DELAY_MS = 650;   // ~92 req/min. Do not lower this.
 // mmb-v12: was 4 retries at 600/1600/4000ms. A single dead page cost 6.2 SECONDS,
 // so two of them ate the entire 10s window and we advanced three pages. Dead pages
 // get recovered by ID in the gapfill phase anyway, so grinding on them is wasted
 // time. Fail fast, recover later.
 const PAGE_RETRIES = 2;
-const BACKOFF_MS = [500];
+const BACKOFF_MS = [1500];
 const LIST_LIMIT = 25;              // locked. A dead page costs 25 members, not 50.
 const THROTTLE_STREAK = 6;          // this many consecutive failures = we are being throttled
-const COOLDOWN_MS = 12 * 60 * 1000; // and this is how long we stay off BD
-const TIME_BUDGET_MS = 6000;    // stop, checkpoint, and hand back well before Netlify kills us
+const COOLDOWN_MS = 6 * 60 * 1000;  // should never fire now. If it does, we are still too fast.
+const TIME_BUDGET_MS = 8000;    // stop, checkpoint, and hand back before Netlify kills us at 10s
 const MAX_GAPFILL_IDS = 4200;   // the whole ID space if need be
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -364,7 +388,7 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 // Guarded by MAX_CHAIN. A runaway loop would hammer BD, which is exactly the thing
 // that started this whole mess.
 // ---------------------------------------------------------------------------
-const MAX_CHAIN = 60;
+const MAX_CHAIN = 200;   // ~10 calls per link at 650ms, so a full build is ~60-200 links
 const SELF_URL = process.env.URL || "https://renters-story-writer.netlify.app";
 
 async function chainSelf(key, chain) {
