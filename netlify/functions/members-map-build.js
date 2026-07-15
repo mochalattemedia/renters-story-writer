@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v18
+// FN_VERSION: mmb-v19
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v18";
+const FN_VERSION = "mmb-v19";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -503,9 +503,28 @@ async function loadProgress(store, fresh) {
 // THE BUILD
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// THE BUILD — resumable. Call it until it reports done:true.
-//   ?build=1        continue (or start)
-//   ?build=1&fresh=1  throw away progress and start over
+// THE BUILD — resumable, CRON-DRIVEN (mmb-v19).
+//
+// ⚠️ WHY THIS CHANGED FROM v18: v18 self-chained — each invocation re-invoked itself
+// to beat Netlify's 10s limit. The chained runs OVERLAPPED and STACKED (observed
+// chainLink 64 in ~8 min), which flooded BD's rate limit. BD then returned
+// 400 "user not found" for members that exist, and the scan read 318/319 real
+// members as "deleted." The engine was fine; the RUNNER flooded the throttle.
+//
+// v19: THE CRON IS THE CLOCK. Each invocation does ONE bounded batch (paced,
+// ~8s of work), checkpoints to the Blob, and EXITS. It never re-invokes itself.
+// The Netlify schedule (netlify.toml, every 10 min) is what advances it. BD only
+// ever sees ~10-12 paced calls per wake, then silence. It cannot flood, so it
+// cannot throttle.
+//
+// FILL MATH: ~3,880 ids, ~10 ids per wake, every 10 min => full fill in ~2-3 days.
+// Then steady state is nearly free: each wake finds nothing new above the last id.
+//
+// MANUAL CONTROLS (admin, key-gated):
+//   ?build=1         do ONE batch now (for testing). Does NOT chain.
+//   ?build=1&fresh=1 reset progress and start the scan over.
+//   ?status=1        watch progress (Blobs only, safe to spam).
+//   (scheduled)      the cron path — one batch per wake, the real driver.
 // ---------------------------------------------------------------------------
 async function build(opts) {
   const warmOnly = !!(opts && opts.warmOnly);
@@ -528,7 +547,7 @@ async function build(opts) {
   if (state.phase === "scanning") {
     const r = await scanById(store, state, deadline);
     if (!r.done) {
-      if (!noChain && key) await chainSelf(key, state.chain);
+      // mmb-v19: NO self-chaining. The scheduled cron re-invokes us. See header.
       const scanned = state.nextId - 1;
       const pct = state.maxId ? Math.round((scanned / state.maxId) * 100) : 0;
       return {
@@ -756,7 +775,9 @@ exports.handler = async (event) => {
     });
   }
 
-  const isScheduled = !q.probe && !q.build && !q.warm && !q.filters && !q.raw && !q.status;
+  // The SCHEDULED invocation has no query string. That is the cron doing one batch.
+  // Everything else is an admin call and must carry the key (except read-only status).
+  const isScheduled = !q.probe && !q.build && !q.warm && !q.filters && !q.raw && !q.status && !q.version;
   const authed = PROBE_KEY && q.key === PROBE_KEY;
 
   if (!isScheduled && !authed && !q.status) return json(403, { error: "bad or missing key" });
@@ -766,8 +787,12 @@ exports.handler = async (event) => {
     if (q.status) return json(200, await status());
     if (q.probe) return json(200, await probe());
     if (q.raw) return json(200, await rawPassthrough(q.p));
-    if (q.warm) return json(200, await build({ warmOnly: true, fresh: !!q.fresh, noChain: true }));
-    const report = await build({ fresh: !!q.fresh, key: q.key, noChain: !!q.nochain });
+    if (q.warm) return json(200, await build({ warmOnly: true, fresh: !!q.fresh }));
+
+    // Scheduled (cron) OR manual ?build=1 — both run exactly ONE bounded batch and
+    // exit. No self-chaining. The cron schedule advances the scan across wakes.
+    const report = await build({ fresh: !!q.fresh });
+    if (isScheduled) log("scheduled batch done:", report.phase || "?", report.progress || report.membersFound || "");
     return json(report.ok ? 200 : 500, report);
   } catch (e) {
     console.error("[mmb] FAILED:", e.message);
