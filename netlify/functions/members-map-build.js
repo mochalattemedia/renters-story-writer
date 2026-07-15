@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v17
+// FN_VERSION: mmb-v18
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v17";
+const FN_VERSION = "mmb-v18";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -328,29 +328,19 @@ async function fetchMemberById(id) {
   return null;
 }
 
-// Highest user_id currently on the system. We read it from the single-user endpoint
-// on a known-recent member and walk down, but simplest: probe upward from a known
-// floor until we hit a run of empties. BD's own member total anchors the estimate.
-async function findMaxId(store) {
-  // Anchor: we know signups are in the ~3,880 range (BD total ~3,879).
-  // Probe a bit above and back off to the last real member.
-  let hi = 4200;
-  let lastReal = 0;
-  // coarse scan down from hi in steps until we find a live member
-  for (let id = hi; id >= 1; id -= 20) {
-    const m = await fetchMemberById(id);
-    await sleep(REQUEST_DELAY_MS);
-    if (m) { lastReal = id; break; }
-  }
-  // fine scan upward from lastReal to find the true ceiling
-  let ceiling = lastReal;
-  for (let id = lastReal + 1; id <= lastReal + 40; id++) {
-    const m = await fetchMemberById(id);
-    await sleep(REQUEST_DELAY_MS);
-    if (m) ceiling = id;
-  }
-  log("max id ~", ceiling);
-  return ceiling || 4000;
+// mmb-v18: the old findMaxId probed downward from 4200 at 650ms per call BEFORE the
+// scan even started. On the live system, with real gaps in the ID sequence, that
+// could eat the entire Netlify budget and 502 before checkpointing. It caused the
+// first live 502.
+//
+// The scan does NOT need a precise ceiling. We KNOW the max is ~3,880 (BD total was
+// 3,879 all day). Set a fixed generous ceiling and let the scan walk to it. Empty
+// IDs cost one fast 400 each and are simply skipped. New signups above the ceiling
+// get picked up when the ceiling is bumped, but we set it high enough that this is
+// years away.
+const ID_CEILING = 4200;
+function findMaxId() {
+  return ID_CEILING;
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +417,7 @@ async function scanById(store, state, deadline) {
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
   if (!state.maxId) {
-    state.maxId = await findMaxId(store);
+    state.maxId = findMaxId();
     state.bdTotal = state.maxId; // rough; real member count is state.totals.members
     state.nextId = 1;
     await store.set(KEY_PROGRESS, JSON.stringify(state));
