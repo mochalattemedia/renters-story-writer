@@ -1,3 +1,13 @@
 [build]
   functions = "netlify/functions"
   publish = "."
+
+# Live Members Map (Element T) — cron-driven ID scan.
+# Each wake does ONE bounded batch (~10-12 members at 650ms), checkpoints, and exits.
+# The schedule is the clock; the function never self-invokes. This is what stops the
+# BD rate-limit flood that broke the v18 self-chaining runner.
+#
+# every 10 minutes: fills ~3,880 members in 2-3 days, then steady-state is near-free
+# (each wake finds nothing new above the last id). Better-than-daily freshness for free.
+[functions."members-map-build"]
+  schedule = "*/10 * * * *"
