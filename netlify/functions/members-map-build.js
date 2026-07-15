@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v16
+// FN_VERSION: mmb-v16b
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v16";
+const FN_VERSION = "mmb-v16b";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -350,6 +350,73 @@ async function findMaxId(store) {
 // ---------------------------------------------------------------------------
 // SCAN BY ID — the whole read, resumable. Walks id = nextId .. maxId, paced.
 // ---------------------------------------------------------------------------
+function emptyState() {
+  return {
+    v: FN_VERSION,
+    startedAt: new Date().toISOString(),
+    maxId: 0,
+    nextId: 1,
+    bdTotal: null,
+    seen: {},
+    byZip: {},
+    deletedIds: 0,
+    totals: {
+      members: 0, renters: 0, landlords: 0, propertyManagers: 0, realtors: 0,
+      uncategorized: 0, new7: 0, placed: 0, unplaced: 0, onJunkCoordinate: 0
+    },
+    chain: 0,
+    phase: "scanning"
+  };
+}
+
+// Fold one member record into the running zip buckets. Called during the scan so we
+// never hold thousands of full records in memory or in a Blob.
+function foldMember(state, m, weekAgo) {
+  const id = num(m.user_id);
+  if (id === null || state.seen[id]) return;
+  state.seen[id] = 1;
+
+  state.totals.members++;
+
+  const t = typeOf(m);
+  if (t) state.totals[t]++; else state.totals.uncategorized++;
+
+  const ms = signupMs(m.signup_date);
+  const isNew = ms !== null && ms >= weekAgo;
+  if (isNew) state.totals.new7++;
+
+  const z = zip5(m.zip_code);
+  if (!z) { state.totals.unplaced++; return; }
+  state.totals.placed++;
+
+  if (!state.byZip[z]) {
+    state.byZip[z] = { renters: 0, landlords: 0, propertyManagers: 0, realtors: 0, total: 0, newCount: 0, labels: {}, coord: null };
+  }
+  const b = state.byZip[z];
+  b.total++;
+  if (t) b[t]++;
+  if (isNew) b.newCount++;
+
+  const city = (m.city || "").trim();
+  const st = (m.state_code || "").trim();
+  if (city && st) {
+    const lbl = city + ", " + st.toUpperCase();
+    b.labels[lbl] = (b.labels[lbl] || 0) + 1;
+  }
+
+  // BD's coordinate is trusted ONLY when a zip is present and it is not the Colorado
+  // junk fallback. mz-v4 wrote real centroids for gated members, so this is usually
+  // a free correct centroid with no geocode call.
+  if (!b.coord) {
+    const la = num(m.lat), lo = num(m.lon);
+    if (la !== null && lo !== null && !isJunkCoord(la, lo)) {
+      b.coord = [Number(la.toFixed(5)), Number(lo.toFixed(5))];
+    } else if (isJunkCoord(la, lo)) {
+      state.totals.onJunkCoordinate++;
+    }
+  }
+}
+
 async function scanById(store, state, deadline) {
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
@@ -380,6 +447,25 @@ async function scanById(store, state, deadline) {
   return { done: true };
 }
 
+// Geocode a ZIP to its centroid. POSTAL CODE ONLY — no street address is ever sent
+// and none can come back. ~90 sq mi granularity, coarse by construction.
+async function geocodeZip(z) {
+  if (!GKEY) return null;
+  const url = "https://maps.googleapis.com/maps/api/geocode/json?components=" +
+    encodeURIComponent("postal_code:" + z + "|country:US") + "&key=" + GKEY;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.status !== "OK" || !data.results || !data.results.length) return null;
+    const loc = data.results[0].geometry && data.results[0].geometry.location;
+    if (!loc) return null;
+    return [Number(loc.lat.toFixed(5)), Number(loc.lng.toFixed(5))];
+  } catch (e) {
+    log("geocode error", z, e.message);
+    return null;
+  }
+}
+
 async function loadZipCache(store) {
   try {
     const raw = await store.get(KEY_ZIPCACHE);
@@ -392,6 +478,8 @@ async function loadZipCache(store) {
 }
 
 // Re-invoke self so one call finishes the whole scan and the nightly cron fires once.
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
 async function chainSelf(key, chain) {
   const url = SELF_URL + "/.netlify/functions/members-map-build?build=1&chain=" + chain +
               "&key=" + encodeURIComponent(key);
