@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v19
+// FN_VERSION: mmb-v20
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v19";
+const FN_VERSION = "mmb-v20";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -69,7 +69,7 @@ const MIN_MEMBERS_FOR_NEW = 3;
 // --- scan pacing + runtime limits (restored; were clipped with the old pager) ---
 const REQUEST_DELAY_MS = 650;              // ~92 req/min. Do not lower. BD throttles bursts.
 const TIME_BUDGET_MS = 8000;               // checkpoint + hand back before Netlify's 10s kill
-const MAX_CHAIN = 200;                      // links per full scan at ~10 ids/link
+const MAX_CHAIN = 200;                      // ⚠️ UNUSED since v20. Kept to avoid a ReferenceError if referenced elsewhere. The cron drives; wake count grows without bound by design.
 const SELF_URL = process.env.URL || "https://renters-story-writer.netlify.app";
 
 // Bounded per-run geocoding so a scheduled run can never time out. Unknown zips
@@ -536,12 +536,12 @@ async function build(opts) {
 
   const store = rdcStore(BLOB_STORE);
   const state = await loadProgress(store, fresh);
+  // wakeCount is just an operational counter now. mmb-v20 REMOVED the MAX_CHAIN
+  // guard: it existed to stop runaway SELF-CHAINING, but v19 made the CRON the
+  // driver, so the wake count legitimately grows forever. The guard was tripping at
+  // 200 wakes (~33h) and freezing a healthy scan mid-fill. A cron-driven job has no
+  // runaway to guard against — each wake is one bounded batch that exits on its own.
   state.chain = (state.chain || 0) + 1;
-
-  if (state.chain > MAX_CHAIN) {
-    console.error("[mmb] MAX_CHAIN hit. Refusing to continue. Something is wrong.");
-    return { ok: false, done: false, _v: FN_VERSION, error: "MAX_CHAIN exceeded at link " + state.chain + ". Run ?build=1&fresh=1 to reset." };
-  }
 
   // ---- PHASE 1: read every member BY ID, resumable ----
   if (state.phase === "scanning") {
