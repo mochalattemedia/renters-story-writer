@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v20
+// FN_VERSION: mmb-v21
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,12 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v20";
+const FN_VERSION = "mmb-v21";
+// ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
+// loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
+// loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
+// does not change the state shape must NOT throw away a good in-progress scan.
+const STATE_SCHEMA = "s1";
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const BD_KEY = process.env.BD_API_KEY || "";
@@ -349,6 +354,7 @@ function findMaxId() {
 function emptyState() {
   return {
     v: FN_VERSION,
+    schema: STATE_SCHEMA,
     startedAt: new Date().toISOString(),
     maxId: 0,
     nextId: 1,
@@ -494,7 +500,9 @@ async function loadProgress(store, fresh) {
     const raw = await store.get(KEY_PROGRESS);
     if (!raw) return emptyState();
     const s = JSON.parse(raw);
-    if (s.v !== FN_VERSION) { log("progress from a different version, starting fresh"); return emptyState(); }
+    // Discard ONLY when the checkpoint SHAPE is incompatible, not on every code bump.
+    if (s.schema !== STATE_SCHEMA) { log("progress schema changed (" + s.schema + " -> " + STATE_SCHEMA + "), starting fresh"); return emptyState(); }
+    if (s.v !== FN_VERSION) { log("resuming a scan started under " + s.v + " (schema compatible)"); s.v = FN_VERSION; }
     return s;
   } catch (e) { return emptyState(); }
 }
