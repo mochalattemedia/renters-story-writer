@@ -1,15 +1,15 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v3   (2026-07-17)
+//  FN_VERSION: slde-v4   (2026-07-17)
 //
 //  Emails a LANDLORD when you set their rental listing back to draft because
 //  the photos don't meet the Renters.com community photo standard.
-//
-//  Matches send-verification-email.js: @aws-sdk/client-ses, same SES env vars,
-//  same brand shell, same cleanName(). Adds an admin-key gate on the POST.
+//  Matches send-verification-email.js (SDK, SES env vars, brand shell) + adds
+//  an admin-key gate and input hardening.
 // ============================================================
-const FN_VERSION = "slde-v3";
+const FN_VERSION = "slde-v4";
 
+const crypto = require("crypto");
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 const ses = new SESClient({
   region: process.env.SES_REGION || "us-east-2",
@@ -37,15 +37,27 @@ function cleanName(raw) {
   if (!n) return "there";
   return n;
 }
+// Escapes BOTH quote styles so a value can't break out of an attribute.
 function esc(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
+// Strict single-address check: no commas/semicolons/brackets/quotes, length cap.
 function looksLikeEmail(e) {
-  return typeof e === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e).trim());
+  if (typeof e !== "string") return false;
+  const v = e.trim();
+  return v.length <= 254 && /^[^\s@,;<>"']+@[^\s@,;<>"']+\.[^\s@,;<>"']+$/.test(v);
+}
+// Constant-time key comparison — avoids leaking the admin key via response timing.
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a == null ? "" : a));
+  const bb = Buffer.from(String(b == null ? "" : b));
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
 }
 
 // The community photo standard — the fixed checklist every live listing must meet.
@@ -146,8 +158,9 @@ exports.handler = async function (event) {
   try { body = JSON.parse(event.body); }
   catch (e) { return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) }; }
 
+  // admin gate — do NOT let this be an open relay against your SES reputation
   const adminKey = process.env.LISTING_EMAIL_ADMIN_KEY || "";
-  if (!adminKey || body.key !== adminKey) {
+  if (!adminKey || !safeEqual(body.key, adminKey)) {
     console.warn("[slde] rejected: bad or missing admin key");
     return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
   }
