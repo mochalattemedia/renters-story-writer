@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v22
+// FN_VERSION: mmb-v23
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v22";
+const FN_VERSION = "mmb-v23";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -73,7 +73,11 @@ const MIN_MEMBERS_FOR_NEW = 3;
 
 // --- scan pacing + runtime limits (restored; were clipped with the old pager) ---
 const REQUEST_DELAY_MS = 300;  // mmb-v22: was 650. One paced batch per cron wake is not a flood, so we can go faster. If BD 400s reappear (throttle), raise back to 650.              // ~92 req/min. Do not lower. BD throttles bursts.
-const TIME_BUDGET_MS = 20000;  // mmb-v22: was 8000. Scheduled (cron) invocations get more headroom than the 10s synchronous limit, so each wake clears far more ids.               // checkpoint + hand back before Netlify's 10s kill
+const TIME_BUDGET_MS = 7500;   // ⚠️ mmb-v23 CRITICAL FIX. v22 set this to 20000 believing
+                               // scheduled functions get >10s. THEY DO NOT — Netlify kills
+                               // the sync portion at 10s, so every full-length wake was
+                               // TERMINATED before its end-of-batch checkpoint wrote, and
+                               // progress crawled (5 saved wakes in 8h vs ~48). Keep < 10000.               // checkpoint + hand back before Netlify's 10s kill
 const MAX_CHAIN = 200;                      // ⚠️ UNUSED since v20. Kept to avoid a ReferenceError if referenced elsewhere. The cron drives; wake count grows without bound by design.
 const SELF_URL = process.env.URL || "https://renters-story-writer.netlify.app";
 
@@ -442,6 +446,10 @@ async function scanById(store, state, deadline) {
       await sleep(REQUEST_DELAY_MS);
     }
     state.nextId++;
+    // mmb-v23: checkpoint every 10 ids, not just at the deadline. If Netlify kills the
+    // wake mid-batch (the 10s wall), we still keep everything up to the last checkpoint
+    // instead of losing the whole wake's work.
+    if (state.nextId % 10 === 0) await store.set(KEY_PROGRESS, JSON.stringify(state));
   }
 
   state.phase = "geocode";
