@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v21
+// FN_VERSION: mmb-v22
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v21";
+const FN_VERSION = "mmb-v22";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -72,8 +72,8 @@ const JUNK_EPS = 0.0005;
 const MIN_MEMBERS_FOR_NEW = 3;
 
 // --- scan pacing + runtime limits (restored; were clipped with the old pager) ---
-const REQUEST_DELAY_MS = 650;              // ~92 req/min. Do not lower. BD throttles bursts.
-const TIME_BUDGET_MS = 8000;               // checkpoint + hand back before Netlify's 10s kill
+const REQUEST_DELAY_MS = 300;  // mmb-v22: was 650. One paced batch per cron wake is not a flood, so we can go faster. If BD 400s reappear (throttle), raise back to 650.              // ~92 req/min. Do not lower. BD throttles bursts.
+const TIME_BUDGET_MS = 20000;  // mmb-v22: was 8000. Scheduled (cron) invocations get more headroom than the 10s synchronous limit, so each wake clears far more ids.               // checkpoint + hand back before Netlify's 10s kill
 const MAX_CHAIN = 200;                      // ⚠️ UNUSED since v20. Kept to avoid a ReferenceError if referenced elsewhere. The cron drives; wake count grows without bound by design.
 const SELF_URL = process.env.URL || "https://renters-story-writer.netlify.app";
 
@@ -343,7 +343,7 @@ async function fetchMemberById(id) {
 // IDs cost one fast 400 each and are simply skipped. New signups above the ceiling
 // get picked up when the ceiling is bumped, but we set it high enough that this is
 // years away.
-const ID_CEILING = 4200;
+const ID_CEILING = 3950;  // mmb-v22: was 4200. Real max id ~3880; no point walking 300+ empty ids at the tail every fill.
 function findMaxId() {
   return ID_CEILING;
 }
@@ -534,6 +534,44 @@ async function loadProgress(store, fresh) {
 //   ?status=1        watch progress (Blobs only, safe to spam).
 //   (scheduled)      the cron path — one batch per wake, the real driver.
 // ---------------------------------------------------------------------------
+// Build a snapshot payload from whatever is currently in state. Used BOTH for the
+// incremental writes during scanning (mmb-v22, so the map shows partial pins as it
+// fills) and for the final complete snapshot. Only zips that already have a coord
+// become pins; the rest wait for the geocode pass. Enforces the new-this-week
+// suppression on thin pins server-side.
+function buildSnapshotFromState(state) {
+  const pins = [];
+  let suppressedNew = 0, unresolvedZips = 0;
+  for (const z of Object.keys(state.byZip)) {
+    const b = state.byZip[z];
+    if (!b.coord) { unresolvedZips++; continue; }
+    let newCount = b.newCount;
+    if (b.total < MIN_MEMBERS_FOR_NEW && newCount > 0) { suppressedNew += newCount; newCount = 0; }
+    let label = "", best = 0;
+    for (const k of Object.keys(b.labels)) if (b.labels[k] > best) { best = b.labels[k]; label = k; }
+    pins.push([z, label, b.coord[0], b.coord[1], b.renters, b.landlords, b.propertyManagers, b.realtors, newCount]);
+  }
+  pins.sort((a, b) => (b[4] + b[5] + b[6] + b[7]) - (a[4] + a[5] + a[6] + a[7]));
+  return {
+    snapshot: {
+      v: FN_VERSION,
+      builtAt: new Date().toISOString(),
+      partial: state.phase !== "done",
+      totals: {
+        members: state.totals.members, renters: state.totals.renters,
+        landlords: state.totals.landlords, propertyManagers: state.totals.propertyManagers,
+        realtors: state.totals.realtors, new7: state.totals.new7,
+        placed: state.totals.placed, unplaced: state.totals.unplaced
+      },
+      pinCount: pins.length,
+      schema: ["zip", "label", "lat", "lon", "renters", "landlords", "propertyManagers", "realtors", "newCount"],
+      pins: pins
+    },
+    suppressedNew: suppressedNew,
+    unresolvedZips: unresolvedZips
+  };
+}
+
 async function build(opts) {
   const warmOnly = !!(opts && opts.warmOnly);
   const fresh = !!(opts && opts.fresh);
@@ -555,6 +593,22 @@ async function build(opts) {
   if (state.phase === "scanning") {
     const r = await scanById(store, state, deadline);
     if (!r.done) {
+      // mmb-v22: write a PARTIAL snapshot each wake so the map shows pins WHILE it
+      // fills, instead of blank until 100%. Seed coords from the cache first (free),
+      // then publish whatever has coords. No mid-scan geocoding — keeps the wake fast.
+      try {
+        const cache = await loadZipCache(store);
+        for (const z of Object.keys(state.byZip)) {
+          const b = state.byZip[z];
+          if (b.coord && !cache[z]) cache[z] = b.coord;
+          if (!b.coord && cache[z]) b.coord = cache[z];
+        }
+        const built = buildSnapshotFromState(state);
+        if (built.snapshot.pins.length > 0) {
+          await store.set(KEY_SNAPSHOT, JSON.stringify(built.snapshot));
+        }
+      } catch (e) { log("partial snapshot write skipped:", e.message); }
+
       // mmb-v19: NO self-chaining. The scheduled cron re-invokes us. See header.
       const scanned = state.nextId - 1;
       const pct = state.maxId ? Math.round((scanned / state.maxId) * 100) : 0;
