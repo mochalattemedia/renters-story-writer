@@ -1,13 +1,14 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v4   (2026-07-17)
+//  FN_VERSION: slde-v6   (2026-07-17)
 //
 //  Emails a LANDLORD when you set their rental listing back to draft because
 //  the photos don't meet the Renters.com community photo standard.
-//  Matches send-verification-email.js (SDK, SES env vars, brand shell) + adds
-//  an admin-key gate and input hardening.
+//  - reason checkboxes shape the email (POST `reasons` array)
+//  - every send BCCs LISTING_EMAIL_BCC (default kenny@renters.com) as a record
+//  - admin-key gated, input-hardened; matches send-verification-email.js
 // ============================================================
-const FN_VERSION = "slde-v4";
+const FN_VERSION = "slde-v6";
 
 const crypto = require("crypto");
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
@@ -29,6 +30,8 @@ const corsHeaders = {
 const SENDER = process.env.LISTING_EMAIL_SENDER || "verify@renters.com";
 const REPLYTO = process.env.LISTING_EMAIL_REPLYTO || SENDER;
 const EDIT_URL = process.env.EDIT_LISTING_URL || "https://www.renters.com/account/home";
+// Blind copy of every send lands here as your "sent" record. Set LISTING_EMAIL_BCC to "" to turn off.
+const BCC = process.env.LISTING_EMAIL_BCC != null ? process.env.LISTING_EMAIL_BCC : "kenny@renters.com";
 
 function cleanName(raw) {
   var n = String(raw == null ? "" : raw).trim();
@@ -37,22 +40,16 @@ function cleanName(raw) {
   if (!n) return "there";
   return n;
 }
-// Escapes BOTH quote styles so a value can't break out of an attribute.
 function esc(s) {
   return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-// Strict single-address check: no commas/semicolons/brackets/quotes, length cap.
 function looksLikeEmail(e) {
   if (typeof e !== "string") return false;
   const v = e.trim();
   return v.length <= 254 && /^[^\s@,;<>"']+@[^\s@,;<>"']+\.[^\s@,;<>"']+$/.test(v);
 }
-// Constant-time key comparison — avoids leaking the admin key via response timing.
 function safeEqual(a, b) {
   const ab = Buffer.from(String(a == null ? "" : a));
   const bb = Buffer.from(String(b == null ? "" : b));
@@ -60,7 +57,6 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ab, bb);
 }
 
-// The community photo standard — the fixed checklist every live listing must meet.
 const STANDARD_ITEMS = [
   "<strong style='color:#0d2d4e;'>Every room inside</strong> &mdash; the living area and each bedroom",
   "<strong style='color:#0d2d4e;'>The kitchen</strong>",
@@ -84,19 +80,32 @@ function checklistRows(items) {
   }).join("");
 }
 
-function buildEmail({ name, listingTitle, listingUrl, missing }) {
+function buildEmail({ name, listingTitle, listingUrl, missing, reasons }) {
   const greet = esc(cleanName(name));
   const url = listingUrl || EDIT_URL;
 
   const titleHtml = listingTitle ? " &ldquo;" + esc(listingTitle) + "&rdquo;" : " your listing";
   const titleText = listingTitle ? ' "' + listingTitle + '"' : " your listing";
 
-  const missingHtml = missing
-    ? "<div style='background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 16px;margin:0 0 22px;'>"
-      + "<p style='font-size:14px;color:#7c2d12;line-height:1.6;margin:0;'><strong>On your listing specifically, we still need:</strong> "
-      + esc(missing) + "</p></div>"
-    : "";
-  const missingText = missing ? "\nOn your listing specifically, we still need: " + missing + "\n" : "";
+  const picked = [];
+  (Array.isArray(reasons) ? reasons : []).forEach(function (r) {
+    r = String(r == null ? "" : r).trim();
+    if (r) picked.push(r);
+  });
+  if (missing && String(missing).trim()) picked.push(String(missing).trim());
+
+  var midHtml, midText;
+  if (picked.length) {
+    midHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>Here&rsquo;s what we still need before it can go live:</p>"
+      + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(picked.map(esc)) + "</table>";
+    midText = "Here's what we still need before it can go live:\n"
+      + picked.map(function (i) { return "- " + i; }).join("\n") + "\n";
+  } else {
+    midHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>To keep listings trustworthy for renters, every live listing needs clear, well-lit photos of the whole property:</p>"
+      + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(STANDARD_ITEMS) + "</table>";
+    midText = "To keep listings trustworthy for renters, every live listing needs clear, well-lit photos of the whole property:\n"
+      + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n";
+  }
 
   const subject = "Your Renters.com listing needs updated photos to go live";
 
@@ -108,10 +117,8 @@ function buildEmail({ name, listingTitle, listingUrl, missing }) {
     + "<div style='background:#ffffff;padding:32px 30px;border-radius:0 0 14px 14px;'>"
     + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 14px;'>A quick fix to get your listing live</h1>"
     + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + greet + ", thanks for listing your place on Renters.com. We&rsquo;ve set" + titleHtml + " back to draft because the photos don&rsquo;t yet meet our community standard. It&rsquo;s a quick fix, not a rejection.</p>"
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>To keep listings trustworthy for renters, every live listing needs clear, well-lit photos of the whole property:</p>"
-    + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(STANDARD_ITEMS) + "</table>"
-    + missingHtml
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>Add the photos that are missing and set your listing back to live, and it&rsquo;ll be visible again.</p>"
+    + midHtml
+    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>Add those and set your listing back to live, and it&rsquo;ll be visible again.</p>"
     + "<div style='text-align:center;margin-bottom:24px;'>"
     + "<a href='" + esc(url) + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>Edit your listing &rarr;</a></div>"
     + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0;'>&mdash; The Renters.com team</p>"
@@ -121,10 +128,8 @@ function buildEmail({ name, listingTitle, listingUrl, missing }) {
 
   const text = "Hi " + cleanName(name) + ",\n\n"
     + "Thanks for listing your place on Renters.com. We've set" + titleText + " back to draft because the photos don't yet meet our community standard. It's a quick fix, not a rejection.\n\n"
-    + "To keep listings trustworthy for renters, every live listing needs clear, well-lit photos of the whole property:\n"
-    + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n"
-    + missingText + "\n"
-    + "Add the photos that are missing and set your listing back to live, and it'll be visible again.\n\n"
+    + midText + "\n"
+    + "Add those and set your listing back to live, and it'll be visible again.\n\n"
     + "Edit your listing: " + url + "\n\n"
     + "- The Renters.com team\n\n"
     + "Renters.com. Finding a home should feel safe.";
@@ -146,6 +151,7 @@ exports.handler = async function (event) {
         adminKeyConfigured: !!process.env.LISTING_EMAIL_ADMIN_KEY,
         sesKeyConfigured: !!process.env.SES_ACCESS_KEY_ID && !!process.env.SES_SECRET_ACCESS_KEY,
         sender: SENDER,
+        bcc: BCC && looksLikeEmail(BCC) ? BCC.trim() : null,
       }),
     };
   }
@@ -158,7 +164,6 @@ exports.handler = async function (event) {
   try { body = JSON.parse(event.body); }
   catch (e) { return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) }; }
 
-  // admin gate — do NOT let this be an open relay against your SES reputation
   const adminKey = process.env.LISTING_EMAIL_ADMIN_KEY || "";
   if (!adminKey || !safeEqual(body.key, adminKey)) {
     console.warn("[slde] rejected: bad or missing admin key");
@@ -175,11 +180,15 @@ exports.handler = async function (event) {
     listingTitle: body.listingTitle,
     listingUrl: body.listingUrl,
     missing: body.missing,
+    reasons: body.reasons,
   });
+
+  const destination = { ToAddresses: [email] };
+  if (BCC && looksLikeEmail(BCC)) destination.BccAddresses = [BCC.trim()];
 
   const command = new SendEmailCommand({
     Source: SENDER,
-    Destination: { ToAddresses: [email] },
+    Destination: destination,
     ReplyToAddresses: [REPLYTO],
     Message: {
       Subject: { Data: subject, Charset: "UTF-8" },
@@ -199,3 +208,5 @@ exports.handler = async function (event) {
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to send email", details: err.message }) };
   }
 };
+
+module.exports._internal = { buildEmail, cleanName, esc, looksLikeEmail, FN_VERSION };
