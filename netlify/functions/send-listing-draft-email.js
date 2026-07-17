@@ -1,14 +1,14 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v6   (2026-07-17)
+//  FN_VERSION: slde-v7   (2026-07-17)
 //
 //  Emails a LANDLORD when you set their rental listing back to draft because
 //  the photos don't meet the Renters.com community photo standard.
-//  - reason checkboxes shape the email (POST `reasons` array)
-//  - every send BCCs LISTING_EMAIL_BCC (default kenny@renters.com) as a record
-//  - admin-key gated, input-hardened; matches send-verification-email.js
+//  - reason checkboxes shape the email; BCC copy to kenny@renters.com
+//  - always reads "your listing"; sender verify@renters.com
+//  - admin-key gated, input-hardened
 // ============================================================
-const FN_VERSION = "slde-v6";
+const FN_VERSION = "slde-v7";
 
 const crypto = require("crypto");
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
@@ -84,8 +84,9 @@ function buildEmail({ name, listingTitle, listingUrl, missing, reasons }) {
   const greet = esc(cleanName(name));
   const url = listingUrl || EDIT_URL;
 
-  const titleHtml = listingTitle ? " &ldquo;" + esc(listingTitle) + "&rdquo;" : " your listing";
-  const titleText = listingTitle ? ' "' + listingTitle + '"' : " your listing";
+  // Listing title deliberately not shown in the copy — always "your listing".
+  const titleHtml = " your listing";
+  const titleText = " your listing";
 
   const picked = [];
   (Array.isArray(reasons) ? reasons : []).forEach(function (r) {
