@@ -1,43 +1,14 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v2   (2026-07-17)
+//  FN_VERSION: slde-v3   (2026-07-17)
 //
-//  Emails a LANDLORD when you set their rental listing back to draft for not
-//  meeting the Renters.com photo standard (comprehensive photos of every
-//  inside + outside space, including shared spaces).
+//  Emails a LANDLORD when you set their rental listing back to draft because
+//  the photos don't meet the Renters.com community photo standard.
 //
-//  Built to match send-verification-email.js exactly:
-//   - @aws-sdk/client-ses (SESClient / SendEmailCommand) — same as sve-v3
-//   - same env vars: SES_REGION, SES_ACCESS_KEY_ID, SES_SECRET_ACCESS_KEY
-//     (already set in Netlify — that's why the verification emails send)
-//   - same brand shell (navy #0d2d4e header, lime #8dc63f, RENTERS. wordmark)
-//   - same cleanName(): blank -> "there"; de-links domain-like names
-//
-//  ONE addition over sve-v3: an admin-key gate on the POST, so the URL can't
-//  be used as an open email relay against your SES sending reputation. (The
-//  verification function is currently open — worth adding the same gate there.)
-//
-//  Changelog
-//   slde-v2  Jul 17  Rewritten to use @aws-sdk/client-ses + the sve-v3 brand
-//                    shell (was raw SigV4 in slde-v1). Copy trimmed per Kenny.
-//   slde-v1  Jul 17  First cut (raw SigV4). Superseded before deploy.
-//
-//  ENV
-//   SES_REGION              default "us-east-2"        (already set)
-//   SES_ACCESS_KEY_ID       (already set)
-//   SES_SECRET_ACCESS_KEY   (already set)
-//   LISTING_EMAIL_ADMIN_KEY REQUIRED. Must match the KEY in the bookmarklet.
-//   LISTING_EMAIL_SENDER    default "verify@renters.com" (proven DKIM sender;
-//                           any @renters.com works since the domain is DKIM-verified)
-//   LISTING_EMAIL_REPLYTO   default = sender
-//   EDIT_LISTING_URL        default "https://www.renters.com/account/home"
-//                           Point at the exact edit-listing slug if you have one.
-//
-//  ENDPOINTS
-//   GET  ?version=1  -> { ok, _v, region, adminKeyConfigured, sesKeyConfigured }
-//   POST (JSON)      -> { key, email, name?, listingTitle?, listingUrl?, missing? }
+//  Matches send-verification-email.js: @aws-sdk/client-ses, same SES env vars,
+//  same brand shell, same cleanName(). Adds an admin-key gate on the POST.
 // ============================================================
-const FN_VERSION = "slde-v2";
+const FN_VERSION = "slde-v3";
 
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 const ses = new SESClient({
@@ -59,7 +30,6 @@ const SENDER = process.env.LISTING_EMAIL_SENDER || "verify@renters.com";
 const REPLYTO = process.env.LISTING_EMAIL_REPLYTO || SENDER;
 const EDIT_URL = process.env.EDIT_LISTING_URL || "https://www.renters.com/account/home";
 
-// --- Name cleanup (same as send-verification-email.js) ---
 function cleanName(raw) {
   var n = String(raw == null ? "" : raw).trim();
   if (!n) return "there";
@@ -67,8 +37,6 @@ function cleanName(raw) {
   if (!n) return "there";
   return n;
 }
-// Escape user-supplied values that land in the HTML (listing title, missing note,
-// name) so a stray "<" in a listing title can't break the email markup.
 function esc(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;")
@@ -80,22 +48,45 @@ function looksLikeEmail(e) {
   return typeof e === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e).trim());
 }
 
+// The community photo standard — the fixed checklist every live listing must meet.
+const STANDARD_ITEMS = [
+  "<strong style='color:#0d2d4e;'>Every room inside</strong> &mdash; the living area and each bedroom",
+  "<strong style='color:#0d2d4e;'>The kitchen</strong>",
+  "<strong style='color:#0d2d4e;'>Each bathroom</strong>",
+  "<strong style='color:#0d2d4e;'>The outside of the property</strong> &mdash; the front, and any yard or grounds",
+  "<strong style='color:#0d2d4e;'>Any shared spaces</strong> &mdash; hallways, stairwells, laundry, common areas, and parking",
+];
+const STANDARD_ITEMS_TEXT = [
+  "Every room inside - the living area and each bedroom",
+  "The kitchen",
+  "Each bathroom",
+  "The outside of the property - the front, and any yard or grounds",
+  "Any shared spaces - hallways, stairwells, laundry, common areas, and parking",
+];
+
+function checklistRows(items) {
+  return items.map(function (it) {
+    return "<tr><td style='vertical-align:top;padding:0 10px 10px 0;'>"
+      + "<span style='color:#8dc63f;font-size:18px;line-height:1.4;'>&#9679;</span></td>"
+      + "<td style='padding:0 0 10px 0;font-size:14px;color:#4a5a6a;line-height:1.55;'>" + it + "</td></tr>";
+  }).join("");
+}
+
 function buildEmail({ name, listingTitle, listingUrl, missing }) {
   const greet = esc(cleanName(name));
   const url = listingUrl || EDIT_URL;
 
-  // "...set {your listing "Title"} back to draft..."
   const titleHtml = listingTitle ? " &ldquo;" + esc(listingTitle) + "&rdquo;" : " your listing";
   const titleText = listingTitle ? ' "' + listingTitle + '"' : " your listing";
 
   const missingHtml = missing
-    ? "<div style='background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 16px;margin-bottom:18px;'>"
-      + "<p style='font-size:14px;color:#7c2d12;line-height:1.6;margin:0;'><strong>What we still need to see:</strong> "
+    ? "<div style='background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 16px;margin:0 0 22px;'>"
+      + "<p style='font-size:14px;color:#7c2d12;line-height:1.6;margin:0;'><strong>On your listing specifically, we still need:</strong> "
       + esc(missing) + "</p></div>"
     : "";
-  const missingText = missing ? "\nWhat we still need to see: " + missing + "\n" : "";
+  const missingText = missing ? "\nOn your listing specifically, we still need: " + missing + "\n" : "";
 
-  const subject = "Your Renters.com listing needs a few more photos to go live";
+  const subject = "Your Renters.com listing needs updated photos to go live";
 
   const html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
     + "<body style='margin:0;padding:0;background:#eef2f5;font-family:Open Sans,Arial,sans-serif;'>"
@@ -104,10 +95,11 @@ function buildEmail({ name, listingTitle, listingUrl, missing }) {
     + "<div style='font-size:22px;font-weight:800;color:#ffffff;'>RENTERS<span style='color:#8dc63f;'>.</span></div></div>"
     + "<div style='background:#ffffff;padding:32px 30px;border-radius:0 0 14px 14px;'>"
     + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 14px;'>A quick fix to get your listing live</h1>"
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + greet + ", thanks for listing your place on Renters.com. We&rsquo;ve set" + titleHtml + " back to draft for now, and it&rsquo;s a quick fix, not a rejection.</p>"
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>To keep listings trustworthy for renters, every live listing needs comprehensive photos of the whole property: every inside space (each room, the kitchen, bathrooms), the outside of the property, and any shared spaces (hallways, laundry, common areas, yard, parking).</p>"
+    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + greet + ", thanks for listing your place on Renters.com. We&rsquo;ve set" + titleHtml + " back to draft because the photos don&rsquo;t yet meet our community standard. It&rsquo;s a quick fix, not a rejection.</p>"
+    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>To keep listings trustworthy for renters, every live listing needs clear, well-lit photos of the whole property:</p>"
+    + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(STANDARD_ITEMS) + "</table>"
     + missingHtml
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>Yours is missing some of these, so renters can&rsquo;t yet see the full picture. Add the remaining photos and set your listing back to live, and it&rsquo;ll be visible again.</p>"
+    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>Add the photos that are missing and set your listing back to live, and it&rsquo;ll be visible again.</p>"
     + "<div style='text-align:center;margin-bottom:24px;'>"
     + "<a href='" + esc(url) + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>Edit your listing &rarr;</a></div>"
     + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0;'>&mdash; The Renters.com team</p>"
@@ -116,10 +108,11 @@ function buildEmail({ name, listingTitle, listingUrl, missing }) {
     + "</div></body></html>";
 
   const text = "Hi " + cleanName(name) + ",\n\n"
-    + "Thanks for listing your place on Renters.com. We've set" + titleText + " back to draft for now, and it's a quick fix, not a rejection.\n\n"
-    + "To keep listings trustworthy for renters, every live listing needs comprehensive photos of the whole property: every inside space (each room, the kitchen, bathrooms), the outside of the property, and any shared spaces (hallways, laundry, common areas, yard, parking).\n"
+    + "Thanks for listing your place on Renters.com. We've set" + titleText + " back to draft because the photos don't yet meet our community standard. It's a quick fix, not a rejection.\n\n"
+    + "To keep listings trustworthy for renters, every live listing needs clear, well-lit photos of the whole property:\n"
+    + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n"
     + missingText + "\n"
-    + "Yours is missing some of these, so renters can't yet see the full picture. Add the remaining photos and set your listing back to live, and it'll be visible again.\n\n"
+    + "Add the photos that are missing and set your listing back to live, and it'll be visible again.\n\n"
     + "Edit your listing: " + url + "\n\n"
     + "- The Renters.com team\n\n"
     + "Renters.com. Finding a home should feel safe.";
@@ -130,8 +123,6 @@ function buildEmail({ name, listingTitle, listingUrl, missing }) {
 exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
 
-  // GET = version / config probe. Open the URL in a browser to confirm the
-  // deploy and whether the env vars registered.
   if (event.httpMethod === "GET") {
     return {
       statusCode: 200,
@@ -155,7 +146,6 @@ exports.handler = async function (event) {
   try { body = JSON.parse(event.body); }
   catch (e) { return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) }; }
 
-  // admin gate — do NOT let this be an open relay against your SES reputation
   const adminKey = process.env.LISTING_EMAIL_ADMIN_KEY || "";
   if (!adminKey || body.key !== adminKey) {
     console.warn("[slde] rejected: bad or missing admin key");
@@ -196,6 +186,3 @@ exports.handler = async function (event) {
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to send email", details: err.message }) };
   }
 };
-
-// Exported for local execution / tests (Workflow Rule 16: run it before shipping)
-module.exports._internal = { buildEmail, cleanName, esc, looksLikeEmail, FN_VERSION };
