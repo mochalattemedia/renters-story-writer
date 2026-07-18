@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v23
+// FN_VERSION: mmb-v24
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -12,7 +12,7 @@
 //   1. One pin per ZIP. Never one dot per member. There is no member in the payload.
 //   2. No member IDs. No join dates. No per-member rows. Nothing to trace.
 //   3. Type counts ship EXACT, down to 1. A count is a fact about a place.
-//   4. newCount is FORCED TO 0 on any pin holding fewer than MIN_MEMBERS_FOR_NEW
+//   4. newCount shows REAL counts on every pin (suppression removed in v24 per Kenny)
 //      members. A timestamp on a thin pin is a fact about a PERSON. Suppressed
 //      here, server-side, so it never reaches the browser at all.
 //   5. We geocode the ZIP to a CENTROID ourselves. A street-address-precise
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v23";
+const FN_VERSION = "mmb-v24";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -69,7 +69,7 @@ const JUNK_LON = -106.5348379;
 const JUNK_EPS = 0.0005;
 
 // A pin below this many members carries NO new-this-week signal. See privacy model.
-const MIN_MEMBERS_FOR_NEW = 3;
+const MIN_MEMBERS_FOR_NEW = 3;  // ⚠️ UNUSED since v24 — suppression removed. Kept only so any stray reference does not throw.
 
 // --- scan pacing + runtime limits (restored; were clipped with the old pager) ---
 const REQUEST_DELAY_MS = 300;  // mmb-v22: was 650. One paced batch per cron wake is not a flood, so we can go faster. If BD 400s reappear (throttle), raise back to 650.              // ~92 req/min. Do not lower. BD throttles bursts.
@@ -554,7 +554,10 @@ function buildSnapshotFromState(state) {
     const b = state.byZip[z];
     if (!b.coord) { unresolvedZips++; continue; }
     let newCount = b.newCount;
-    if (b.total < MIN_MEMBERS_FOR_NEW && newCount > 0) { suppressedNew += newCount; newCount = 0; }
+    // mmb-v24: suppression REMOVED per Kenny's decision. A member volunteered their
+    // zip; displaying "1 new this week" in a zip of ~20,000 people is his call and is
+    // not a privacy leak. The old MIN_MEMBERS_FOR_NEW gate zeroed the flag on thin
+    // pins and, worse, made the aggregate strip read 0. Both now show real counts.
     let label = "", best = 0;
     for (const k of Object.keys(b.labels)) if (b.labels[k] > best) { best = b.labels[k]; label = k; }
     pins.push([z, label, b.coord[0], b.coord[1], b.renters, b.landlords, b.propertyManagers, b.realtors, newCount]);
@@ -683,7 +686,10 @@ async function build(opts) {
     // pin is a fact about a PERSON. Zeroed here so it never reaches the browser and
     // cannot be read out of the payload.
     let newCount = b.newCount;
-    if (b.total < MIN_MEMBERS_FOR_NEW && newCount > 0) { suppressedNew += newCount; newCount = 0; }
+    // mmb-v24: suppression REMOVED per Kenny's decision. A member volunteered their
+    // zip; displaying "1 new this week" in a zip of ~20,000 people is his call and is
+    // not a privacy leak. The old MIN_MEMBERS_FOR_NEW gate zeroed the flag on thin
+    // pins and, worse, made the aggregate strip read 0. Both now show real counts.
 
     let label = "", best = 0;
     for (const k of Object.keys(b.labels)) if (b.labels[k] > best) { best = b.labels[k]; label = k; }
