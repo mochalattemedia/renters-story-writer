@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v24
+// FN_VERSION: mmb-v25
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v24";
+const FN_VERSION = "mmb-v25";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -96,7 +96,8 @@ const PAGE_BATCH = 1;     // ⚠️ SERIAL. BD rate-limits. See the banner below
 const MAX_PAGES = 400;
 
 const BLOB_STORE = "members-map";
-const KEY_SNAPSHOT = "snapshot";
+const KEY_SNAPSHOT = "snapshot";          // PUBLISHED. The page reads ONLY this. Replaced on cycle COMPLETION.
+const KEY_SNAPSHOT_PARTIAL = "snapshot-partial";  // in-progress work. Never read by the page.
 const KEY_ZIPCACHE = "zipcache";
 const KEY_LISTPATH = "listpath";
 const KEY_PROGRESS = "progress";
@@ -362,6 +363,8 @@ function emptyState() {
     startedAt: new Date().toISOString(),
     maxId: 0,
     nextId: 1,
+    highestIdSeen: 0,
+    lastFullScanAt: 0,
     bdTotal: null,
     seen: {},
     byZip: {},
@@ -445,6 +448,7 @@ async function scanById(store, state, deadline) {
       else { state.deletedIds = (state.deletedIds || 0) + 1; state.seen[id] = 1; }
       await sleep(REQUEST_DELAY_MS);
     }
+    if (id > (state.highestIdSeen || 0)) state.highestIdSeen = id;
     state.nextId++;
     // mmb-v23: checkpoint every 10 ids, not just at the deadline. If Netlify kills the
     // wake mid-batch (the 10s wall), we still keep everything up to the last checkpoint
@@ -616,7 +620,11 @@ async function build(opts) {
         }
         const built = buildSnapshotFromState(state);
         if (built.snapshot.pins.length > 0) {
-          await store.set(KEY_SNAPSHOT, JSON.stringify(built.snapshot));
+          // ⚠️ mmb-v25: partial work goes to the PARTIAL key. Writing it to
+          // KEY_SNAPSHOT (what v22-v24 did) meant every new scan cycle tore down the
+          // completed public map and rebuilt it in front of visitors — the live map
+          // collapsed from 2,831 members to 177 when a cycle restarted.
+          await store.set(KEY_SNAPSHOT_PARTIAL, JSON.stringify(built.snapshot));
         }
       } catch (e) { log("partial snapshot write skipped:", e.message); }
 
@@ -729,7 +737,33 @@ async function build(opts) {
   if (!landed) console.error("[mmb] SNAPSHOT DID NOT LAND. Wrote " + pins.length + " pins, read back " + landedPins + ".");
 
   // Clear the checkpoint so the next run starts clean.
-  await store.set(KEY_PROGRESS, JSON.stringify(emptyState()));
+  // ⚠️ mmb-v25: DO NOT restart the next cycle at id 1. Re-reading ~3,800 unchanged
+  // members takes DAYS and produced nothing new. The next cycle starts just above the
+  // highest id already seen (incremental), so new signups appear within minutes.
+  //
+  // WEEKLY FULL RE-SCAN: existing members who add a zip later (there are ~1,900 who
+  // still need to) would never be picked up by an incremental-only scan. So once a
+  // week we do a full pass from id 1 to catch those updates.
+  const next = emptyState();
+  const lastFull = state.lastFullScanAt || 0;
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const dueForFull = (Date.now() - lastFull) > weekMs;
+
+  if (dueForFull) {
+    next.nextId = 1;
+    next.lastFullScanAt = Date.now();
+    log("next cycle: FULL re-scan (weekly), from id 1");
+  } else {
+    // start just past the highest id we actually saw — only genuinely new members
+    next.nextId = (state.highestIdSeen || state.maxId || 1) + 1;
+    next.lastFullScanAt = lastFull || Date.now();
+    // carry forward what we already know so the published map stays complete
+    next.byZip = state.byZip;
+    next.seen = state.seen;
+    next.totals = state.totals;
+    log("next cycle: INCREMENTAL, starting at id", next.nextId);
+  }
+  await store.set(KEY_PROGRESS, JSON.stringify(next));
 
   const report = {
     ok: landed,
@@ -816,6 +850,11 @@ async function status() {
   const store = rdcStore(BLOB_STORE);
   let prog = null, snap = null;
   try { prog = JSON.parse(await store.get(KEY_PROGRESS)); } catch (e) {}
+  let partial = null;
+  try {
+    const p = JSON.parse(await store.get(KEY_SNAPSHOT_PARTIAL));
+    partial = { pins: (p.pins || []).length, members: p.totals && p.totals.members };
+  } catch (e) {}
   try {
     const s = JSON.parse(await store.get(KEY_SNAPSHOT));
     snap = { builtAt: s.builtAt, pins: (s.pins || []).length, totals: s.totals, v: s.v };
@@ -833,7 +872,8 @@ async function status() {
     zipsSoFar: prog && prog.byZip ? Object.keys(prog.byZip).length : 0,
     deletedOrEmptyIds: prog ? (prog.deletedIds || 0) : 0,
     chainLink: prog ? prog.chain : 0,
-    LIVE_SNAPSHOT: snap || "none yet"
+    PUBLISHED_SNAPSHOT: snap || "none yet",   // what the public map is showing right now
+    inProgressSnapshot: partial || "none"      // the cycle being built; not public until complete
   };
 }
 
