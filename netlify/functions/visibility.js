@@ -1,5 +1,22 @@
 // ============================================================
-//  visibility.js   ·   VERSION: vis5  (2026-07-09)
+//  visibility.js   ·   VERSION: vis6  (2026-07-20)
+//  vis6: SUPPLY-SIDE SUPPORT. The same tags (6-10) now serve EVERY member
+//        type: "visible-to-landlords" on a landlord record means that
+//        landlord is visible to landlords. NO NEW BD TAGS NEEDED.
+//        Because one tag now spans member types, the Blob index is keyed by
+//        BOTH audience and the listed member's own type:
+//            findable:{audience}:{ownType}
+//        e.g. findable:landlords:renters  (renters visible to landlords)
+//             findable:renters:landlords  (landlords visible to renters)
+//        The legacy key findable:{audience} is STILL written for renters so
+//        the live Find Renters keeps working untouched.
+//        Adds configured:{memberId} so "never set" is distinguishable from
+//        "explicitly turned everything off" — supply-side members who have
+//        never configured are treated as VISIBLE (grandfathered), and the
+//        panel records them silently on first dashboard visit.
+//        Status read now also returns memberType + configured.
+//        Built directly on the live vis5 file (income shield + fixed
+//        idxStore preserved exactly).
 //  vis5: Blob store init fixed. idxStore() now passes siteID + token explicitly
 //        instead of a try/catch around getStore() that never caught (getStore
 //        does not throw on creation). This is why opt-ins never populated the
@@ -50,7 +67,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "vis5";
+const FUNCTION_VERSION = "vis6";
 
 // The five audience tags. Keyed by the flag name the wizard sends/reads.
 // tag_id values confirmed from BD Members > Tags. tag_type_id 1 = Custom Tags group.
@@ -85,7 +102,45 @@ async function readIndex(store, key) {
     return Array.isArray(v) ? v : [];
   } catch (e) { return []; }
 }
-async function writeAudienceIndex(userId, desired) {
+// Map a BD account/level name to the slug used in index keys.
+function memberTypeSlug(accountType) {
+  const t = String(accountType || "").toLowerCase();
+  if (t.indexOf("renter") !== -1) return "renters";
+  if (t.indexOf("property manager") !== -1 || t.indexOf("property-manager") !== -1) return "propertyManagers";
+  if (t.indexOf("realtor") !== -1 || t.indexOf("agent") !== -1) return "realtors";
+  if (t.indexOf("landlord") !== -1) return "landlords";
+  return "";
+}
+function rawTypeOf(member) {
+  if (!member) return "";
+  for (const v of [member.subscription_name, member.member_level_name, member.member_type]) {
+    if (v && String(v).trim() && String(v).trim() !== "0") return String(v).trim();
+  }
+  return "";
+}
+// Read the member's own level from BD (authoritative; browser DOM is not).
+async function readMemberType(userId) {
+  const m = await getMember(userId);
+  const raw = rawTypeOf(m);
+  return { slug: memberTypeSlug(raw), raw };
+}
+// Has this member ever explicitly saved a visibility choice?
+async function readConfigured(userId) {
+  try {
+    const store = idxStore();
+    const v = await store.get("configured:" + String(userId), { type: "json" });
+    return v === true || (v && v.set === true);
+  } catch (e) { return false; }
+}
+async function markConfigured(userId) {
+  try {
+    const store = idxStore();
+    await store.setJSON("configured:" + String(userId), { set: true, at: new Date().toISOString() });
+    return true;
+  } catch (e) { return false; }
+}
+
+async function writeAudienceIndex(userId, desired, ownType) {
   // For each audience, add or remove this member ID from its Blob set to mirror
   // the tag state. Best-effort: a Blob failure never blocks the tag write/UI.
   let store;
@@ -94,12 +149,23 @@ async function writeAudienceIndex(userId, desired) {
   const summary = {};
   for (const a of AUDIENCES) {
     try {
-      const key = "findable:" + a.key;
+      const key = "findable:" + a.key + (ownType ? ":" + ownType : "");
       const list = await readIndex(store, key);
       const has = list.indexOf(uid) !== -1;
       if (desired[a.key] && !has) { list.push(uid); await store.setJSON(key, list); summary[a.key] = "indexed"; }
       else if (!desired[a.key] && has) { const next = list.filter((x) => x !== uid); await store.setJSON(key, next); summary[a.key] = "de-indexed"; }
       else { summary[a.key] = "unchanged"; }
+
+      // Legacy key (renters only) keeps the live Find Renters working.
+      if (ownType === "renters") {
+        try {
+          const lkey = "findable:" + a.key;
+          const llist = await readIndex(store, lkey);
+          const lhas = llist.indexOf(uid) !== -1;
+          if (desired[a.key] && !lhas) { llist.push(uid); await store.setJSON(lkey, llist); }
+          else if (!desired[a.key] && lhas) { await store.setJSON(lkey, llist.filter((x) => x !== uid)); }
+        } catch (e) { /* legacy best-effort */ }
+      }
     } catch (e) { summary[a.key] = "index-error"; }
   }
   return { indexed: true, summary };
@@ -281,24 +347,27 @@ exports.handler = async function (event) {
       const desired = {};
       AUDIENCES.forEach((a) => { desired[a.key] = (a.key === aud); });
       let writeRes, readBack = [], storeOk = false, storeErr = "";
-      try { writeRes = await writeAudienceIndex(dq.memberId, desired); }
+      let dType = dq.type || "";
+      if (!dType) { try { const mt = await readMemberType(dq.memberId); dType = mt.slug; } catch (e) { dType = ""; } }
+      try { writeRes = await writeAudienceIndex(dq.memberId, desired, dType); }
       catch (e) { writeRes = { indexed: false, threw: (e && e.message) ? e.message : String(e) }; }
       try {
         const st = idxStore(); storeOk = true;
-        const v = await st.get("findable:" + aud, { type: "json" });
+        const v = await st.get("findable:" + aud + (dType ? ":" + dType : ""), { type: "json" });
         readBack = Array.isArray(v) ? v.map(String) : [];
       } catch (e) { storeErr = (e && e.message) ? e.message : String(e); }
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
-        version: FUNCTION_VERSION, debug: "write", memberId: dq.memberId, audience: aud,
+        version: FUNCTION_VERSION, debug: "write", memberId: dq.memberId, audience: aud, type: dType,
         writeResult: writeRes, storeOk, storeErr, count_after: readBack.length, ids_after: readBack
       }) };
     }
     if (dq.debug === "read") {
       const aud = ["landlords","propertyManagers","realtors","buying","renters"].indexOf(dq.audience) !== -1 ? dq.audience : "landlords";
+      const rType = dq.type || "";
       let ids = [], storeErr = "";
-      try { const st = idxStore(); const v = await st.get("findable:" + aud, { type: "json" }); ids = Array.isArray(v) ? v.map(String) : []; }
+      try { const st = idxStore(); const v = await st.get("findable:" + aud + (rType ? ":" + rType : ""), { type: "json" }); ids = Array.isArray(v) ? v.map(String) : []; }
       catch (e) { storeErr = (e && e.message) ? e.message : String(e); }
-      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ version: FUNCTION_VERSION, debug: "read", audience: aud, count: ids.length, ids, storeErr }) };
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ version: FUNCTION_VERSION, debug: "read", audience: aud, type: rType, count: ids.length, ids, storeErr }) };
     }
   }
 
@@ -314,6 +383,9 @@ exports.handler = async function (event) {
         body: JSON.stringify({
           version: FUNCTION_VERSION,
           memberId: q.memberId,
+          memberType: memberTypeSlug(rawTypeOf(member)),
+          memberTypeRaw: rawTypeOf(member),
+          configured: await readConfigured(q.memberId),
           landlords: on.landlords,
           propertyManagers: on.propertyManagers,
           realtors: on.realtors,
@@ -372,7 +444,10 @@ exports.handler = async function (event) {
 
   // --- Maintain the Blob "findable" index so renter-search.js has a list to read ---
   let indexResult = { indexed: false };
-  try { indexResult = await writeAudienceIndex(userId, desired); } catch (e) { /* best-effort */ }
+  let ownType = "";
+  try { const mt = await readMemberType(userId); ownType = mt.slug; } catch (e) { ownType = ""; }
+  try { indexResult = await writeAudienceIndex(userId, desired, ownType); } catch (e) { /* best-effort */ }
+  try { await markConfigured(userId); } catch (e) { /* best-effort */ }
 
   // --- Notify Kenny (one summary email per save; a renter becoming findable is the signal) ---
   let member = null;
@@ -429,6 +504,7 @@ exports.handler = async function (event) {
       success: true,
       version: FUNCTION_VERSION,
       memberId: userId,
+      memberType: ownType,
       results,
       index: indexResult,
       emailSent: emailOk,
