@@ -1,11 +1,36 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v10
+// alerts-card-js.js  —  ac-v11
 // Serves the "Daily listing alerts" dashboard card as JavaScript.
 // Head code (w99) carries only a 6-line loader; BD never stores this.
 //
 // Backend: alerts-prefs.js ap-v4. SHIP THEM TOGETHER. ac-v4 speaks the
 // { searches: [...] } shape; ap-v3 speaks a single criteria object.
 // Mixing versions loses the renter's saved search silently.
+//
+// ac-v11 CHANGE: STOP THE BLINK FOR REAL. ac-v10 fixed the text-node bug
+// but the blink continued, because this was never a one-sided problem.
+//
+// THE ACTUAL CONFLICT. zip3 in head code runs place() every 400ms:
+//     if (card.parentNode !== wiz.parentNode || card.nextSibling !== wiz)
+//         wiz.parentNode.insertBefore(card, wiz);
+// It demands that #rdc-zip sit IMMEDIATELY before #rdc-wiz. ac-v9/v10
+// demanded that this card sit IMMEDIATELY after #rdc-zip. Put this card
+// between them and BOTH conditions can never hold at once: zip3 moves
+// the zip card, which breaks our adjacency, we move back, which breaks
+// zip3's. Two correct placers, mutually unsatisfiable, 400ms apart.
+// (Note this also means zip3 was thrashing on its own text-node compare
+// the moment anything was inserted between the two.)
+//
+// THE FIX: never sit between them. This card now anchors AFTER #rdc-wiz.
+// zip3 keeps its adjacency and stops moving anything. The visual order is
+// unchanged for the member, because zip3 sets the wizard to display:none
+// while the gate is up, so they still see the zip box and then this card
+// directly under it.
+//
+// GENERAL RULE for this dashboard: /account/home now has six things
+// injecting into one container and several of them re-assert on a timer.
+// Anything new must anchor to the BOTTOM of that stack, never between two
+// elements another placer is keeping adjacent.
 //
 // ac-v10 CHANGE: STOP THE BLINK. One-word bug in ac-v9's keepOrder().
 // It compared card.previousSibling to the zip card. previousSibling
@@ -109,7 +134,7 @@
 //   sanitizeCriteria first or they are stripped on save.
 // ==================================================================
 
-const FN_VERSION = "ac-v10";
+const FN_VERSION = "ac-v11";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 
 const CHIPS = [
@@ -619,12 +644,10 @@ const JS = `
   // ------------------------------------------------------------------
   // Returns { parent, before } so we can mount AFTER the wizard rather
   // than seizing firstChild, which is the zip gate's slot.
-  // Priority order. The zip gate outranks everything: a member with no
-  // zip cannot be matched to anything, so that box stays on top.
+  // Anchor AFTER the wizard, always. Never between #rdc-zip and #rdc-wiz:
+  // zip3 keeps those two adjacent on a 400ms timer and will fight anything
+  // inserted between them.
   function mount() {
-    var zip = document.getElementById("rdc-zip");
-    if (zip && zip.parentNode) return { parent: zip.parentNode, before: zip.nextSibling, anchor: "zip" };
-
     var wiz = document.getElementById("rdc-wiz");
     if (wiz && wiz.parentNode) return { parent: wiz.parentNode, before: wiz.nextSibling, anchor: "wiz" };
 
@@ -643,42 +666,36 @@ const JS = `
   // is on the page, this card belongs directly after it. Re-parents only;
   // never re-renders, so typing is never interrupted.
   var moves = 0;
-  var MAX_MOVES = 20;
+  var MAX_MOVES = 8;
 
+  // Only ever moves the card DOWN, to just after the wizard, and only when
+  // it is currently above it. It never claims a slot between two elements
+  // another placer keeps adjacent, so nothing has anything to fight over.
+  //
+  // previousElementSibling, NOT previousSibling: the latter returns the
+  // whitespace text node between elements and never matches, which is what
+  // made ac-v9 re-insert on every tick.
   function keepOrder() {
     if (moves > MAX_MOVES) return;
 
     var card = document.getElementById("rdc-alerts");
     if (!card) return;
 
-    var zip = document.getElementById("rdc-zip");
-    if (zip && zip.parentNode) {
-      // previousElementSibling, NOT previousSibling: the latter returns the
-      // whitespace text node between the two cards and never matches, which
-      // is exactly what made ac-v9 re-insert on every tick and blink.
-      var inPlace = card.parentNode === zip.parentNode &&
-                    card.previousElementSibling === zip;
-      if (!inPlace) {
-        zip.parentNode.insertBefore(card, zip.nextSibling);
-        moves++;
-        if (state.anchor !== "zip") {
-          console.log("[Renters alerts] re-homed below the zip gate");
-          state.anchor = "zip";
-        }
-      }
-      return;
-    }
-
-    // No zip gate. Sit after the wizard if there is one, but only if we
-    // are currently ABOVE it. Anything lower is left alone.
     var wiz = document.getElementById("rdc-wiz");
     if (!wiz || !wiz.parentNode) return;
-    if (card.previousElementSibling === wiz) return;
 
+    // Already directly after the wizard: nothing to do. This is the common
+    // path and it must be a no-op, or we flicker.
+    if (card.parentNode === wiz.parentNode && card.previousElementSibling === wiz) return;
+
+    // Only act if the card is ABOVE the wizard. Below is fine; leave it.
     var p = card.compareDocumentPosition(wiz);
-    if (p & Node.DOCUMENT_POSITION_FOLLOWING) {
-      wiz.parentNode.insertBefore(card, wiz.nextSibling);
-      moves++;
+    if (!(p & Node.DOCUMENT_POSITION_FOLLOWING)) return;
+
+    wiz.parentNode.insertBefore(card, wiz.nextSibling);
+    moves++;
+    if (state.anchor !== "wiz") {
+      console.log("[Renters alerts] settled below the wizard");
       state.anchor = "wiz";
     }
   }
