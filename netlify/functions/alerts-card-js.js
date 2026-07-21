@@ -1,11 +1,28 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v8
+// alerts-card-js.js  —  ac-v9
 // Serves the "Daily listing alerts" dashboard card as JavaScript.
 // Head code (w99) carries only a 6-line loader; BD never stores this.
 //
 // Backend: alerts-prefs.js ap-v4. SHIP THEM TOGETHER. ac-v4 speaks the
 // { searches: [...] } shape; ap-v3 speaks a single criteria object.
 // Mixing versions loses the renter's saved search silently.
+//
+// ac-v9 CHANGE: ENFORCE ORDER CONTINUOUSLY, NOT ONCE.
+// ac-v8 picked its anchor at mount time and only re-homed when it
+// happened to notice the anchor had changed. That held until head code
+// w101 removed the Ezoic tags: five fewer script tags at the top of the
+// file meant everything below executed a beat earlier, this card won the
+// race against the zip gate's async status fetch, and the zip box ended
+// up BELOW the alerts card.
+//
+// The fix is the pattern zip3 already uses: it does not place itself
+// once, it re-asserts every 400ms because both wizards mount async.
+// This card now does the same. keepOrder() runs on an interval and, if
+// #rdc-zip exists and this card is not directly after it, moves the card
+// back. Cheap, and immune to whatever order things happen to load in.
+//
+// Deliberately does NOT re-render, only re-parents, so a half-filled
+// form is never yanked out from under someone mid-edit.
 //
 // ac-v8 CHANGE: SHOW BOTH, ZIP FIRST.
 // ac-v7 hid this card completely while the zip gate was up. Correct on
@@ -78,7 +95,7 @@
 //   sanitizeCriteria first or they are stripped on save.
 // ==================================================================
 
-const FN_VERSION = "ac-v8";
+const FN_VERSION = "ac-v9";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 
 const CHIPS = [
@@ -602,10 +619,41 @@ const JS = `
     return null;
   }
 
-  // The zip gate blocks the dashboard until a zip is saved. While it is
-  // up, we are not on screen.
+  // The zip gate blocks the dashboard until a zip is saved.
   function zipGateUp() {
     return !!document.getElementById("rdc-zip");
+  }
+
+  // ---- ORDER ENFORCER ----------------------------------------------
+  // Runs on an interval, same muscle as zip3's place(). If the zip gate
+  // is on the page, this card belongs directly after it. Re-parents only;
+  // never re-renders, so typing is never interrupted.
+  function keepOrder() {
+    var card = document.getElementById("rdc-alerts");
+    if (!card) return;
+
+    var zip = document.getElementById("rdc-zip");
+    if (zip && zip.parentNode) {
+      if (card.previousSibling !== zip || card.parentNode !== zip.parentNode) {
+        zip.parentNode.insertBefore(card, zip.nextSibling);
+        if (state.anchor !== "zip") {
+          console.log("[Renters alerts] re-homed below the zip gate");
+          state.anchor = "zip";
+        }
+      }
+      return;
+    }
+
+    // No zip gate. Sit after the wizard if there is one.
+    var wiz = document.getElementById("rdc-wiz");
+    if (wiz && wiz.parentNode && card.previousSibling !== wiz) {
+      // Only move if we are ABOVE the wizard; leave anything lower alone.
+      var p = card.compareDocumentPosition(wiz);
+      if (p & Node.DOCUMENT_POSITION_FOLLOWING) {
+        wiz.parentNode.insertBefore(card, wiz.nextSibling);
+        state.anchor = "wiz";
+      }
+    }
   }
 
   function removeCard() {
@@ -647,13 +695,9 @@ const JS = `
         // Not mounted yet.
         if (!here) { render(m); return; }
 
-        // Mounted, but the anchor changed under us: the zip gate appeared
-        // late, or it just cleared because the member saved their zip.
-        // Re-home so the order stays right without a reload.
-        if (state.anchor && m.anchor !== state.anchor && state.view === "list") {
-          console.log("[Renters alerts] anchor changed " + state.anchor + " -> " + m.anchor + ", re-homing");
-          render(m);
-        }
+        // Mounted. Keep it in the right place regardless of what loaded
+        // when. Re-parents only, so an in-progress edit survives.
+        keepOrder();
 
         if (tries > 300) clearInterval(t);
       }, 400);
