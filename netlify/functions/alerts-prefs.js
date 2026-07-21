@@ -1,6 +1,20 @@
 // ==================================================================
-// alerts-prefs.js  —  ap-v4
+// alerts-prefs.js  —  ap-v5
 // Daily listing alerts: read + write renter alert preferences in BD.
+//
+// ap-v5 CHANGE: DEMAND INDEX + ADMIN REPORT.
+// BD has no bulk read (GET /user/get is single-user; POST /user/search
+// needs a filter body this key cannot use), and scanning ~3,880 ids to
+// answer one question is what trips BD's rate limit. So every save
+// mirrors that member's searches into a Netlify Blob, and the admin
+// report reads the Blob. Same pattern visibility.js uses.
+//
+//   GET ?report=1&key=ADMIN[&limit=200]  - every member's searches,
+//        plus aggregate demand: rent ceilings, most-wanted chips,
+//        move-in spread, and the free-text notes verbatim.
+//
+// BACKFILL GAP: a member is only in the index once they save AFTER this
+// deploys. Same gap the visibility index has. Small right now.
 //
 // ap-v4 CHANGE: MULTIPLE SAVED SEARCHES.
 // ap-v3 stored one criteria object. This stores an array, so a renter
@@ -37,10 +51,12 @@
 // ==================================================================
 
 const https = require("https");
+const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "ap-v4";
+const FN_VERSION = "ap-v5";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const MAX_SEARCHES = 5;
+const DEMAND_STORE = "alert-demand";
 
 const CHIPS = [
   "move_in_special", "pets_dog", "pets_cat", "large_dog_ok",
@@ -263,6 +279,42 @@ function parseStored(rawStr, consentAt) {
 }
 
 // ------------------------------------------------------------------
+// DEMAND INDEX. getStore() does not throw on creation, only on read and
+// write, so siteID and token go in explicitly upfront.
+// ------------------------------------------------------------------
+function demandStore() {
+  return getStore({
+    name: DEMAND_STORE,
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_BLOBS_TOKEN
+  });
+}
+
+async function indexMember(memberId, enabled, searches) {
+  try {
+    const s = demandStore();
+    await s.setJSON("m:" + memberId, {
+      memberId: String(memberId),
+      enabled: !!enabled,
+      searchCount: searches.length,
+      searches: searches,
+      updated: new Date().toISOString()
+    });
+
+    let idx = null;
+    try { idx = await s.get("index", { type: "json" }); } catch (e) { idx = null; }
+    if (!Array.isArray(idx)) idx = [];
+    if (idx.indexOf(String(memberId)) === -1) {
+      idx.push(String(memberId));
+      await s.setJSON("index", idx);
+    }
+  } catch (e) {
+    // Indexing is bookkeeping. It must never fail a member's save.
+    console.log("[ap] demand index skipped: " + e.message);
+  }
+}
+
+// ------------------------------------------------------------------
 async function writeSearches(memberId, enabled, searches) {
   const payload = JSON.stringify({ v: 2, searches: searches });
   const fields = {
@@ -299,6 +351,8 @@ async function writeSearches(memberId, enabled, searches) {
     });
   }
 
+  if (landed) await indexMember(memberId, enabled, searches);
+
   return { landed, truncated, w, payloadLength: payload.length, gotLength: gotCriteria.length, member };
 }
 
@@ -326,6 +380,71 @@ exports.handler = async (event) => {
   }
 
   const id = String(q.memberId || "").replace(/[^0-9]/g, "");
+
+  // ---- admin demand report ----
+  if (q.report) {
+    const adminKey = process.env.ADMIN_PROBE_KEY || "";
+    if (!adminKey || String(q.key || "") !== adminKey) {
+      return json(403, { version: FN_VERSION, error: "bad key" });
+    }
+
+    const s = demandStore();
+    let idx = [];
+    try { idx = (await s.get("index", { type: "json" })) || []; } catch (e) { idx = []; }
+    if (!Array.isArray(idx)) idx = [];
+
+    const limit = Math.max(1, Math.min(500, Number(q.limit || 200)));
+    const members = [];
+    const chipCount = {};
+    const rents = [];
+    const moveIns = [];
+    const notes = [];
+    let totalSearches = 0;
+    let activeMembers = 0;
+
+    for (const mid of idx.slice(0, limit)) {
+      let rec = null;
+      try { rec = await s.get("m:" + mid, { type: "json" }); } catch (e) { rec = null; }
+      if (!rec) continue;
+
+      members.push(rec);
+      if (rec.enabled) activeMembers += 1;
+
+      for (const sr of rec.searches || []) {
+        totalSearches += 1;
+        const c = sr.criteria || {};
+        if (c.rent_max) rents.push(c.rent_max);
+        if (c.move_in_by) moveIns.push(c.move_in_by);
+        if (c.notes) notes.push({ memberId: rec.memberId, note: c.notes });
+        for (const k of c.wants || []) chipCount[k] = (chipCount[k] || 0) + 1;
+      }
+    }
+
+    rents.sort((a, b) => a - b);
+    const median = rents.length ? rents[Math.floor(rents.length / 2)] : null;
+
+    const topChips = Object.keys(chipCount)
+      .map((k) => ({ chip: k, count: chipCount[k] }))
+      .sort((a, b) => b.count - a.count);
+
+    return json(200, {
+      version: FN_VERSION,
+      indexedMembers: idx.length,
+      returned: members.length,
+      membersWithAlertsOn: activeMembers,
+      totalSearches: totalSearches,
+      rentCeiling: {
+        count: rents.length,
+        min: rents.length ? rents[0] : null,
+        median: median,
+        max: rents.length ? rents[rents.length - 1] : null
+      },
+      mostWanted: topChips,
+      moveInDates: moveIns.sort(),
+      freeTextNotes: notes,
+      members: members
+    });
+  }
 
   if (q.diag) {
     if (!id) return json(400, { version: FN_VERSION, error: "memberId required" });
