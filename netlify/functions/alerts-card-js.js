@@ -1,11 +1,25 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v9
+// alerts-card-js.js  —  ac-v10
 // Serves the "Daily listing alerts" dashboard card as JavaScript.
 // Head code (w99) carries only a 6-line loader; BD never stores this.
 //
 // Backend: alerts-prefs.js ap-v4. SHIP THEM TOGETHER. ac-v4 speaks the
 // { searches: [...] } shape; ap-v3 speaks a single criteria object.
 // Mixing versions loses the renter's saved search silently.
+//
+// ac-v10 CHANGE: STOP THE BLINK. One-word bug in ac-v9's keepOrder().
+// It compared card.previousSibling to the zip card. previousSibling
+// returns the WHITESPACE TEXT NODE sitting between the two elements, not
+// the zip card, so the "am I in the right place?" test failed on every
+// single tick and the card was torn out and re-inserted 2.5 times a
+// second. Correct order, visible flicker, and both cards appeared to
+// fight for the same slot.
+//
+// previousElementSibling skips text nodes and is what was meant.
+// Also added a move cap: if the card somehow needs re-homing more than
+// 20 times, something else is fighting us and we stop rather than
+// flicker forever. And the enforcer now runs at 700ms, off-phase from
+// zip3's 400ms placer, so the two are not interleaving on every tick.
 //
 // ac-v9 CHANGE: ENFORCE ORDER CONTINUOUSLY, NOT ONCE.
 // ac-v8 picked its anchor at mount time and only re-homed when it
@@ -95,7 +109,7 @@
 //   sanitizeCriteria first or they are stripped on save.
 // ==================================================================
 
-const FN_VERSION = "ac-v9";
+const FN_VERSION = "ac-v10";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 
 const CHIPS = [
@@ -628,14 +642,25 @@ const JS = `
   // Runs on an interval, same muscle as zip3's place(). If the zip gate
   // is on the page, this card belongs directly after it. Re-parents only;
   // never re-renders, so typing is never interrupted.
+  var moves = 0;
+  var MAX_MOVES = 20;
+
   function keepOrder() {
+    if (moves > MAX_MOVES) return;
+
     var card = document.getElementById("rdc-alerts");
     if (!card) return;
 
     var zip = document.getElementById("rdc-zip");
     if (zip && zip.parentNode) {
-      if (card.previousSibling !== zip || card.parentNode !== zip.parentNode) {
+      // previousElementSibling, NOT previousSibling: the latter returns the
+      // whitespace text node between the two cards and never matches, which
+      // is exactly what made ac-v9 re-insert on every tick and blink.
+      var inPlace = card.parentNode === zip.parentNode &&
+                    card.previousElementSibling === zip;
+      if (!inPlace) {
         zip.parentNode.insertBefore(card, zip.nextSibling);
+        moves++;
         if (state.anchor !== "zip") {
           console.log("[Renters alerts] re-homed below the zip gate");
           state.anchor = "zip";
@@ -644,15 +669,17 @@ const JS = `
       return;
     }
 
-    // No zip gate. Sit after the wizard if there is one.
+    // No zip gate. Sit after the wizard if there is one, but only if we
+    // are currently ABOVE it. Anything lower is left alone.
     var wiz = document.getElementById("rdc-wiz");
-    if (wiz && wiz.parentNode && card.previousSibling !== wiz) {
-      // Only move if we are ABOVE the wizard; leave anything lower alone.
-      var p = card.compareDocumentPosition(wiz);
-      if (p & Node.DOCUMENT_POSITION_FOLLOWING) {
-        wiz.parentNode.insertBefore(card, wiz.nextSibling);
-        state.anchor = "wiz";
-      }
+    if (!wiz || !wiz.parentNode) return;
+    if (card.previousElementSibling === wiz) return;
+
+    var p = card.compareDocumentPosition(wiz);
+    if (p & Node.DOCUMENT_POSITION_FOLLOWING) {
+      wiz.parentNode.insertBefore(card, wiz.nextSibling);
+      moves++;
+      state.anchor = "wiz";
     }
   }
 
@@ -700,7 +727,7 @@ const JS = `
         keepOrder();
 
         if (tries > 300) clearInterval(t);
-      }, 400);
+      }, 700);
     })
     .catch(function (e) {
       console.log("[Renters alerts] status read failed, standing down", e);
