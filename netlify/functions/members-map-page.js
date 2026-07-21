@@ -1,7 +1,7 @@
 // members-map-page.js
 // Renters.com — Live Members Map (Element T) — the public page.
 //
-// FN_VERSION: mmp-v1
+// FN_VERSION: mmp-v2
 //
 // Serves the whole Leaflet page as a Netlify function (same pattern as
 // find-renters-page.js / listing-check-page.js). Reads the nightly snapshot Blob
@@ -16,7 +16,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmp-v1";
+const FN_VERSION = "mmp-v2";
 const BLOB_STORE = "members-map";
 const KEY_SNAPSHOT = "snapshot";
 
@@ -146,9 +146,12 @@ function page(snapshot, compact) {
     ["Property mgrs", t.propertyManagers],
     ["Realtors", t.realtors]
   ];
+  // mmp-v2: the compact band used to stop after 3 boxes (Members / Renters /
+  // Landlords), which silently hid Property Managers and Realtors even though both
+  // were fully counted in the snapshot and shown in pin tooltips. All five member
+  // types now render in both compact and full views.
   var html = "";
   for (var i=0;i<stats.length;i++){
-    if (COMPACT && i>2) continue;
     html += '<div class="stat"><b>'+n(stats[i][1])+'</b><span>'+stats[i][0]+'</span></div>';
   }
   html += '<div class="stat new"><b>'+n(t.new7)+'</b><span>New this week</span></div>';
