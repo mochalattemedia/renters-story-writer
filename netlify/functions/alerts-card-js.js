@@ -1,11 +1,25 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v7
+// alerts-card-js.js  —  ac-v8
 // Serves the "Daily listing alerts" dashboard card as JavaScript.
 // Head code (w99) carries only a 6-line loader; BD never stores this.
 //
 // Backend: alerts-prefs.js ap-v4. SHIP THEM TOGETHER. ac-v4 speaks the
 // { searches: [...] } shape; ap-v3 speaks a single criteria object.
 // Mixing versions loses the renter's saved search silently.
+//
+// ac-v8 CHANGE: SHOW BOTH, ZIP FIRST.
+// ac-v7 hid this card completely while the zip gate was up. Correct on
+// ordering, too blunt on visibility: a member can perfectly well read
+// what alerts are while they are typing a zip, and hiding the card meant
+// the dashboard visibly changed shape under them a second later.
+//
+// Now the card ALWAYS renders, but it mounts in priority order:
+//   after #rdc-zip  (zip gate)   -> zip box stays on top
+//   else after #rdc-wiz (wizard)
+//   else appended to main
+// One thing kept from ac-v7: the card re-homes itself if the zip gate
+// appears or disappears after boot, so saving a zip does not leave the
+// two in the wrong order until a reload.
 //
 // ac-v7 CHANGE: STOP FIGHTING THE ZIP GATE FOR THE TOP SLOT.
 // The zip gate (head code zip3, element #rdc-zip) mounts with
@@ -64,7 +78,7 @@
 //   sanitizeCriteria first or they are stripped on save.
 // ==================================================================
 
-const FN_VERSION = "ac-v7";
+const FN_VERSION = "ac-v8";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 
 const CHIPS = [
@@ -131,7 +145,7 @@ const JS = `
   };
 
   // searches: [{id,name,created,updated,enabled,criteria}]
-  var state = { searches: [], enabled: false, view: "list", editIdx: -1, draft: null, savedAt: null, busy: false, areas: null, areasRead: false };
+  var state = { searches: [], enabled: false, view: "list", editIdx: -1, draft: null, savedAt: null, busy: false, areas: null, areasRead: false, anchor: "" };
 
   function money(n) {
     return "$" + String(n).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ",");
@@ -286,12 +300,6 @@ const JS = `
   function render(mp) {
     removeCard();
 
-    // Re-check on every render. The gate can appear after we boot.
-    if (zipGateUp()) {
-      console.log("[Renters alerts] zip gate is up, standing down");
-      return;
-    }
-
     var wrap = document.createElement("div");
     wrap.id = "rdc-alerts";
     wrap.style.cssText = S.card;
@@ -299,7 +307,9 @@ const JS = `
     if (state.view === "form") renderForm(wrap, mp);
     else renderList(wrap, mp);
 
-    // Mount AFTER the wizard. firstChild belongs to the zip gate.
+    // Mount after whichever anchor mount() picked. firstChild is never
+    // ours: that slot belongs to the zip gate.
+    state.anchor = mp.anchor;
     if (mp.before && mp.before.parentNode === mp.parent) {
       mp.parent.insertBefore(wrap, mp.before);
     } else {
@@ -578,11 +588,17 @@ const JS = `
   // ------------------------------------------------------------------
   // Returns { parent, before } so we can mount AFTER the wizard rather
   // than seizing firstChild, which is the zip gate's slot.
+  // Priority order. The zip gate outranks everything: a member with no
+  // zip cannot be matched to anything, so that box stays on top.
   function mount() {
+    var zip = document.getElementById("rdc-zip");
+    if (zip && zip.parentNode) return { parent: zip.parentNode, before: zip.nextSibling, anchor: "zip" };
+
     var wiz = document.getElementById("rdc-wiz");
-    if (wiz && wiz.parentNode) return { parent: wiz.parentNode, before: wiz.nextSibling };
+    if (wiz && wiz.parentNode) return { parent: wiz.parentNode, before: wiz.nextSibling, anchor: "wiz" };
+
     var main = document.querySelector(".page-content, .main-content, main");
-    if (main) return { parent: main, before: null };
+    if (main) return { parent: main, before: null, anchor: "main" };
     return null;
   }
 
@@ -623,17 +639,22 @@ const JS = `
       var tries = 0;
       var t = setInterval(function () {
         tries++;
+        var m = mount();
+        if (!m) { if (tries > 300) clearInterval(t); return; }
 
-        // Zip gate wins. Keep waiting, do not give up: the member may be
-        // typing their zip right now, and when the gate clears we appear.
-        if (zipGateUp()) {
-          removeCard();
-          if (tries > 300) clearInterval(t);  // ~2 min, then stop watching
-          return;
+        var here = document.getElementById("rdc-alerts");
+
+        // Not mounted yet.
+        if (!here) { render(m); return; }
+
+        // Mounted, but the anchor changed under us: the zip gate appeared
+        // late, or it just cleared because the member saved their zip.
+        // Re-home so the order stays right without a reload.
+        if (state.anchor && m.anchor !== state.anchor && state.view === "list") {
+          console.log("[Renters alerts] anchor changed " + state.anchor + " -> " + m.anchor + ", re-homing");
+          render(m);
         }
 
-        var m = mount();
-        if (m && !document.getElementById("rdc-alerts")) render(m);
         if (tries > 300) clearInterval(t);
       }, 400);
     })
