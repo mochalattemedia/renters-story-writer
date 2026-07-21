@@ -1,11 +1,29 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v5
+// alerts-card-js.js  —  ac-v6
 // Serves the "Daily listing alerts" dashboard card as JavaScript.
 // Head code (w99) carries only a 6-line loader; BD never stores this.
 //
 // Backend: alerts-prefs.js ap-v4. SHIP THEM TOGETHER. ac-v4 speaks the
 // { searches: [...] } shape; ap-v3 speaks a single criteria object.
 // Mixing versions loses the renter's saved search silently.
+//
+// ac-v6 CHANGE: SEARCH AREAS SHOWN, AND GATED.
+// The card never asks for location: it reuses the zones the renter drew
+// in Search Areas. But it never SHOWED them either, so a renter had no
+// way to know where their alert was looking, and a renter with no zones
+// had an alert that would silently match nationwide.
+//
+// HOW AREAS ARE READ, and why it is not the obvious way: head code za6
+// reads areas by scraping `table tr` rows containing "Postal Code" off
+// the /account/locations page. That table does not exist on
+// /account/home, which is why za6 logs "0 area(s)" on the dashboard for
+// EVERY member regardless of what they have saved. That number is not
+// evidence of anything. So this card fetches /account/locations
+// same-origin (the session cookie rides along) and parses the same rows.
+//
+// FAILS OPEN: if the fetch or the parse fails we show no gate and no
+// zone line, and the card behaves exactly as ac-v5. An unreadable areas
+// page must never block a renter from saving criteria.
 //
 // ac-v5 CHANGE: footer copy only. The old line carried two claims that
 // could go stale: "we add new homes every week" (a volume promise that
@@ -28,7 +46,7 @@
 //   sanitizeCriteria first or they are stripped on save.
 // ==================================================================
 
-const FN_VERSION = "ac-v5";
+const FN_VERSION = "ac-v6";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 
 const CHIPS = [
@@ -95,7 +113,7 @@ const JS = `
   };
 
   // searches: [{id,name,created,updated,enabled,criteria}]
-  var state = { searches: [], enabled: false, view: "list", editIdx: -1, draft: null, savedAt: null, busy: false };
+  var state = { searches: [], enabled: false, view: "list", editIdx: -1, draft: null, savedAt: null, busy: false, areas: null, areasRead: false };
 
   function money(n) {
     return "$" + String(n).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ",");
@@ -160,6 +178,93 @@ const JS = `
   }
 
   // ------------------------------------------------------------------
+  // AREAS. Fetch the locations page and parse the same rows za6 parses.
+  // Returns { zips: [], labels: [] } or null when it cannot be read.
+  // ------------------------------------------------------------------
+  function firstZip(txt) {
+    var s = String(txt || ""), run = "", i, ch;
+    for (i = 0; i < s.length; i++) {
+      ch = s.charAt(i);
+      if (ch >= "0" && ch <= "9") {
+        run += ch;
+        if (run.length === 5) {
+          var nxt = s.charAt(i + 1);
+          if (!(nxt >= "0" && nxt <= "9")) return run;
+        }
+      } else {
+        run = "";
+      }
+    }
+    return "";
+  }
+
+  function parseAreas(html) {
+    var doc;
+    try {
+      doc = new DOMParser().parseFromString(html, "text/html");
+    } catch (e) {
+      return null;
+    }
+    var rows = doc.querySelectorAll("table tr");
+    var seen = {}, zips = [], labels = [], seenLabel = {};
+    for (var i = 0; i < rows.length; i++) {
+      var txt = rows[i].textContent || "";
+      if (txt.indexOf("Postal Code") === -1) continue;
+      var z = firstZip(txt);
+      if (z && !seen[z]) { seen[z] = 1; zips.push(z); }
+
+      // za6 writes the renter's own zone wording into BD's address field,
+      // e.g. "Alberta Arts, Portland, OR 97211". Take the part before the
+      // first comma as the human label.
+      var cells = rows[i].querySelectorAll("td");
+      for (var j = 0; j < cells.length; j++) {
+        var ct = (cells[j].textContent || "").trim();
+        if (ct.indexOf(",") !== -1 && firstZip(ct)) {
+          var lab = ct.split(",")[0].trim();
+          if (lab && lab.length < 40 && !seenLabel[lab] && !firstZip(lab)) {
+            seenLabel[lab] = 1;
+            labels.push(lab);
+          }
+          break;
+        }
+      }
+    }
+    return { zips: zips, labels: labels };
+  }
+
+  function loadAreas() {
+    return fetch("/account/locations", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (html) {
+        if (!html) return null;
+        return parseAreas(html);
+      })
+      .catch(function (e) {
+        console.log("[Renters alerts] areas read failed, gate suppressed", e);
+        return null;
+      });
+  }
+
+  function areaLine() {
+    if (!state.areas) return "";
+    if (state.areas.labels && state.areas.labels.length) {
+      return state.areas.labels.slice(0, 6).join("  ·  ") +
+        (state.areas.labels.length > 6 ? "  and " + (state.areas.labels.length - 6) + " more" : "");
+    }
+    if (state.areas.zips && state.areas.zips.length) {
+      return state.areas.zips.slice(0, 8).join(", ") +
+        (state.areas.zips.length > 8 ? " and " + (state.areas.zips.length - 8) + " more" : "");
+    }
+    return "";
+  }
+
+  // Gate only when we SUCCESSFULLY read the page and found nothing.
+  // A failed read leaves areas null and shows no gate.
+  function noAreas() {
+    return state.areasRead && state.areas && state.areas.zips.length === 0;
+  }
+
+  // ------------------------------------------------------------------
   function render(mp) {
     var old = document.getElementById("rdc-alerts");
     if (old && old.parentNode) old.parentNode.removeChild(old);
@@ -183,6 +288,15 @@ const JS = `
       '<h3 style="' + S.h + '">Daily listing alerts</h3>' +
       '<p style="' + S.sub + '">We email you when a newly posted home matches. No matches, no email.</p>';
 
+    if (noAreas()) {
+      html +=
+        '<div style="background:#fff8e8;border:1px solid #f0e0bd;border-radius:11px;padding:14px 16px;margin:0 0 14px;">' +
+          '<p style="font-size:14px;color:#7a5c14;margin:0 0 8px;font-weight:600;">Add your search areas first</p>' +
+          '<p style="font-size:13px;color:#7a5c14;margin:0 0 10px;line-height:1.5;">Alerts match on the neighbourhoods you pick, so we need at least one before we can send you anything. You can still save what you are looking for below.</p>' +
+          '<a href="/account/locations" style="' + S.ghost + 'display:inline-block;text-decoration:none;">Choose my areas</a>' +
+        '</div>';
+    }
+
     if (!n) {
       html +=
         '<p style="' + S.itemLine + '">You have not set up an alert yet.</p>' +
@@ -198,6 +312,7 @@ const JS = `
             '<p style="margin:0 0 2px;"><span style="' + S.itemName + '">' + esc(s.name) + '</span> ' +
               '<span style="' + (s.enabled ? S.pillOn : S.pillOff) + '">' + (s.enabled ? "Running" : "Paused") + '</span></p>' +
             (summaryText(c) ? '<p style="' + S.itemLine + '">' + esc(summaryText(c)) + '</p>' : "") +
+            (areaLine() ? '<p style="' + S.itemMuted + '">Areas: ' + esc(areaLine()) + '</p>' : "") +
             (wantsTxt ? '<p style="' + S.itemMuted + '">Nice to have: ' + esc(wantsTxt) + '</p>' : "") +
             (breakTxt ? '<p style="' + S.itemMuted + '">Deal breakers: ' + esc(breakTxt) + '</p>' : "") +
             (c.notes ? '<p style="' + S.itemMuted + '">Notes: ' + esc(c.notes) + '</p>' : "") +
@@ -294,6 +409,9 @@ const JS = `
     wrap.innerHTML =
       '<h3 style="' + S.h + '">' + (isNew ? "New alert" : "Edit alert") + '</h3>' +
       '<p style="' + S.sub + '">Hard limits narrow the search. The chips and the note below are read against each listing description, so things buried in the text still match.</p>' +
+      (areaLine()
+        ? '<p style="' + S.itemMuted + 'margin:-8px 0 14px;">Searching in: ' + esc(areaLine()) + '  ·  <a href="/account/locations" style="color:#5b6b82;">change</a></p>'
+        : "") +
       '<div style="margin-bottom:14px;"><span style="' + S.lab + '">Name this alert</span>' +
         '<input id="ra-name" maxlength="40" placeholder="2BR near the light rail" value="' + esc(d.name) + '" style="' + S.inp + '"></div>' +
       '<div style="' + S.row + '">' +
@@ -437,6 +555,14 @@ const JS = `
     return main || null;
   }
 
+  loadAreas().then(function (a) {
+    state.areas = a;
+    state.areasRead = a !== null;
+    if (a) console.log("[Renters alerts] areas", { zips: a.zips.length, labels: a.labels });
+    boot();
+  });
+
+  function boot() {
   fetch(PREFS + "?status=1&memberId=" + id)
     .then(function (r) { return r.json(); })
     .then(function (d) {
@@ -463,6 +589,7 @@ const JS = `
     .catch(function (e) {
       console.log("[Renters alerts] status read failed, standing down", e);
     });
+  }
 })();
 `;
 
