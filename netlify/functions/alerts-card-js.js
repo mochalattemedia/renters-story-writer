@@ -1,11 +1,17 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v4
+// alerts-card-js.js  —  ac-v5
 // Serves the "Daily listing alerts" dashboard card as JavaScript.
 // Head code (w99) carries only a 6-line loader; BD never stores this.
 //
 // Backend: alerts-prefs.js ap-v4. SHIP THEM TOGETHER. ac-v4 speaks the
 // { searches: [...] } shape; ap-v3 speaks a single criteria object.
 // Mixing versions loses the renter's saved search silently.
+//
+// ac-v5 CHANGE: footer copy only. The old line carried two claims that
+// could go stale: "we add new homes every week" (a volume promise that
+// is not reliably true at current inventory) and "homes on Renters.com"
+// (a scope lock that breaks the moment landlord-submitted external links
+// ship). Both removed. No logic touched.
 //
 // ac-v4 CHANGE: MULTIPLE SAVED SEARCHES.
 //   - Landing view is a LIST of saved searches, each showing what it
@@ -22,7 +28,7 @@
 //   sanitizeCriteria first or they are stripped on save.
 // ==================================================================
 
-const FN_VERSION = "ac-v4";
+const FN_VERSION = "ac-v5";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 
 const CHIPS = [
@@ -218,7 +224,7 @@ const JS = `
 
     html +=
       '<div id="ra-note" style="' + S.note + '"></div>' +
-      '<p style="font-size:12px;color:#7a8ba1;margin:14px 0 0;">Alerts cover verified homes on Renters.com. We add new homes every week, so tell us what you want now and you will hear the moment it lands. Turn alerts off any time, here or from any email.</p>';
+      '<p style="font-size:12px;color:#7a8ba1;margin:14px 0 0;">Tell us what you want and you will hear the moment it lands. Turn alerts off any time, here or from any email.</p>';
 
     wrap.innerHTML = html;
   }
