@@ -1,11 +1,29 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v6
+// alerts-card-js.js  —  ac-v7
 // Serves the "Daily listing alerts" dashboard card as JavaScript.
 // Head code (w99) carries only a 6-line loader; BD never stores this.
 //
 // Backend: alerts-prefs.js ap-v4. SHIP THEM TOGETHER. ac-v4 speaks the
 // { searches: [...] } shape; ap-v3 speaks a single criteria object.
 // Mixing versions loses the renter's saved search silently.
+//
+// ac-v7 CHANGE: STOP FIGHTING THE ZIP GATE FOR THE TOP SLOT.
+// The zip gate (head code zip3, element #rdc-zip) mounts with
+// insertBefore(..., parent.firstChild). So did this card. Both grabbed
+// the same slot and whichever rendered last sat on top, so a member
+// without a zip saw the zip gate flash and then get buried under the
+// alerts card. Reported as "the listing search overwrote zip capture" —
+// nothing was overwritten, they were racing for firstChild.
+//
+// TWO FIXES:
+//   1. If #rdc-zip is on the page, this card DOES NOT RENDER AT ALL and
+//      keeps watching. The zip gate is a blocking gate: a member with no
+//      zip cannot be matched to anything anyway, so an alerts card above
+//      it is noise at best and a distraction from the one thing we need
+//      from them at worst. When the gate goes away (zip saved), the card
+//      appears on its own.
+//   2. This card no longer takes firstChild. It mounts AFTER #rdc-wiz.
+//      Nothing else on the dashboard has to move for it.
 //
 // ac-v6 CHANGE: SEARCH AREAS SHOWN, AND GATED.
 // The card never asks for location: it reuses the zones the renter drew
@@ -46,7 +64,7 @@
 //   sanitizeCriteria first or they are stripped on save.
 // ==================================================================
 
-const FN_VERSION = "ac-v6";
+const FN_VERSION = "ac-v7";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 
 const CHIPS = [
@@ -266,8 +284,13 @@ const JS = `
 
   // ------------------------------------------------------------------
   function render(mp) {
-    var old = document.getElementById("rdc-alerts");
-    if (old && old.parentNode) old.parentNode.removeChild(old);
+    removeCard();
+
+    // Re-check on every render. The gate can appear after we boot.
+    if (zipGateUp()) {
+      console.log("[Renters alerts] zip gate is up, standing down");
+      return;
+    }
 
     var wrap = document.createElement("div");
     wrap.id = "rdc-alerts";
@@ -276,7 +299,12 @@ const JS = `
     if (state.view === "form") renderForm(wrap, mp);
     else renderList(wrap, mp);
 
-    mp.insertBefore(wrap, mp.firstChild);
+    // Mount AFTER the wizard. firstChild belongs to the zip gate.
+    if (mp.before && mp.before.parentNode === mp.parent) {
+      mp.parent.insertBefore(wrap, mp.before);
+    } else {
+      mp.parent.appendChild(wrap);
+    }
     if (state.view === "form") wireForm(mp);
     else wireList(mp);
   }
@@ -548,11 +576,25 @@ const JS = `
   }
 
   // ------------------------------------------------------------------
+  // Returns { parent, before } so we can mount AFTER the wizard rather
+  // than seizing firstChild, which is the zip gate's slot.
   function mount() {
     var wiz = document.getElementById("rdc-wiz");
-    if (wiz && wiz.parentNode) return wiz.parentNode;
+    if (wiz && wiz.parentNode) return { parent: wiz.parentNode, before: wiz.nextSibling };
     var main = document.querySelector(".page-content, .main-content, main");
-    return main || null;
+    if (main) return { parent: main, before: null };
+    return null;
+  }
+
+  // The zip gate blocks the dashboard until a zip is saved. While it is
+  // up, we are not on screen.
+  function zipGateUp() {
+    return !!document.getElementById("rdc-zip");
+  }
+
+  function removeCard() {
+    var el = document.getElementById("rdc-alerts");
+    if (el && el.parentNode) el.parentNode.removeChild(el);
   }
 
   loadAreas().then(function (a) {
@@ -581,9 +623,18 @@ const JS = `
       var tries = 0;
       var t = setInterval(function () {
         tries++;
+
+        // Zip gate wins. Keep waiting, do not give up: the member may be
+        // typing their zip right now, and when the gate clears we appear.
+        if (zipGateUp()) {
+          removeCard();
+          if (tries > 300) clearInterval(t);  // ~2 min, then stop watching
+          return;
+        }
+
         var m = mount();
-        if (m && !document.getElementById("rdc-alerts")) { render(m); clearInterval(t); }
-        if (tries > 40) clearInterval(t);
+        if (m && !document.getElementById("rdc-alerts")) render(m);
+        if (tries > 300) clearInterval(t);
       }, 400);
     })
     .catch(function (e) {
