@@ -1,11 +1,28 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v11
+// alerts-card-js.js  —  ac-v12
 // Serves the "Daily listing alerts" dashboard card as JavaScript.
 // Head code (w99) carries only a 6-line loader; BD never stores this.
 //
 // Backend: alerts-prefs.js ap-v4. SHIP THEM TOGETHER. ac-v4 speaks the
 // { searches: [...] } shape; ap-v3 speaks a single criteria object.
 // Mixing versions loses the renter's saved search silently.
+//
+// ac-v12 CHANGE: RENTERS ONLY. The card was rendering for every member
+// with an id, so property managers (and landlords, realtors) saw a
+// renter's "Daily listing alerts" card on their dashboard. This feature
+// is renter-side only.
+//
+// Detection is lifted VERBATIM from rw4's isRenterAccount() in head code
+// so there is exactly one definition of "is this a renter" on the
+// dashboard: read .member-level-name, fall back to parsing "Plan:" out
+// of the body text, lowercase, look for "renter". If it is not a renter,
+// the card never mounts and the status fetch never fires.
+//
+// FAILS SAFE THE RIGHT WAY: if the level cannot be read at all (empty
+// string), we DO NOT render. A renter-only feature that cannot confirm
+// the audience should stay hidden, not leak onto a PM dashboard. The
+// wizard can afford to assume non-renter and proceed; this card cannot,
+// so its default is the opposite.
 //
 // ac-v11 CHANGE: STOP THE BLINK FOR REAL. ac-v10 fixed the text-node bug
 // but the blink continued, because this was never a one-sided problem.
@@ -134,7 +151,7 @@
 //   sanitizeCriteria first or they are stripped on save.
 // ==================================================================
 
-const FN_VERSION = "ac-v11";
+const FN_VERSION = "ac-v12";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 
 const CHIPS = [
@@ -175,6 +192,55 @@ const JS = `
 
   var id = memberId();
   if (!id) { console.log("[Renters alerts] no member id, standing down"); return; }
+
+  // ---- RENTERS ONLY -------------------------------------------------
+  // Verbatim from rw4 isRenterAccount(). One definition of "renter" on
+  // this dashboard, and it lives in head code; this mirrors it.
+  function readAccountType() {
+    try {
+      var el = document.querySelector(".member-level-name");
+      if (el && el.textContent.trim()) return el.textContent.trim();
+    } catch (e) {}
+    try {
+      var txt = document.body.innerText || "";
+      var i = txt.indexOf("Plan:");
+      if (i !== -1) {
+        var after = txt.slice(i + 5, i + 40);
+        var line = after.split(String.fromCharCode(10))[0].trim();
+        if (line) return line;
+      }
+    } catch (e) {}
+    return "";
+  }
+
+  function isRenter() {
+    return readAccountType().toLowerCase().indexOf("renter") !== -1;
+  }
+
+  // The account level is written into the DOM by BD server-side, so it is
+  // present on first paint. But guard against a late render anyway: if we
+  // cannot confirm renter yet, wait briefly before giving up, and NEVER
+  // render for a confirmed non-renter.
+  (function gate() {
+    if (isRenter()) { start(); return; }
+    var t = 0;
+    var iv = setInterval(function () {
+      t++;
+      if (isRenter()) { clearInterval(iv); start(); return; }
+      // If a level IS present and it is not a renter, stop for good.
+      if (readAccountType() && !isRenter()) {
+        clearInterval(iv);
+        console.log("[Renters alerts] not a renter account, standing down");
+        return;
+      }
+      if (t > 12) {  // ~5s: level never appeared. Stay hidden, fail safe.
+        clearInterval(iv);
+        console.log("[Renters alerts] account level unreadable, standing down");
+      }
+    }, 400);
+  })();
+
+  function start() {
 
   var S = {
     card: "background:#fff;border:1px solid #e3e8ef;border-radius:14px;padding:20px 20px 76px;margin:16px 0;font-family:inherit;",
@@ -750,6 +816,7 @@ const JS = `
       console.log("[Renters alerts] status read failed, standing down", e);
     });
   }
+  } // end start()
 })();
 `;
 
