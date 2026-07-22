@@ -1,5 +1,5 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v13  (2026-06-26, DELETE-method fix)
+//  landlord-optin.js   ·   VERSION: v17  (2026-07-22, +?raw=1 profile-field probe)
 //  POST  { memberId, opt:"match"|"out", isChange?, timestamp? }  -> write tag + email Kenny
 //  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted }  (wizard reads on load)
 //  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (multi-method delete)
@@ -38,7 +38,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v16";
+const FUNCTION_VERSION = "v17";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -247,6 +247,26 @@ exports.handler = async function (event) {
   //     Returns { choice: "in"|"out"|null, verifiedSubmitted: bool, verified: bool }
   if (event.httpMethod === "GET") {
     const q = event.queryStringParameters || {};
+    // TEMP PROBE: ?raw=1&memberId=ID returns the member object's KEYS + a few
+    // candidate profile fields, so we can confirm the real About-Me and photo
+    // field names before trusting them (a wrong field name silently reads empty).
+    if (q.raw === "1" && q.memberId) {
+      const m = await getMember(q.memberId);
+      const keys = m ? Object.keys(m) : [];
+      const peek = {};
+      keys.forEach((k) => {
+        if (/about|story|bio|photo|image|avatar|picture|display|profile|desc/i.test(k)) {
+          const v = m[k];
+          peek[k] = (typeof v === "string") ? (v.length > 60 ? v.slice(0, 60) + "..." : v) : v;
+        }
+      });
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ version: FUNCTION_VERSION, memberId: q.memberId, allKeys: keys, profileFields: peek }, null, 2),
+      };
+    }
+
     if (q.status === "1" && q.memberId) {
       const member = await getMember(q.memberId);
       let choice = null;
