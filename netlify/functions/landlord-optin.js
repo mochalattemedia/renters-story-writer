@@ -1,5 +1,5 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v17  (2026-07-22, +?raw=1 profile-field probe)
+//  landlord-optin.js   ·   VERSION: v18  (2026-07-22, +profileComplete in ?status=1; intro accepts about_me OR my_story so an account-type switch does not un-complete a profile)
 //  POST  { memberId, opt:"match"|"out", isChange?, timestamp? }  -> write tag + email Kenny
 //  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted }  (wizard reads on load)
 //  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (multi-method delete)
@@ -38,7 +38,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v17";
+const FUNCTION_VERSION = "v18";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -309,6 +309,27 @@ exports.handler = async function (event) {
       }
       let submitted = null;
       try { submitted = await hasSubmittedVerification(q.memberId); } catch (e) { /* unknown */ }
+
+      // --- Profile completeness (survives an account-type switch) ---------------
+      // The whole point: a member who completed their profile as one type must NOT
+      // read as "incomplete" after switching type just because the new type stores
+      // its intro in a different field. So "has an intro" accepts EITHER the
+      // landlord About Me OR the renter My Story (or the About Me variant / rent
+      // description). Photo is per-member and already survives a switch.
+      function nonEmpty(v) {
+        if (v == null) return false;
+        var t = String(v).replace(/<[^>]*>/g, "").replace(/&[a-z#0-9]+;/gi, "").trim();
+        return t.length > 0;
+      }
+      let hasIntro = false, hasPhoto = false;
+      if (member) {
+        hasIntro = nonEmpty(member.about_me) || nonEmpty(member.my_story) ||
+                   nonEmpty(member.about_me_1) || nonEmpty(member.describe_your_rent);
+        hasPhoto = nonEmpty(member.image_main_file) ||
+                   (Array.isArray(member.photos_schema) && member.photos_schema.length > 0);
+      }
+      const profileComplete = hasIntro && hasPhoto;
+
       return {
         statusCode: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -318,7 +339,10 @@ exports.handler = async function (event) {
           choice,                      // "in" | "out" | null  (landlord)
           renterTier,                  // "connect" | "match" | "concierge" | null  (renter)
           verified,                    // true once you approve them
-          verifiedSubmitted: submitted // true once they submit the verify form
+          verifiedSubmitted: submitted,// true once they submit the verify form
+          profileComplete,             // NEW: intro (about_me OR my_story) AND a photo
+          hasIntro,                    // NEW: for the gate to message precisely
+          hasPhoto                     // NEW
         }),
       };
     }
