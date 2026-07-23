@@ -1,5 +1,6 @@
+// lw-v4   <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
-// RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js  ·  lw-v1
+// RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
 // Serves the guided listing wizard that runs alongside BD's form on
 // /account/properties/add.
@@ -23,6 +24,21 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v4  2026-07-22  VERSION MOVED TO LINE 1. No behaviour change. The
+//                      stamp sat on line 2 under a divider, so confirming
+//                      the right file was being pasted meant reading past
+//                      the banner. It is now the first characters of the
+//                      first line. KEEP IT THERE. Three live markers to
+//                      bump: line 1, and both LW_VERSION constants.
+//   lw-v3  2026-07-22  VERSION-STAMP FIX, no behaviour change. lw-v2 bumped
+//                      both LW_VERSION constants but left the header line at
+//                      the top of this file reading lw-v1, so the file said
+//                      one thing and the console said another. Exactly the
+//                      drift this project has hit four times in head code.
+//                      WHEN BUMPING THIS FILE, GREP FOR lw-v AND CHANGE
+//                      EVERY LIVE INSTANCE: the header line above and both
+//                      LW_VERSION constants. Changelog entries below stay
+//                      historical and must NOT be rewritten.
 //   lw-v2  2026-07-22  PATH SCOPE FIX. lw-v1 scoped to /account/properties/add
 //                      because the capture spec named that as the page the form
 //                      posts FROM. The form actually renders at
@@ -39,12 +55,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v2";
+const LW_VERSION = "lw-v4";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v2";
+  var LW_VERSION = "lw-v4";
   var DEBUG = false;
 
   // PATH SCOPE - deliberately broad, then gated by the form itself.
