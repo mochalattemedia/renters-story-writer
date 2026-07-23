@@ -1,4 +1,4 @@
-// lw-v16  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v18  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,40 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v18 2026-07-22  GROUNDWORK FOR OPTION C. Two additions.
+//                      1. NETWORK RECORDER. Wraps XMLHttpRequest and fetch
+//                         read-only across /account/properties and shows
+//                         what the page sent in a copyable panel. On Manage
+//                         Photos that means the upload call captures itself
+//                         when a photo is uploaded normally. Nobody has to
+//                         drive the Network tab, which is the same lesson as
+//                         the console in v13. Analytics hosts filtered out.
+//                         It never blocks, alters or swallows a request.
+//                      2. IN-PAGE SAVE, OPT-IN, NOT THE DEFAULT. A quiet
+//                         link under the green button posts BD's own form
+//                         with fetch and reports status, final url, redirect
+//                         flag and body. That answers how BD returns the new
+//                         listing id, which Option C needs and which the
+//                         POST capture could not show.
+//                         The body is new FormData(FORM), serialising the
+//                         REAL form as BD would: CSRF token, both money
+//                         twins, the hidden property_price. Hand-building
+//                         that body is the failure mode this avoids.
+//                         IT DOES NOT FALL BACK ON FAILURE. A fetch that
+//                         throws may still have reached the server, so a
+//                         second submit could create a duplicate listing.
+//                         It reports and stops; the green button remains.
+//   lw-v17 2026-07-22  DESCRIPTION STEP LABELS. Two invented strings
+//                      replaced. 'Screening and terms note' was mine; BD
+//                      labels that field 'Application process and lease
+//                      terms', which is clearer and keeps the wizard and the
+//                      raw form saying the same thing. 'Publishes exactly as
+//                      you write it' was accurate but read as a warning; the
+//                      useful fact is WHERE the text goes, so it now reads
+//                      'Shown on the public listing'.
+//                      GENERAL: prefer BD's own field labels over invented
+//                      ones unless BD's is actively wrong. A member who
+//                      switches to the raw form should recognise the field.
 //   lw-v16 2026-07-22  PHOTOS SIGNPOSTED AT THE SAVE POINT. Reported live:
 //                      'dont see a spot for photos'. There is no photo
 //                      upload on this form and there never was; BD's own
@@ -263,12 +297,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v16";
+const LW_VERSION = "lw-v18";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v16";
+  var LW_VERSION = "lw-v18";
   var DEBUG = false;
 
   // =============================================================
@@ -302,11 +336,107 @@ const WIZARD = String.raw`(function () {
   if (window.__rdcLwMounted) return;
   window.__rdcLwMounted = true;
 
+  // =============================================================
+  // NETWORK RECORDER - captures the photo-upload call automatically.
+  // Installed on every /account/properties page BEFORE anything else runs.
+  // The member uploads one photo normally; this records what BD sent, so
+  // nobody has to drive the Network tab. Reads only. Never blocks, never
+  // alters a request, and passes every failure straight through.
+  // =============================================================
+  var NETLOG = [];
+  var NET_SKIP = ["google", "gstatic", "doubleclick", "analytics", "facebook",
+                  "hotjar", "segment", "sentry", "netlify", "cloudflare", "adservice"];
+
+  function netInteresting(url) {
+    var u = String(url || "").toLowerCase();
+    if (!u) return false;
+    for (var i = 0; i < NET_SKIP.length; i++) if (u.indexOf(NET_SKIP[i]) !== -1) return false;
+    return true;
+  }
+
+  function describeBody(body) {
+    try {
+      if (!body) return "(empty)";
+      if (typeof body === "string") return "string, " + body.length + " chars: " + body.slice(0, 400);
+      if (window.FormData && body instanceof window.FormData) {
+        var parts = [];
+        try {
+          body.forEach(function (v, k) {
+            if (v && v.name !== undefined && v.size !== undefined) {
+              parts.push(k + " = [FILE name=" + v.name + " type=" + (v.type || "?") + " bytes=" + v.size + "]");
+            } else {
+              parts.push(k + " = " + String(v).slice(0, 120));
+            }
+          });
+        } catch (e) { parts.push("(FormData not enumerable here)"); }
+        return "FormData with " + parts.length + " entries:" + String.fromCharCode(10) + "    " +
+               parts.join(String.fromCharCode(10) + "    ");
+      }
+      if (window.Blob && body instanceof window.Blob) return "Blob type=" + body.type + " bytes=" + body.size;
+      if (window.ArrayBuffer && body instanceof window.ArrayBuffer) return "ArrayBuffer bytes=" + body.byteLength;
+      return "object: " + Object.prototype.toString.call(body);
+    } catch (e) { return "(body unreadable: " + e + ")"; }
+  }
+
+  function netRecord(kind, method, url, body, extra) {
+    if (!netInteresting(url)) return;
+    NETLOG.push({
+      when: new Date().toISOString().slice(11, 19),
+      kind: kind, method: (method || "GET").toUpperCase(),
+      url: String(url), body: describeBody(body), extra: extra || ""
+    });
+    if (NETLOG.length > 40) NETLOG.shift();
+    try { paintNetPanel(); } catch (e) {}
+  }
+
+  function installRecorder() {
+    if (window.__rdcLwNet) return;
+    window.__rdcLwNet = true;
+    try {
+      var X = window.XMLHttpRequest;
+      if (X && X.prototype) {
+        var oOpen = X.prototype.open, oSend = X.prototype.send;
+        X.prototype.open = function (m, u) {
+          try { this.__lwM = m; this.__lwU = u; } catch (e) {}
+          return oOpen.apply(this, arguments);
+        };
+        X.prototype.send = function (b) {
+          try {
+            var self = this;
+            netRecord("XHR", self.__lwM, self.__lwU, b);
+            self.addEventListener("load", function () {
+              try {
+                netRecord("XHR-RESPONSE", self.__lwM, self.__lwU, null,
+                  "status=" + self.status + " bodyLen=" + ((self.responseText || "").length) +
+                  " body=" + (self.responseText || "").slice(0, 300));
+              } catch (e) {}
+            });
+          } catch (e) {}
+          return oSend.apply(this, arguments);
+        };
+      }
+    } catch (e) {}
+    try {
+      var oFetch = window.fetch;
+      if (oFetch) {
+        window.fetch = function (input, init) {
+          try {
+            var u = (typeof input === "string") ? input : (input && input.url);
+            var m = (init && init.method) || (input && input.method) || "GET";
+            netRecord("FETCH", m, u, init && init.body);
+          } catch (e) {}
+          return oFetch.apply(this, arguments);
+        };
+      }
+    } catch (e) {}
+  }
+
   function log() {
     if (!DEBUG) return;
     try { console.log.apply(console, ["[Listing wizard]"].concat([].slice.call(arguments))); } catch (e) {}
   }
   try { console.log("[Listing wizard] version:", LW_VERSION); } catch (e) {}
+  installRecorder();
 
   // ---------------------------------------------------------------
   // AUDIENCE GATE - numeric plan level (Bible: body class, first paint)
@@ -883,8 +1013,8 @@ const WIZARD = String.raw`(function () {
       title: "Describe the place",
       sub: "Renters skim for specifics, so lead with them: parking, laundry, pets, storage, what is within walking distance. Plain sentences do more work than a list of adjectives.",
       fields: [
-        { key: "desc", label: "Description", kind: "textarea", required: true, hint: "Publishes exactly as you write it" },
-        { key: "terms", label: "Screening and terms note", kind: "textarea", required: false, hint: "Application process, pet policy, anything a renter should know before applying" }
+        { key: "desc", label: "Description", kind: "textarea", required: true, hint: "Shown on the public listing" },
+        { key: "terms", label: "Application process and lease terms", kind: "textarea", required: false, hint: "How to apply, pet policy, anything worth knowing before they ask" }
       ]
     },
     {
@@ -1058,6 +1188,9 @@ const WIZARD = String.raw`(function () {
       h += "<div class='lw-note'>Going live publishes this to renters immediately. Save as a draft instead if the " +
            "photos are not ready, then publish from the listing page once they are up.</div>";
       h += "<button type='button' class='lw-btn lw-go' data-act='golive'>Save and go live</button>";
+      h += "<div id='lw-savelog'></div>";
+      h += "<div class='lw-esc' style='margin-top:14px'>" +
+           "<a data-act='golive-inpage'>Save without leaving this page (test)</a></div>";
       h += "<div class='lw-row'><button type='button' class='lw-btn lw-ghost' data-act='back'>Back</button>" +
            "<button type='button' class='lw-btn lw-ghost' data-act='draft'>Save as draft</button></div>";
     }
@@ -1358,6 +1491,69 @@ const WIZARD = String.raw`(function () {
     n.className = "";
   }
 
+  // OPT-IN, NOT THE DEFAULT PATH. Posts BD's own form with fetch so the page
+  // does not navigate. The body is new FormData(FORM), which serialises the
+  // real form exactly as BD would: CSRF token, both money twins, the hidden
+  // property_price BD syncs, everything, in BD's order. Hand-building that
+  // body is the mistake this avoids.
+  //
+  // It DELIBERATELY DOES NOT FALL BACK to clicking Save on failure. A fetch
+  // that throws may still have reached the server, and a second submit would
+  // create a duplicate listing. On any problem it reports and stops, and the
+  // green button is still there.
+  var savingInPage = false;
+
+  function submitInPage(goLive) {
+    if (savingInPage) return;
+    var out = document.getElementById("lw-savelog");
+    function say(html, cls) {
+      if (out) out.innerHTML = "<div class='" + (cls || "lw-note") + "' style='margin-top:14px'>" + html + "</div>";
+    }
+    if (!FORM || !window.FormData || !window.fetch) {
+      say("This browser cannot do the in-page save. Use the green button above.", "lw-warn");
+      return;
+    }
+    if (exists(F.golive)) {
+      setField(F.golive, goLive ? "1" : "0");
+      if (goLive && String(getField(F.golive)) !== "1") {
+        say("The go-live setting did not take. Use the green button above.", "lw-warn");
+        return;
+      }
+    }
+    savingInPage = true;
+    say("Saving...");
+    var action = FORM.getAttribute("action") || window.location.pathname;
+    var fd;
+    try { fd = new window.FormData(FORM); }
+    catch (e) { savingInPage = false; say("Could not read the form: " + esc(String(e)), "lw-warn"); return; }
+
+    var started = new Date().getTime();
+    window.fetch(action, { method: "POST", body: fd, credentials: "same-origin", redirect: "follow" })
+      .then(function (r) {
+        return r.text().then(function (txt) {
+          var ms = new Date().getTime() - started;
+          var rep = ["status: " + r.status + " " + r.statusText,
+                     "final url: " + (r.url || "(none)"),
+                     "redirected: " + (r.redirected === true),
+                     "body length: " + txt.length,
+                     "took: " + ms + "ms",
+                     "body starts: " + txt.slice(0, 300)].join(String.fromCharCode(10));
+          say("<strong>Saved without leaving the page.</strong> Report below, copy it to Claude." +
+              "<textarea readonly style='width:100%;height:120px;margin-top:9px;font-family:monospace;font-size:11px;" +
+              "border:1px solid #ccd4de;border-radius:6px;padding:8px'>" + esc(rep) + "</textarea>" +
+              "<p style='font-size:12.5px;color:#5b6b7d;margin:8px 0 0'>Check your listings before saving again, " +
+              "so this cannot create a second copy.</p>");
+          savingInPage = false;
+        });
+      })
+      .catch(function (e) {
+        say("<strong>The in-page save failed:</strong> " + esc(String(e)) +
+            "<p style='font-size:12.5px;margin:8px 0 0'>It may still have reached the server, so check your " +
+            "listings before pressing the green button, or you could end up with two.</p>", "lw-warn");
+        savingInPage = false;
+      });
+  }
+
   function showNative(force) {
     if (force) setFormMode("full");
   }
@@ -1452,6 +1648,7 @@ const WIZARD = String.raw`(function () {
       }
       else if (act === "back") showStep(Math.max(stepIndex - 1, 0));
       else if (act === "golive") submitForm(true);
+      else if (act === "golive-inpage") submitInPage(true);
       else if (act === "draft") submitForm(false);
       else if (act === "shownative") setFormMode("full");
       else if (act === "togglenative") setFormMode("full");
@@ -1523,6 +1720,74 @@ const WIZARD = String.raw`(function () {
       }
     };
     document.getElementById("lw-rhide").onclick = function () { box.style.display = "none"; };
+  }
+
+  // Panel that surfaces whatever the recorder caught. Appears on any
+  // /account/properties page as soon as a non-analytics request is seen,
+  // which on the Manage Photos page means the upload call itself.
+  function netReport() {
+    var L = ["=== RENTERS NETWORK CAPTURE  " + LW_VERSION + " ===",
+             "page: " + window.location.pathname, "calls: " + NETLOG.length, ""];
+    for (var i = 0; i < NETLOG.length; i++) {
+      var r = NETLOG[i];
+      L.push("[" + (i + 1) + "] " + r.when + "  " + r.kind + "  " + r.method + "  " + r.url);
+      if (r.body) L.push("    body: " + r.body);
+      if (r.extra) L.push("    " + r.extra);
+      L.push("");
+    }
+    L.push("=== END CAPTURE ===");
+    return L.join(String.fromCharCode(10));
+  }
+  window.rdcLwNetDump = netReport;
+
+  function paintNetPanel() {
+    if (MOUNT_UI && document.getElementById("lw-wrap")) return;
+    if (!NETLOG.length) return;
+    var panel = document.getElementById("lw-netpanel");
+    if (!panel) {
+      var st = document.createElement("style");
+      st.appendChild(document.createTextNode([
+        "#lw-netpanel{position:fixed;right:16px;bottom:16px;width:420px;max-width:92vw;z-index:99999;",
+        "background:#fff;border:1px solid #dbe2ea;border-radius:10px;box-shadow:0 6px 24px rgba(13,45,78,.18);",
+        "padding:14px 16px;font-family:inherit}",
+        "#lw-netpanel h4{margin:0 0 4px;font-size:14px;color:#0d2d4e;font-weight:600}",
+        "#lw-netpanel p{margin:0 0 9px;font-size:12px;color:#5b6b7d;line-height:1.45}",
+        "#lw-netpanel textarea{width:100%;height:120px;font-family:monospace;font-size:10.5px;line-height:1.4;",
+        "border:1px solid #ccd4de;border-radius:6px;padding:8px;color:#25333f}",
+        "#lw-netpanel .r{display:flex;gap:7px;align-items:center;margin-top:8px}",
+        "#lw-netpanel button{border:0;border-radius:6px;padding:8px 15px;font-size:12.5px;font-weight:600;",
+        "cursor:pointer;font-family:inherit;background:#0d2d4e;color:#fff}",
+        "#lw-netpanel button.g{background:#fff;color:#0d2d4e;border:1px solid #ccd4de}",
+        "#lw-netpanel .m{font-size:12px;color:#1e8449;font-weight:600}"
+      ].join("")));
+      document.head.appendChild(st);
+
+      panel = document.createElement("div");
+      panel.id = "lw-netpanel";
+      panel.innerHTML = "<h4>Network capture</h4>" +
+        "<p>Recording what this page sends. Upload one photo, then press Copy and paste it to Claude.</p>" +
+        "<textarea id='lw-nettext' readonly></textarea>" +
+        "<div class='r'><button type='button' id='lw-netcopy'>Copy</button>" +
+        "<button type='button' class='g' id='lw-nethide'>Hide</button>" +
+        "<span class='m' id='lw-netmsg'></span></div>";
+      document.body.appendChild(panel);
+
+      document.getElementById("lw-netcopy").onclick = function () {
+        var ta = document.getElementById("lw-nettext");
+        var msg = document.getElementById("lw-netmsg");
+        try {
+          ta.removeAttribute("readonly"); ta.select(); ta.setSelectionRange(0, 999999);
+          var done = false;
+          try { done = document.execCommand("copy"); } catch (e) {}
+          if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(ta.value); done = true; }
+          ta.setAttribute("readonly", "readonly");
+          msg.textContent = done ? "Copied." : "Select and copy.";
+        } catch (e2) { msg.textContent = "Select and copy."; }
+      };
+      document.getElementById("lw-nethide").onclick = function () { panel.style.display = "none"; };
+    }
+    var t = document.getElementById("lw-nettext");
+    if (t) t.value = netReport();
   }
 
   function ready(fn) {
