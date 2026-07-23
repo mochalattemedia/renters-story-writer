@@ -1,4 +1,4 @@
-// lw-v18  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v19  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,34 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v19 2026-07-23  PHOTOS FIRST, AND AN EMPTY YELLOW STRIP FIXED.
+//                      1. THE BLANK STRIP. The address status box rendered
+//                         as a styled but EMPTY yellow bar. showStep() fills
+//                         it, but the first step is marked visible directly
+//                         in the initial HTML, so showStep never runs for
+//                         it. Anything showStep does has to be done at mount
+//                         too. The markup now ships with its default text
+//                         and mount paints it and starts the watcher.
+//                         GENERAL: if step one is rendered pre-selected, it
+//                         never receives the transition that sets a step up.
+//                      2. PHOTOS MOVED TO STEP 1. Kenny's call, and it is
+//                         the right one: it moves the failure earlier. A
+//                         member could previously finish seven steps, go
+//                         live, and only then learn their photos fall short
+//                         and the listing gets set back to draft. Asking
+//                         first means finding out before anything is typed,
+//                         and the checklist reads as preparation instead of
+//                         a scolding at the end. Still no upload here, since
+//                         photos attach to a listing id that does not exist
+//                         until the save. When the upload capture lands, a
+//                         real drop zone goes in THIS step and the files are
+//                         held in the browser and pushed after the save.
+//                      3. THE MAP NOW RELOCATES AT MOUNT, not on arrival at
+//                         the address step. Google Maps paints grey tiles
+//                         when its container is moved or sized while hidden,
+//                         and with photos leading, the address step is no
+//                         longer first. A window resize is fired when that
+//                         step opens so a map laid out while hidden repaints.
 //   lw-v18 2026-07-22  GROUNDWORK FOR OPTION C. Two additions.
 //                      1. NETWORK RECORDER. Wraps XMLHttpRequest and fetch
 //                         read-only across /account/properties and shows
@@ -297,12 +325,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v18";
+const LW_VERSION = "lw-v19";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v18";
+  var LW_VERSION = "lw-v19";
   var DEBUG = false;
 
   // =============================================================
@@ -970,6 +998,12 @@ const WIZARD = String.raw`(function () {
   // ---------------------------------------------------------------
   var STEPS = [
     {
+      note: "photos",
+      title: "Photos first",
+      sub: "Photos do more for a listing than anything else on the page. Check you have these before you fill anything in. A listing that goes live short of them gets set back to draft, and reshooting is slower than shooting once.",
+      fields: []
+    },
+    {
       title: "Where is it?",
       sub: "Start with the address. It has to be entered in the field below so the map pin and geocode are saved before anything else.",
       note: "address",
@@ -1016,12 +1050,6 @@ const WIZARD = String.raw`(function () {
         { key: "desc", label: "Description", kind: "textarea", required: true, hint: "Shown on the public listing" },
         { key: "terms", label: "Application process and lease terms", kind: "textarea", required: false, hint: "How to apply, pet policy, anything worth knowing before they ask" }
       ]
-    },
-    {
-      title: "Photos",
-      sub: "Good photos do more for a listing than anything else on the page. We ask for the whole place, inside and out, so a renter can tell whether it suits them before they ask.",
-      note: "photos",
-      fields: []
     },
     {
       title: "Review and go live",
@@ -1087,12 +1115,12 @@ const WIZARD = String.raw`(function () {
       return "<div class='lw-note'>Start typing the street address and pick it from the list. The map confirms " +
         "the pin. This one saves on its own as you choose it, separately from everything else.</div>" +
         "<div id='lw-addr-slot'></div>" +
-        "<div id='lw-addr-state' class='lw-addrstate'></div>";
+        "<div id='lw-addr-state' class='lw-addrstate'>Pick the address from the dropdown so the map pin sets.</div>";
     }
     if (kind === "photos") {
-      return "<div class='lw-note'><strong>Nothing to upload on this step.</strong> BD adds photos on the page " +
-        "that follows saving, so this is the checklist to shoot against before you get there. You can also " +
-        "return later from the listing" + AP + "s Actions menu, under Manage Photos.</div>" +
+      return "<div class='lw-note'><strong>Nothing to upload yet.</strong> Photos attach to the listing after it " +
+        "is saved, so the upload comes at the end. This step is here first so you find out what is needed before " +
+        "you fill anything in, rather than after.</div>" +
         "<p class='lw-eyebrow'>What is required</p>" +
         "<ul class='lw-check'>" +
         "<li>The outside: front, and the street it sits on</li>" +
@@ -1212,11 +1240,8 @@ const WIZARD = String.raw`(function () {
     applyFormModeForStep(n);
     if (STEPS[n] && STEPS[n].note === "address") {
       paintAddressState();
-      if (!window.__rdcLwAddrWatch) {
-        window.__rdcLwAddrWatch = setInterval(function () {
-          if (STEPS[stepIndex] && STEPS[stepIndex].note === "address") paintAddressState();
-        }, 900);
-      }
+      startAddressWatch();
+      nudgeMap();
     }
     if (STEPS[n] && STEPS[n].note === "review") renderReview();
     try {
@@ -1574,9 +1599,35 @@ const WIZARD = String.raw`(function () {
     return { ok: false, text: "" };
   }
 
+  // A map that was laid out while hidden needs a poke once it is on screen.
+  // Firing a window resize is the portable way to do that without holding a
+  // reference to BD's map instance.
+  function nudgeMap() {
+    try {
+      if (window.google && window.google.maps && window.google.maps.event) {
+        window.google.maps.event.trigger(window, "resize");
+      }
+    } catch (e) {}
+    try { window.dispatchEvent(new Event("resize")); }
+    catch (e) {
+      try {
+        var ev = document.createEvent("HTMLEvents");
+        ev.initEvent("resize", true, false);
+        window.dispatchEvent(ev);
+      } catch (e2) {}
+    }
+  }
+
+  function startAddressWatch() {
+    if (window.__rdcLwAddrWatch) return;
+    window.__rdcLwAddrWatch = setInterval(function () {
+      if (STEPS[stepIndex] && STEPS[stepIndex].note === "address") paintAddressState();
+    }, 900);
+  }
+
   function paintAddressState() {
     var box = document.getElementById("lw-addr-state");
-    if (!box) return;
+    if (!box) return true;
     var st = addressState();
     if (st.skip) { box.innerHTML = ""; box.className = "lw-addrstate skip"; return true; }
     if (st.ok) {
@@ -1655,10 +1706,18 @@ const WIZARD = String.raw`(function () {
       else if (act === "usewizard") applyFormModeForStep(stepIndex);
     });
 
-    // Step 1 shows the wizard plus ONLY the address block of BD's form.
-    // Every later step hides the form completely, so the member never sees
-    // two interfaces at once.
+    // The first step is rendered with class "on" directly in the HTML, so
+    // showStep() never runs for it. Anything showStep does had to be done
+    // here too, which is why the address strip rendered empty: it was styled
+    // by the markup and only filled by showStep.
+    // Relocate the map ONCE, at mount, even though the address step is no
+    // longer first. Google Maps paints grey tiles when its container is
+    // moved or sized while hidden, so the move should happen as early as
+    // possible and only once.
+    relocateAddressWidget();
     applyFormModeForStep(0);
+    paintAddressState();
+    startAddressWatch();
 
     log("mounted", { level: LEVEL, missing: missing.length });
   }
