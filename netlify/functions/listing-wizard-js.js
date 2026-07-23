@@ -1,4 +1,4 @@
-// lw-v38  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v39  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,19 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v39 2026-07-23  THE CONFIRMATION SENTENCE, THIRD PASS. v35 fixed the
+//                      stapled-together version and introduced '4 photos are
+//                      on it, and renters can find it now', which leads with
+//                      the photo count when the point is that the LISTING is
+//                      live, and says 'on it' without ever naming what 'it'
+//                      is. The listing is the subject now:
+//                        It is live with 4 photos, and renters can find it now.
+//                        It is live and renters can find it now.
+//                        It is saved with 3 photos, but nobody can see it
+//                          until you publish it.
+//                        It is saved, but nobody can see it until you publish it.
+//                      Singular and plural handled, and the comma only
+//                      appears where a clause actually precedes it.
 //   lw-v38 2026-07-23  THE DRAFT BUTTON SAID 'That did not work' FOR EVERY
 //                      POSSIBLE CAUSE, which is a silent failure wearing a
 //                      label. Reported live on the first run, where the real
@@ -761,12 +774,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v38";
+const LW_VERSION = "lw-v39";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v38";
+  var LW_VERSION = "lw-v39";
   var DEBUG = false;
 
   // =============================================================
@@ -2321,13 +2334,18 @@ const WIZARD = String.raw`(function () {
   // One sentence, not two facts stapled together. The photo count leads
   // because it is the concrete result; the visibility state closes because it
   // is what the member acts on next.
+  // The listing is the subject, not the photo count. "4 photos are on it"
+  // led with the wrong thing and "on it" was vague about what "it" was.
   function doneSentence(live, photos) {
-    var visibility = live ? "renters can find it now."
-                          : "nobody can see it until you publish it.";
-    var out = photos
-      ? (photos + (photos === 1 ? " photo is" : " photos are") + " on it, and " + visibility)
-      : visibility;
-    return out.charAt(0).toUpperCase() + out.slice(1);
+    var withPhotos = photos ? (" with " + photos + (photos === 1 ? " photo" : " photos")) : "";
+    if (live) {
+      return photos
+        ? ("It is live" + withPhotos + ", and renters can find it now.")
+        : "It is live and renters can find it now.";
+    }
+    return photos
+      ? ("It is saved" + withPhotos + ", but nobody can see it until you publish it.")
+      : "It is saved, but nobody can see it until you publish it.";
   }
 
   function showDone(opts) {
