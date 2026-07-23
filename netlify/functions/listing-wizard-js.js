@@ -1,4 +1,4 @@
-// lw-v31  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v33  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,50 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v33 2026-07-23  RENT PUBLISHED WITHOUT ITS CURRENCY FORMATTING.
+//                      On a live listing: Rent 1800, Deposit $1,800.00,
+//                      Total move-in fees $2,500.00. One of three unstyled.
+//                      THE ANSWER WAS IN THE ORIGINAL CAPTURE ALL ALONG. BD
+//                      sends each money field TWICE and the copies differ:
+//                        deposit_amount        1800   then  1,800.00
+//                        total_cost_to_movei   2500   then  2,500.00
+//                        post_promo          (blank)  then  1,800.00
+//                      The hidden fixed- twin carries the RAW number, the
+//                      visible box carries the FORMATTED one. v14 correctly
+//                      stopped writing to the hidden twin by mistake, but
+//                      then wrote the raw number to the visible box and left
+//                      the twin empty, so BD stored an unformatted figure.
+//                      Both copies are written now, each in its own shape.
+//                      The wizard field also shows the formatted figure on
+//                      blur, so what is on screen is what publishes.
+//                      I read that line in the capture as 'sent twice' and
+//                      never as 'sent twice DIFFERENTLY'. The detail was
+//                      recorded on day one and it took a live listing to
+//                      make me look at it properly.
+//   lw-v32 2026-07-23  A SUCCESS SCREEN, AND THE DIAGNOSTIC DUMP RETIRED.
+//                      The chain works end to end now (group_id 260, three
+//                      photos, upload status success), and a working publish
+//                      still left the member on a filled-in form staring at
+//                      a wall of monospace debug output, with nothing saying
+//                      it had worked and nowhere to go next.
+//                      That report existed for me. It earned its keep while
+//                      the save shape, the id location and the upload call
+//                      were all unknown, and it stayed on screen well past
+//                      the point where it was helping anybody.
+//                      Publishing now hides the wizard and shows: a tick,
+//                      Listing published or Saved as a draft, the photo
+//                      count, and three ways onward, Go to my listings, Add
+//                      more photos, Post another. The full report moves
+//                      behind a Technical details toggle, one click away and
+//                      unchanged, for the next time something needs
+//                      explaining.
+//                      EVERY PARTIAL OUTCOME GETS THE SAME TREATMENT: saved
+//                      but photos failed, saved with no photos queued, ids
+//                      unreadable. Each says plainly what did and did not
+//                      happen and points at Add more photos, rather than
+//                      burying it in a paragraph.
+//                      A DIAGNOSTIC IS SCAFFOLDING. Take it down when the
+//                      thing it was holding up can stand.
 //   lw-v31 2026-07-23  THE RAW FORM IS GONE FROM VIEW. Kenny's call, and
 //                      the right one: a property manager should never be
 //                      shown the interface the wizard exists to replace.
@@ -621,12 +665,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v31";
+const LW_VERSION = "lw-v33";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v31";
+  var LW_VERSION = "lw-v33";
   var DEBUG = false;
 
   // =============================================================
@@ -1069,6 +1113,47 @@ const WIZARD = String.raw`(function () {
     return out;
   }
 
+  // BD SENDS MONEY TWICE, AND THE TWO COPIES ARE NOT THE SAME STRING.
+  // From the live capture of its own form:
+  //     deposit_amount        1800   then  1,800.00
+  //     total_cost_to_movei   2500   then  2,500.00
+  //     post_promo          (blank)  then  1,800.00
+  // The hidden "fixed-" twin carries the RAW number and the visible box
+  // carries the FORMATTED one. Since v14 the wizard wrote the raw number to
+  // the visible box and left the twin empty, which is why Rent published as
+  // 1800 while Deposit and Total move-in published as $1,800.00.
+  function formatMoney(raw) {
+    var v = cleanMoney(raw);
+    if (!v) return "";
+    var parts = v.split(".");
+    var whole = parts[0] || "0";
+    var cents = (parts[1] || "").slice(0, 2);
+    while (cents.length < 2) cents += "0";
+    var out = "";
+    var c = 0;
+    for (var i = whole.length - 1; i >= 0; i--) {
+      out = whole.charAt(i) + out;
+      c++;
+      if (c % 3 === 0 && i > 0) out = "," + out;
+    }
+    return out + "." + cents;
+  }
+
+  // Write BOTH copies the way BD does: formatted to the visible input, raw to
+  // the hidden twin. Anything less and the value publishes unformatted.
+  function setMoneyField(name, raw) {
+    var nodes = el(name);
+    if (!nodes) return false;
+    var clean = cleanMoney(raw);
+    var pretty = formatMoney(raw);
+    for (var i = 0; i < nodes.length; i++) {
+      var isHidden = (nodes[i].type || "").toLowerCase() === "hidden";
+      nodes[i].value = isHidden ? clean : pretty;
+      fire(nodes[i]);
+    }
+    return true;
+  }
+
   function moneyKeys() {
     return { price: 1, deposit: 1, promo: 1, movein: 1, minincome: 1 };
   }
@@ -1361,6 +1446,12 @@ const WIZARD = String.raw`(function () {
     ".lw-photolist .s{color:#8593a4;font-size:12px}",
     ".lw-photolist .x{border:0;background:none;color:#8593a4;cursor:pointer;font-size:12px;text-decoration:underline;font-family:inherit}",
     ".lw-photolist .x:hover{color:#c0392b}",
+    ".lw-done{background:#fff;border:1px solid #dfe4ea;border-radius:12px;padding:34px 26px 28px;text-align:center;box-shadow:0 1px 3px rgba(13,45,78,.07)}",
+    ".lw-tick{width:52px;height:52px;line-height:52px;border-radius:50%;background:#eaf6ef;color:#1e8449;font-size:26px;margin:0 auto 14px}",
+    ".lw-donesub{font-size:14.5px;color:#5b6b7d;margin:0 0 22px;line-height:1.55}",
+    ".lw-doneacts{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}",
+    ".lw-doneacts a{text-decoration:none;display:inline-block}",
+    ".lw-report{width:100%;height:150px;font-family:monospace;font-size:11px;line-height:1.45;border:1px solid #ccd4de;border-radius:6px;padding:9px;color:#25333f;margin-top:8px}",
     ".lw-addrstate.skip{display:none}",
     ".lw-addrstate{margin-top:12px;font-size:13px;color:#8a6d1f;background:#fffbea;border:1px solid #f0e2b0;border-radius:8px;padding:10px 13px}",
     ".lw-addrstate.ok{color:#1e6b3c;background:#f2faf5;border-color:#bfe3ce}",
@@ -1739,7 +1830,8 @@ const WIZARD = String.raw`(function () {
       // member reads "this is needed" beside a field that plainly has content.
       if (String(t.value || "").trim()) clearFieldError(key);
       if (key === "title") titleTouched = true;
-      setField(F[key], isMoneyKey(key) ? cleanMoney(t.value) : t.value);
+      if (isMoneyKey(key)) setMoneyField(F[key], t.value);
+      else setField(F[key], t.value);
     }
     root.addEventListener("input", push, true);
     root.addEventListener("change", push, true);
@@ -1749,9 +1841,10 @@ const WIZARD = String.raw`(function () {
       var t = e.target;
       var key = t && t.getAttribute ? t.getAttribute("data-fkey") : null;
       if (!key || !isMoneyKey(key)) return;
-      var c = cleanMoney(t.value);
-      if (t.value !== c) t.value = c;
-      setField(F[key], c);
+      // Show the member the same formatted figure that will publish.
+      var pretty = formatMoney(t.value);
+      if (pretty && t.value !== pretty) t.value = pretty;
+      setMoneyField(F[key], t.value);
     }, true);
   }
 
@@ -2003,6 +2096,57 @@ const WIZARD = String.raw`(function () {
   // green button is still there.
   var savingInPage = false;
 
+  // WHAT SUCCESS LOOKS LIKE. Until now a working publish left the member on
+  // a filled-in form staring at a raw diagnostic dump, with nothing saying it
+  // worked and nowhere to go. The report was built for debugging and stayed
+  // long after it stopped earning its place on screen. It is behind a toggle
+  // now, still one click away when something needs explaining.
+  function showDone(opts) {
+    var card = document.getElementById("lw-card");
+    var wrap = document.getElementById("lw-wrap");
+    if (!wrap) return;
+    var live = opts.live;
+    var photos = opts.photos || 0;
+
+    var h = "<div class='lw-done'>" +
+      "<div class='lw-tick'>&#10003;</div>" +
+      "<h2 class='lw-h'>" + (live ? "Listing published" : "Saved as a draft") + "</h2>" +
+      "<p class='lw-donesub'>" +
+        (live ? "It is live and renters can find it now." :
+                "Nobody can see it yet. Publish it from your listings when it is ready.") +
+        (photos ? (" " + photos + (photos === 1 ? " photo was" : " photos were") + " uploaded.") : "") +
+      "</p>";
+
+    if (opts.photoWarning) {
+      h += "<div class='lw-warn' style='text-align:left'>" + opts.photoWarning + "</div>";
+    }
+
+    h += "<div class='lw-doneacts'>" +
+      "<a class='lw-btn lw-navy' href='/account/properties'>Go to my listings</a>";
+    if (opts.photoUrl) {
+      h += "<a class='lw-btn lw-ghost' href='" + esc(opts.photoUrl) + "'>Add more photos</a>";
+    }
+    h += "<a class='lw-btn lw-ghost' href='/account/properties/newgroup'>Post another</a>" +
+      "</div>";
+
+    if (opts.report) {
+      h += "<p class='lw-esc'><a data-act='details'>Technical details</a></p>" +
+           "<div id='lw-details' style='display:none'><textarea readonly class='lw-report'>" +
+           esc(opts.report) + "</textarea></div>";
+    }
+    h += "</div>";
+
+    if (card) card.style.display = "none";
+    var done = document.getElementById("lw-done");
+    if (!done) {
+      done = document.createElement("div");
+      done.id = "lw-done";
+      wrap.appendChild(done);
+    }
+    done.innerHTML = h;
+    try { done.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
+  }
+
   // A field left empty on step 3 must not be discovered by BD on step 7.
   function firstIncompleteStep() {
     for (var n = 0; n < STEPS.length; n++) {
@@ -2066,13 +2210,15 @@ const WIZARD = String.raw`(function () {
                      "photos queued: " + PHOTOS.length,
                      "body starts: " + txt.slice(0, 300)].join(String.fromCharCode(10));
 
-          function finish(extra) {
-            say("<strong>Saved without leaving the page.</strong>" + (extra || "") +
-                "<textarea readonly style='width:100%;height:130px;margin-top:9px;font-family:monospace;font-size:11px;" +
-                "border:1px solid #ccd4de;border-radius:6px;padding:8px'>" + esc(rep) + "</textarea>" +
-                "<p style='font-size:12.5px;color:#5b6b7d;margin:8px 0 0'>Copy this to Claude. Check your listings " +
-                "before saving again, so this cannot create a second copy.</p>");
+          function finish(o) {
             savingInPage = false;
+            showDone({
+              live: goLive,
+              photos: (o && o.photos) || 0,
+              photoUrl: (o && o.photoUrl) || "",
+              photoWarning: (o && o.photoWarning) || "",
+              report: rep
+            });
           }
 
           // DID IT SAVE? Answer that FIRST, before anything about photos.
@@ -2112,7 +2258,12 @@ const WIZARD = String.raw`(function () {
           }
 
           rep += String.fromCharCode(10) + "addphotos url: " + addUrl;
-          if (!PHOTOS.length) { finish(" No photos were queued, so nothing was uploaded."); return; }
+          if (!PHOTOS.length) {
+            finish({ photos: 0, photoUrl: addUrl,
+              photoWarning: "<strong>No photos on this listing yet.</strong> Listings without them get set " +
+                            "back to draft. Add them now while you are here." });
+            return;
+          }
 
           window.fetch(addUrl, { credentials: "same-origin" })
             .then(function (pr) { return pr.text(); })
@@ -2121,6 +2272,7 @@ const WIZARD = String.raw`(function () {
               rep += String.fromCharCode(10) + "ids: group_id=" + ids.groupId +
                      " data_id=" + ids.dataId + " user_id=" + ids.userId;
               if (!ids.groupId || !ids.dataId) {
+                var warnIds = true;
                 // Show the surrounding markup rather than guessing at it a
                 // second time. Every unknown this session was settled by
                 // looking at the artifact, never by reasoning about it.
@@ -2133,22 +2285,27 @@ const WIZARD = String.raw`(function () {
                                : phtml.slice(Math.max(0, at - 90), at + 110).replace(/[ ]+/g, " "));
                 }
                 rep += String.fromCharCode(10) + "page length: " + phtml.length + hint;
-                finish(" The listing saved, but the photo ids could not be read, so your photos were not " +
-                       "uploaded yet. The report below shows what that page actually contains, which is what " +
-                       "I need to fix it. Your photos are still queued here.");
+                finish({ photos: 0, photoUrl: addUrl,
+                  photoWarning: "<strong>Your " + PHOTOS.length + " photos did not upload.</strong> The listing " +
+                                "saved fine. Use Add more photos to put them on it." });
                 return;
               }
               return uploadPhotos(ids).then(function (res) {
                 rep += String.fromCharCode(10) + "upload status: " + res.status +
                        String.fromCharCode(10) + "upload body: " + String(res.body).slice(0, 300);
                 var good = res.status === 200 && String(res.body).indexOf("success") !== -1;
-                finish(good ? (" " + PHOTOS.length + " photos uploaded.")
-                            : " The listing saved but the photo upload did not report success.");
+                finish(good
+                  ? { photos: PHOTOS.length, photoUrl: addUrl }
+                  : { photos: 0, photoUrl: addUrl,
+                      photoWarning: "<strong>The photo upload did not report success.</strong> The listing " +
+                                    "saved. Check it, and use Add more photos if they are not there." });
               });
             })
             .catch(function (e) {
               rep += String.fromCharCode(10) + "photo stage failed: " + e;
-              finish(" The listing saved. The photo upload failed, so add them on the photo page.");
+              finish({ photos: 0, photoUrl: addUrl,
+                photoWarning: "<strong>The photos did not upload.</strong> The listing saved. Use Add more " +
+                              "photos to put them on it." });
             });
         });
       })
@@ -2493,6 +2650,10 @@ const WIZARD = String.raw`(function () {
       else if (act === "togglenative") setFormMode("full");
       else if (act === "usewizard") { forcedFull = false; applyFormModeForStep(stepIndex); }
       else if (act === "pickphotos") { var pi = document.getElementById("lw-photoinput"); if (pi) pi.click(); }
+      else if (act === "details") {
+        var dv = document.getElementById("lw-details");
+        if (dv) dv.style.display = dv.style.display === "none" ? "block" : "none";
+      }
     });
 
     // The first step is rendered with class "on" directly in the HTML, so
