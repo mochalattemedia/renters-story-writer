@@ -1,4 +1,4 @@
-// lw-v41  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v42  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,31 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v42 2026-07-23  v41 CACHED A NEGATIVE, SO IT ONLY EVER LOOKED ONCE.
+//                      Reported live: no change at all after deploying v41.
+//                      existingPhotoPageUrl() ran a single time at mount and
+//                      remembered the answer EITHER WAY, so if BD had not
+//                      yet rendered its tab strip the wizard concluded 'not
+//                      an edit' and never looked again. Everything
+//                      downstream was correct and never got the chance.
+//                      ONLY A POSITIVE IS CACHED NOW, because a found
+//                      listing cannot become unfound. And the lookup keeps
+//                      trying for a few seconds while the page fills in.
+//
+//                      FOUR WAYS TO FIND THE LISTING, tried in order:
+//                        1. any link containing addphotos
+//                        2. any /account/properties/ link carrying a long
+//                           hex hash, which is then turned into the photo url
+//                        3. the address bar, if already on a hashed page
+//                        4. the form's own action attribute
+//                      A new listing matches none of them and is still
+//                      treated as new, which is asserted.
+//
+//                      rdcLwDump() now reports the detection state directly:
+//                      the photo page url it found, whether it is treating
+//                      the page as an edit, and the count. One command
+//                      answers 'why is this not working' instead of a round
+//                      trip. That line should have been in v41.
 //   lw-v41 2026-07-23  THE WIZARD NOW COUNTS PHOTOS ALREADY ON A LISTING.
 //                      v40 stopped DENYING them; it still could not SEE
 //                      them, and its edit detection did not even fire.
@@ -839,12 +864,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v41";
+const LW_VERSION = "lw-v42";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v41";
+  var LW_VERSION = "lw-v42";
   var DEBUG = false;
 
   // =============================================================
@@ -1493,6 +1518,11 @@ const WIZARD = String.raw`(function () {
       line((nd ? "  OK   " : "  MISS ") + key + " -> " + F[key] + (nd ? ("  <" + nd.tagName.toLowerCase() + " type=" + (nd.type || "-") + ">") : ""));
     }
 
+    line("");
+    line("--- EXISTING LISTING DETECTION ---");
+    line("photo page url found: " + (existingPhotoPageUrl() || "(none)"));
+    line("treated as an edit: " + isEditing());
+    line("existing photos counted: " + (existingPhotoCount === null ? "(not counted)" : existingPhotoCount));
     line("");
     line("--- EDITORS AND WIDGETS ---");
     line("tinymce present: " + (!!window.tinymce));
@@ -2971,22 +3001,58 @@ const WIZARD = String.raw`(function () {
   // has an Upload Photos tab linking to /account/properties/addphotos/<hash>.
   // If that link is on the page, the listing exists AND the hash comes free,
   // which is also exactly what is needed to go and count its photos.
-  var editPhotoUrl = null;
+  var editPhotoUrl = "";
 
+  // NEVER CACHE A NEGATIVE. v41 resolved this once at mount and remembered
+  // the answer either way, so if BD had not yet rendered its tab strip the
+  // wizard decided "not an edit" and never looked again. Only a POSITIVE
+  // result is cached, because that one cannot become false.
   function existingPhotoPageUrl() {
-    if (editPhotoUrl !== null) return editPhotoUrl;
-    editPhotoUrl = "";
+    if (editPhotoUrl) return editPhotoUrl;
+    var HEX32 = /[a-f0-9]{24,}/i;
+
+    // 1. The Upload Photos tab, wherever it sits on the page.
     try {
       var links = document.querySelectorAll("a[href]");
       for (var i = 0; i < links.length; i++) {
         var h = links[i].getAttribute("href") || "";
-        if (h.toLowerCase().indexOf("/account/properties/addphotos/") !== -1) {
-          editPhotoUrl = h;
-          break;
-        }
+        if (h.toLowerCase().indexOf("addphotos") !== -1) { editPhotoUrl = h; return editPhotoUrl; }
       }
     } catch (e) {}
-    return editPhotoUrl;
+
+    // 2. Any link on the page carrying a listing hash, which can be turned
+    //    into the photo URL. Covers a tab that is a button, or rendered late.
+    try {
+      var all = document.querySelectorAll("a[href]");
+      for (var j = 0; j < all.length; j++) {
+        var h2 = all[j].getAttribute("href") || "";
+        var low = h2.toLowerCase();
+        if (low.indexOf("/account/properties/") === -1) continue;
+        if (low.indexOf("newgroup") !== -1) continue;
+        var m = h2.match(HEX32);
+        if (m) { editPhotoUrl = "/account/properties/addphotos/" + m[0]; return editPhotoUrl; }
+      }
+    } catch (e) {}
+
+    // 3. The address bar itself, if we are already on a hashed listing page.
+    try {
+      var p = window.location.pathname || "";
+      if (p.toLowerCase().indexOf("/account/properties/") !== -1 && p.toLowerCase().indexOf("newgroup") === -1) {
+        var mp = p.match(HEX32);
+        if (mp) { editPhotoUrl = "/account/properties/addphotos/" + mp[0]; return editPhotoUrl; }
+      }
+    } catch (e) {}
+
+    // 4. The form's own action, which on an edit carries the hash.
+    try {
+      var a = FORM ? String(FORM.getAttribute("action") || "") : "";
+      if (a && a.toLowerCase().indexOf("newgroup") === -1) {
+        var ma = a.match(HEX32);
+        if (ma) { editPhotoUrl = "/account/properties/addphotos/" + ma[0]; return editPhotoUrl; }
+      }
+    } catch (e) {}
+
+    return "";
   }
 
   function isEditing() {
@@ -3144,7 +3210,22 @@ const WIZARD = String.raw`(function () {
     // moved or sized while hidden, so the move should happen as early as
     // possible and only once.
     relocateAddressWidget();
-    if (isEditing()) { try { countExistingPhotos(); } catch (e) {} }
+
+    // BD renders parts of this page late, so a single look at mount can miss
+    // the tab strip entirely. Keep looking briefly, then stop.
+    (function watchForListing() {
+      var tries = 0;
+      function look() {
+        tries++;
+        if (existingPhotoCount !== null) return;
+        if (isEditing()) {
+          try { countExistingPhotos(); } catch (e) {}
+          return;
+        }
+        if (tries < 10) setTimeout(look, 400);
+      }
+      look();
+    })();
     applyFormModeForStep(0);
     paintAddressState();
     startAddressWatch();
