@@ -1,4 +1,4 @@
-// lw-v42  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v44  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,78 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v44 2026-07-23  THREE BADGES REMOVED. THE BROWSER STATES FACTS ONLY.
+//                      Kenny, on the filename check: 'who knows what a file
+//                      name is, it shouldnt impact or be used as a
+//                      validation layer'. Correct, and I had overstated it.
+//                      It fires rarely, means NOTHING when silent, and as a
+//                      badge on a thumbnail it implied a check that was not
+//                      happening. Cameras and phones name files however they
+//                      like. Removed.
+//                      DARK and LOOKS SOFT went with it, for a related
+//                      reason I should have caught first: those thresholds
+//                      were numbers picked with no calibration against real
+//                      listing photos. Telling a property manager their good
+//                      photo looks soft because a cutoff is wrong is the
+//                      same failure wearing a different coat, and the vision
+//                      pass can actually judge both.
+//
+//                      THE SPLIT IS NOW CLEAN:
+//                        browser -> objective measurement (dimensions)
+//                        vision  -> judgment (blurry, dark, watermark,
+//                                   screenshot, coverage, consistency)
+//                      Resolution stays because 400x300 is small on any
+//                      screen in any lighting for any camera. It is a
+//                      measurement, not an opinion.
+//
+//                      GENERAL: a weak signal shown confidently is worse
+//                      than no signal. It spends the member's trust on
+//                      something that cannot repay it, and every false flag
+//                      teaches them to ignore the real ones.
+//   lw-v43 2026-07-23  PHASE 3. PHOTO CHECKS, IN TWO TIERS.
+//
+//                      TIER 1 RUNS IN THE BROWSER, INSTANTLY, FOR FREE, as
+//                      each photo is dropped. No upload, no API, no wait:
+//                        - resolution below 800px on the short edge
+//                        - darkness, from mean luminance on a 96px draw
+//                        - softness, from the variance of a Laplacian, which
+//                          is low for an out-of-focus photo and high for a
+//                          sharp one
+//                        - FILENAME ADDRESS CONFLICT, which is the cheapest
+//                          and most pointed signal available. Kenny's own
+//                          test carried
+//                          1513-n-catalina-st-burbank-ca-primary-photo.jpg
+//                          on a Flanders NY listing. Photos pulled from
+//                          another listing site keep that site's naming, and
+//                          those names carry the address. It only fires when
+//                          the filename looks like an address rather than a
+//                          camera roll name.
+//
+//                      TIER 2 IS A VISION PASS on demand, calling
+//                      photo-check.js (pc-v1): what each photo shows,
+//                      watermarks and text overlays, coverage gaps, and SET
+//                      CONSISTENCY.
+//
+//                      WHY CONSISTENCY RATHER THAN STREET VIEW MATCHING.
+//                      Kenny's point, and it is the right one: a fraudster
+//                      can use the REAL address with borrowed interiors, and
+//                      then the exterior matches Street View perfectly
+//                      because it IS the building. What catches that is
+//                      asking whether the photos agree with EACH OTHER:
+//                      flooring, trim, hardware, switch plates, window
+//                      style, ceiling height, light temperature. Consistent
+//                      within one home, rarely across three scraped
+//                      listings, and it needs no reference image.
+//
+//                      IT IS A FLAG, NEVER A VERDICT, and the UI says so in
+//                      those words. It always shows its confidence and names
+//                      the innocent explanations, because renovations, a
+//                      room finished later and a duplex all read as
+//                      inconsistent while being perfectly honest. NOTHING
+//                      here blocks a publish. An AI rejecting a legitimate
+//                      listing loses a property manager permanently; a flag
+//                      a person looks at does not.
+//                      Photos are downscaled to 900px before sending.
 //   lw-v42 2026-07-23  v41 CACHED A NEGATIVE, SO IT ONLY EVER LOOKED ONCE.
 //                      Reported live: no change at all after deploying v41.
 //                      existingPhotoPageUrl() ran a single time at mount and
@@ -864,12 +936,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v42";
+const LW_VERSION = "lw-v44";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v42";
+  var LW_VERSION = "lw-v44";
   var DEBUG = false;
 
   // =============================================================
@@ -1691,6 +1763,15 @@ const WIZARD = String.raw`(function () {
     ".lw-photolist li.bad{color:#c0392b;background:#fdf6f5;border-color:#f0d5d1;display:block}",
     ".lw-photolist .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#1e2b3a}",
     ".lw-photolist .s{color:#8593a4;font-size:12px}",
+    ".lw-photolist .flag{display:inline-block;background:#fdf3e3;color:#8a6d1f;border:1px solid #f0e2b0;border-radius:4px;padding:1px 6px;font-size:11px;margin-left:6px;white-space:nowrap}",
+    ".lw-photolist .pnote{display:block;font-size:11.5px;color:#5b6b7d;margin-top:3px;white-space:normal}",
+    ".lw-checkrow{display:flex;align-items:center;gap:11px;margin:0 0 16px;flex-wrap:wrap}",
+    ".lw-checkmsg{font-size:12.5px;color:#5b6b7d}",
+    ".lw-checkout{background:#f7f9fb;border:1px solid #e1e8f0;border-radius:9px;padding:13px 15px;margin-bottom:16px;font-size:13px;color:#41566d;line-height:1.55}",
+    ".lw-checkout strong{color:#0d2d4e}",
+    ".lw-checkout ul{margin:7px 0 0 17px;padding:0}",
+    ".lw-checkout li{margin-bottom:4px}",
+    ".lw-checkflag{background:#fffbea;border-color:#f0e2b0;color:#6b5a12}",
     ".lw-photolist .x{border:0;background:none;color:#8593a4;cursor:pointer;font-size:12px;text-decoration:underline;font-family:inherit}",
     ".lw-photolist .x:hover{color:#c0392b}",
     ".lw-done{background:#fff;border:1px solid #dfe4ea;border-radius:12px;padding:34px 26px 28px;text-align:center;box-shadow:0 1px 3px rgba(13,45,78,.07)}",
@@ -1853,6 +1934,11 @@ const WIZARD = String.raw`(function () {
           "<p class='lw-photocount' id='lw-photocount'>No photos chosen yet</p>" +
         "</div>" +
         "<ul class='lw-photolist' id='lw-photolist'></ul>" +
+        "<div class='lw-checkrow'>" +
+          "<button type='button' class='lw-btn lw-ghost' data-act='checkphotos'>Check these photos</button>" +
+          "<span class='lw-checkmsg' id='lw-checkmsg'></span>" +
+        "</div>" +
+        "<div id='lw-checkout'></div>" +
         "<p class='lw-eyebrow'>What is required</p>" +
         "<ul class='lw-check'>" +
         "<li>The outside: front, and the street it sits on</li>" +
@@ -2170,6 +2256,111 @@ const WIZARD = String.raw`(function () {
           "Check the connection, then write it yourself below if it keeps failing.";
         log("draft error", e);
       });
+  }
+
+  var PHOTO_FN = "https://renters-story-writer.netlify.app/.netlify/functions/photo-check";
+  var checking = false;
+
+  // Downscale before sending. Full-size photos are slow and expensive and
+  // add nothing a reviewer needs; 900px is plenty to judge a room by.
+  function thumbnail(file) {
+    return readImage(file).then(function (r) {
+      if (!r) return null;
+      var w = r.img.naturalWidth || r.img.width, h = r.img.naturalHeight || r.img.height;
+      var scale = Math.min(1, 900 / Math.max(w, h));
+      var c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(w * scale));
+      c.height = Math.max(1, Math.round(h * scale));
+      var ctx = c.getContext("2d");
+      if (!ctx) return null;
+      try { ctx.drawImage(r.img, 0, 0, c.width, c.height); } catch (e) { return null; }
+      try { window.URL.revokeObjectURL(r.url); } catch (e) {}
+      var url = c.toDataURL("image/jpeg", 0.72);
+      var comma = url.indexOf(",");
+      return { name: file.name, media_type: "image/jpeg", data: url.slice(comma + 1) };
+    });
+  }
+
+  function checkPhotos() {
+    if (checking) return;
+    var msg = document.getElementById("lw-checkmsg");
+    var out = document.getElementById("lw-checkout");
+    if (!PHOTOS.length) { if (msg) msg.textContent = "Add some photos first."; return; }
+    checking = true;
+    if (msg) msg.textContent = "Looking at them...";
+    if (out) out.innerHTML = "";
+
+    var subset = PHOTOS.slice(0, 10);
+    Promise.all(subset.map(thumbnail)).then(function (thumbs) {
+      var payload = thumbs.filter(Boolean);
+      if (!payload.length) { checking = false; if (msg) msg.textContent = "Could not read those images."; return; }
+      return window.fetch(PHOTO_FN, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photos: payload, facts: descFacts() })
+      }).then(function (r) {
+        return r.text().then(function (t) {
+          var j = null; try { j = JSON.parse(t); } catch (e) {}
+          return { ok: r.ok, status: r.status, j: j };
+        });
+      }).then(function (res) {
+        checking = false;
+        if (!res.ok || !res.j) {
+          if (msg) msg.textContent = res.status === 404
+            ? "The photo checker is not deployed on this site yet."
+            : "The photo check did not run. Your photos are untouched.";
+          return;
+        }
+        if (msg) msg.textContent = "";
+        applyPhotoFindings(res.j);
+      });
+    }).catch(function (e) {
+      checking = false;
+      if (msg) msg.textContent = "Could not reach the photo checker.";
+      log("photo check error", e);
+    });
+  }
+
+  function applyPhotoFindings(j) {
+    // Per-photo notes hang off the matching File by name.
+    var byName = {};
+    (j.photos || []).forEach(function (p) { if (p && p.name) byName[p.name] = p; });
+    for (var i = 0; i < PHOTOS.length; i++) {
+      var hit = byName[PHOTOS[i].name];
+      if (!hit) continue;
+      PHOTOS[i].__lwFlags = (PHOTOS[i].__lwFlags || []).filter(function (f) {
+        return f.indexOf("small (") === 0;
+      });
+      (hit.issues || []).forEach(function (is) { PHOTOS[i].__lwFlags.push(is); });
+      PHOTOS[i].__lwNote = hit.note || "";
+      if (hit.shows) PHOTOS[i].__lwShows = hit.shows;
+    }
+    paintPhotos([]);
+
+    var out = document.getElementById("lw-checkout");
+    if (!out) return;
+    var h = "";
+    if (j.summary) h += "<p style='margin:0 0 8px'>" + esc(j.summary) + "</p>";
+
+    var miss = (j.coverage && j.coverage.missing) || [];
+    if (miss.length) {
+      h += "<p style='margin:0 0 4px'><strong>Still missing:</strong></p><ul>";
+      for (var m = 0; m < miss.length; m++) h += "<li>" + esc(miss[m]) + "</li>";
+      h += "</ul>";
+    }
+
+    // The consistency finding is a flag for a person, never a verdict, so it
+    // is worded as an observation and always carries its confidence.
+    var con = j.consistency;
+    if (con && con.consistent === false) {
+      h += "<div class='lw-checkflag' style='border:1px solid;border-radius:8px;padding:11px 13px;margin-top:10px'>" +
+           "<strong>These may not all be the same property.</strong> " +
+           esc(con.note || "") +
+           "<br><span style='font-size:11.5px'>Confidence: " + esc(con.confidence || "low") +
+           ". Worth a look, not a conclusion. Renovations and rooms finished at different times " +
+           "read this way too.</span></div>";
+    }
+    out.innerHTML = h || "<p style='margin:0'>Nothing to flag.</p>";
   }
 
   function bindPhotoZone(root) {
@@ -2844,6 +3035,25 @@ const WIZARD = String.raw`(function () {
   var MAX_BYTES = 10000000;
   var OK_EXT = "png,jpg,jpeg,gif,svg,webp";
 
+  // ---------------------------------------------------------------
+  // INSTANT CHECKS, IN THE BROWSER, FREE.
+  // These run the moment a photo is dropped. No upload, no API, no wait.
+  // They catch the dull majority of bad photos so the vision pass is spent
+  // on the things only a model can judge.
+  // ---------------------------------------------------------------
+  var MIN_EDGE = 800;
+
+  function readImage(file) {
+    return new Promise(function (resolve) {
+      var url = "";
+      try { url = window.URL.createObjectURL(file); } catch (e) { resolve(null); return; }
+      var img = new window.Image();
+      img.onload = function () { resolve({ img: img, url: url }); };
+      img.onerror = function () { try { window.URL.revokeObjectURL(url); } catch (e) {} resolve(null); };
+      img.src = url;
+    });
+  }
+
   function extOf(name) {
     var n = String(name || "");
     var dot = n.lastIndexOf(".");
@@ -2871,9 +3081,42 @@ const WIZARD = String.raw`(function () {
       if (dupe) continue;
       PHOTOS.push(f);
       added++;
+      inspectPhoto(f);
     }
     paintPhotos(skipped);
     return added;
+  }
+
+  // Findings hang off the File itself, so they survive reordering and
+  // removal without a parallel array to keep in step.
+  // WHAT THE BROWSER IS ALLOWED TO SAY.
+  // Objective measurements only. Dimensions are a fact: 400x300 is small on
+  // any screen, in any lighting, for any camera.
+  //
+  // lw-v43 also badged photos as "dark", "looks soft" and "filename says CA".
+  // All three are gone:
+  //   - DARK and SOFT were thresholds picked with no calibration against real
+  //     listing photos. Telling a property manager their good photo looks
+  //     soft because a cutoff is wrong is worse than saying nothing, and the
+  //     vision pass can actually judge it.
+  //   - FILENAME PROVENANCE fires rarely and means nothing when silent, so as
+  //     a badge it implied a check that was not happening. Cameras and phones
+  //     name files however they like. It was never a validation layer and
+  //     should not have been dressed as one.
+  // The measurements still run, because the vision pass benefits from
+  // knowing them, but only a fact reaches the member.
+  function inspectPhoto(f) {
+    f.__lwFlags = f.__lwFlags || [];
+    readImage(f).then(function (r) {
+      if (!r) return;
+      f.__lwW = r.img.naturalWidth || r.img.width;
+      f.__lwH = r.img.naturalHeight || r.img.height;
+      if (Math.min(f.__lwW, f.__lwH) < MIN_EDGE) {
+        f.__lwFlags.push("small (" + f.__lwW + "x" + f.__lwH + ")");
+      }
+      try { window.URL.revokeObjectURL(r.url); } catch (e) {}
+      paintPhotos([]);
+    });
   }
 
   function removePhoto(idx) {
@@ -2903,8 +3146,12 @@ const WIZARD = String.raw`(function () {
     if (!list) return;
     var h = "";
     for (var i = 0; i < PHOTOS.length; i++) {
-      h += "<li><span class=n>" + esc(PHOTOS[i].name) + "</span>" +
-           "<span class=s>" + kb(PHOTOS[i].size) + "</span>" +
+      var fl = PHOTOS[i].__lwFlags || [];
+      var note = PHOTOS[i].__lwNote || "";
+      h += "<li><span class=n>" + esc(PHOTOS[i].name);
+      for (var q = 0; q < fl.length; q++) h += " <span class=flag>" + esc(fl[q]) + "</span>";
+      if (note) h += "<span class=pnote>" + esc(note) + "</span>";
+      h += "</span><span class=s>" + kb(PHOTOS[i].size) + "</span>" +
            "<button type=button class=x data-photo-remove=" + i + ">Remove</button></li>";
     }
     if (skipped && skipped.length) {
@@ -3189,6 +3436,7 @@ const WIZARD = String.raw`(function () {
       else if (act === "draft-inpage") submitInPage(false);
       else if (act === "gophotos") showStep(0);
       else if (act === "draftdesc") draftDescription();
+      else if (act === "checkphotos") checkPhotos();
       else if (act === "golive") submitForm(true);
       else if (act === "draft") submitForm(false);
       else if (act === "shownative") setFormMode("full");
