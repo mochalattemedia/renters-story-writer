@@ -1,4 +1,4 @@
-// lw-v33  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v35  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,36 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v35 2026-07-23  THE CONFIRMATION LINE READS AS ONE SENTENCE. It was
+//                      'It is live and renters can find it now. 4 photos
+//                      were uploaded.' Two unrelated facts, with the photo
+//                      count arriving after the point had been made, because
+//                      the line was built by concatenating an optional
+//                      clause onto a finished sentence.
+//                      Now built as one: the photo count leads, since it is
+//                      the concrete result, and the visibility state closes,
+//                      since it is what the member acts on next.
+//                        4 photos are on it, and renters can find it now.
+//                        1 photo is on it, and nobody can see it until you
+//                          publish it.
+//                        Renters can find it now.        (no photos)
+//                      Singular and plural handled, and the sentence is
+//                      capitalised after assembly rather than assuming which
+//                      clause comes first.
+//                      GENERAL: copy assembled from optional fragments will
+//                      read like fragments. Build the whole sentence for
+//                      each case and read all of them back.
+//   lw-v34 2026-07-23  TECHNICAL DETAILS GONE FROM A CLEAN PUBLISH. v32 put
+//                      the report behind a toggle, which was the right
+//                      direction and not far enough: on a publish where
+//                      nothing went wrong there is nothing to explain, so
+//                      even the link is clutter on the one screen that
+//                      should read as an accomplishment.
+//                      It now appears ONLY alongside a warning, meaning the
+//                      listing saved but something about the photos did not,
+//                      which is exactly when the detail is worth having.
+//                      A clean publish shows a tick, one sentence, and three
+//                      ways onward.
 //   lw-v33 2026-07-23  RENT PUBLISHED WITHOUT ITS CURRENCY FORMATTING.
 //                      On a live listing: Rent 1800, Deposit $1,800.00,
 //                      Total move-in fees $2,500.00. One of three unstyled.
@@ -665,12 +695,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v33";
+const LW_VERSION = "lw-v35";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v33";
+  var LW_VERSION = "lw-v35";
   var DEBUG = false;
 
   // =============================================================
@@ -2101,6 +2131,18 @@ const WIZARD = String.raw`(function () {
   // worked and nowhere to go. The report was built for debugging and stayed
   // long after it stopped earning its place on screen. It is behind a toggle
   // now, still one click away when something needs explaining.
+  // One sentence, not two facts stapled together. The photo count leads
+  // because it is the concrete result; the visibility state closes because it
+  // is what the member acts on next.
+  function doneSentence(live, photos) {
+    var visibility = live ? "renters can find it now."
+                          : "nobody can see it until you publish it.";
+    var out = photos
+      ? (photos + (photos === 1 ? " photo is" : " photos are") + " on it, and " + visibility)
+      : visibility;
+    return out.charAt(0).toUpperCase() + out.slice(1);
+  }
+
   function showDone(opts) {
     var card = document.getElementById("lw-card");
     var wrap = document.getElementById("lw-wrap");
@@ -2111,11 +2153,7 @@ const WIZARD = String.raw`(function () {
     var h = "<div class='lw-done'>" +
       "<div class='lw-tick'>&#10003;</div>" +
       "<h2 class='lw-h'>" + (live ? "Listing published" : "Saved as a draft") + "</h2>" +
-      "<p class='lw-donesub'>" +
-        (live ? "It is live and renters can find it now." :
-                "Nobody can see it yet. Publish it from your listings when it is ready.") +
-        (photos ? (" " + photos + (photos === 1 ? " photo was" : " photos were") + " uploaded.") : "") +
-      "</p>";
+      "<p class='lw-donesub'>" + esc(doneSentence(live, photos)) + "</p>";
 
     if (opts.photoWarning) {
       h += "<div class='lw-warn' style='text-align:left'>" + opts.photoWarning + "</div>";
@@ -2129,7 +2167,9 @@ const WIZARD = String.raw`(function () {
     h += "<a class='lw-btn lw-ghost' href='/account/properties/newgroup'>Post another</a>" +
       "</div>";
 
-    if (opts.report) {
+    // The report belongs to the cases that need explaining, not to a clean
+    // publish. Nothing went wrong, so there is nothing to show.
+    if (opts.report && opts.photoWarning) {
       h += "<p class='lw-esc'><a data-act='details'>Technical details</a></p>" +
            "<div id='lw-details' style='display:none'><textarea readonly class='lw-report'>" +
            esc(opts.report) + "</textarea></div>";
