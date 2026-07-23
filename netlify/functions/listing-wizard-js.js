@@ -1,4 +1,4 @@
-// lw-v23  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v24  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,45 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v24 2026-07-23  PHOTOS ARE IN THE WIZARD. The capture landed.
+//
+//                      BD'S UPLOAD, DECODED FROM THE LIVE CALL:
+//                      Stage 1, one POST /wapi/widget PER FILE, widget_name
+//                        'Admin - Bootstrap Theme - Function - Image
+//                        Validation', returns {status:true,error_code:''}.
+//                      Stage 2, ONE POST for ALL files:
+//                        /wapi/widget?request_type=GET
+//                        &widget_name=Bootstrap Theme - Account - Photo
+//                        Albums Upload Form&header_type=json
+//                        &mfaction=upload_image
+//                        album_images[] repeated, plus group_id, user_id,
+//                        data_id, data_type=4.
+//                      GROUP_ID IS THE LISTING ID. BD calls listings groups
+//                      throughout: group_name, group_desc, group_status,
+//                      /newgroup. Consistent, and it is the id photos hang
+//                      off. The addphotos URL carries a 32-char hash rather
+//                      than the id, so the id is read off that page.
+//
+//                      WHAT SHIPPED: a real drop zone on step 1. Files are
+//                      held as File objects and pushed after the save, since
+//                      they need a group_id that does not exist until then.
+//                      LIMITS ARE BD'S OWN, lifted from its validation call
+//                      rather than invented: 10,000,000 bytes and
+//                      png/jpg/jpeg/gif/svg/webp. Rejects are named on
+//                      screen with the reason. Duplicates are ignored.
+//
+//                      THE CHAIN, on the in-page save: post the form, follow
+//                      the redirect to addphotos, read group_id and data_id
+//                      off that page, then upload every photo in ONE call.
+//                      Each step reports, and any failure leaves the photos
+//                      queued and tells the member to use the photo page.
+//                      A listing is never left thinking photos went up when
+//                      they did not.
+//
+//                      The step is 'Add your photos' again, which the v21
+//                      guard now permits because the control genuinely
+//                      exists. That guard flipped: it asserts a file input
+//                      IS present rather than absent.
 //   lw-v23 2026-07-23  DROPPED THE TITLE PLACEHOLDER. A placeholder only
 //                      shows while a field is empty, and since v22 that
 //                      field fills itself from the address, so the Denver,
@@ -398,12 +437,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v23";
+const LW_VERSION = "lw-v24";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v23";
+  var LW_VERSION = "lw-v24";
   var DEBUG = false;
 
   // =============================================================
@@ -1054,6 +1093,19 @@ const WIZARD = String.raw`(function () {
     ".lw-rev td.empty{color:#c0392b;font-weight:400;font-style:italic}",
     ".lw-esc{margin-top:14px;font-size:12.5px;color:#8593a4;text-align:center}",
     ".lw-esc a{color:#5b6b7d;text-decoration:underline;cursor:pointer}",
+    ".lw-drop{border:2px dashed #ccd8e4;border-radius:11px;padding:26px 20px;text-align:center;background:#fbfdff;margin-bottom:14px;transition:border-color .15s,background .15s}",
+    ".lw-drop.over{border-color:#0d2d4e;background:#f2f7fc}",
+    ".lw-dropbig{margin:0 0 4px;font-size:16px;font-weight:600;color:#0d2d4e}",
+    ".lw-dropsub{margin:0 0 8px;font-size:13px;color:#5b6b7d}",
+    ".lw-dropsub a{color:#0d2d4e;text-decoration:underline;cursor:pointer;font-weight:600}",
+    ".lw-photocount{margin:0;font-size:12.5px;color:#7a8798;font-weight:600}",
+    ".lw-photolist{list-style:none;margin:0 0 16px;padding:0}",
+    ".lw-photolist li{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e6ebf1;border-radius:7px;margin-bottom:6px;font-size:13px;background:#fff}",
+    ".lw-photolist li.bad{color:#c0392b;background:#fdf6f5;border-color:#f0d5d1;display:block}",
+    ".lw-photolist .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#1e2b3a}",
+    ".lw-photolist .s{color:#8593a4;font-size:12px}",
+    ".lw-photolist .x{border:0;background:none;color:#8593a4;cursor:pointer;font-size:12px;text-decoration:underline;font-family:inherit}",
+    ".lw-photolist .x:hover{color:#c0392b}",
     ".lw-addrstate.skip{display:none}",
     ".lw-addrstate{margin-top:12px;font-size:13px;color:#8a6d1f;background:#fffbea;border:1px solid #f0e2b0;border-radius:8px;padding:10px 13px}",
     ".lw-addrstate.ok{color:#1e6b3c;background:#f2faf5;border-color:#bfe3ce}",
@@ -1073,8 +1125,8 @@ const WIZARD = String.raw`(function () {
   var STEPS = [
     {
       note: "photos",
-      title: "Have your photos ready",
-      sub: "Photos do more for a listing than anything else on it. There is nothing to upload on this step, so use it to check you have the shots below before you fill anything in.",
+      title: "Add your photos",
+      sub: "Photos do more for a listing than anything else on it. Add them here and they go up on their own once the listing is saved.",
       fields: []
     },
     {
@@ -1192,7 +1244,15 @@ const WIZARD = String.raw`(function () {
         "<div id='lw-addr-state' class='lw-addrstate'>Pick the address from the dropdown so the map pin sets.</div>";
     }
     if (kind === "photos") {
-      return "<p class='lw-eyebrow'>What is required</p>" +
+      return "<div id='lw-drop' class='lw-drop'>" +
+          "<p class='lw-dropbig'>Add your photos</p>" +
+          "<p class='lw-dropsub'>Drag them here, or <a data-act='pickphotos'>choose files</a>. " +
+          "JPG, PNG, GIF, WEBP or SVG, up to 10 MB each.</p>" +
+          "<input type='file' id='lw-photoinput' multiple accept='image/*' style='display:none'>" +
+          "<p class='lw-photocount' id='lw-photocount'>No photos chosen yet</p>" +
+        "</div>" +
+        "<ul class='lw-photolist' id='lw-photolist'></ul>" +
+        "<p class='lw-eyebrow'>What is required</p>" +
         "<ul class='lw-check'>" +
         "<li>The outside: front, and the street it sits on</li>" +
         "<li>Every room, including each bedroom and each bathroom</li>" +
@@ -1200,8 +1260,8 @@ const WIZARD = String.raw`(function () {
         "<li>Shared spaces: laundry, yard, garage, hallways, parking</li>" +
         "<li>Daylight, lights on, nothing blurry, no logos or watermarks</li>" +
         "</ul>" +
-        "<div class='lw-note'>You will upload these at the end, once the listing is saved. Anything short of the " +
-        "list above gets set back to draft, with an email saying what is missing.</div>";
+        "<div class='lw-note'>These upload at the end, once the listing exists. Anything short of the list above " +
+        "gets set back to draft, with an email saying what is missing.</div>";
     }
     if (kind === "review") return "<div id='lw-review'></div>";
     return "";
@@ -1356,6 +1416,36 @@ const WIZARD = String.raw`(function () {
     wrap.className = "lw-f";
     var e = wrap.querySelector(".lw-err");
     if (e) e.textContent = "";
+  }
+
+  function bindPhotoZone(root) {
+    var input = root.querySelector("#lw-photoinput");
+    if (input) {
+      input.addEventListener("change", function () {
+        if (input.files && input.files.length) addPhotos(input.files);
+        input.value = "";
+      });
+    }
+    var zone = root.querySelector("#lw-drop");
+    if (zone) {
+      ["dragenter", "dragover"].forEach(function (ev) {
+        zone.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); zone.className = "lw-drop over"; });
+      });
+      ["dragleave", "drop"].forEach(function (ev) {
+        zone.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); zone.className = "lw-drop"; });
+      });
+      zone.addEventListener("drop", function (e) {
+        var dt = e.dataTransfer;
+        if (dt && dt.files && dt.files.length) addPhotos(dt.files);
+      });
+    }
+    root.addEventListener("click", function (e) {
+      var t = e.target;
+      var idx = t && t.getAttribute ? t.getAttribute("data-photo-remove") : null;
+      if (idx === null || idx === undefined) return;
+      e.preventDefault();
+      removePhoto(parseInt(idx, 10));
+    }, true);
   }
 
   function bindMirror(root) {
@@ -1645,13 +1735,60 @@ const WIZARD = String.raw`(function () {
                      "redirected: " + (r.redirected === true),
                      "body length: " + txt.length,
                      "took: " + ms + "ms",
+                     "photos queued: " + PHOTOS.length,
                      "body starts: " + txt.slice(0, 300)].join(String.fromCharCode(10));
-          say("<strong>Saved without leaving the page.</strong> Report below, copy it to Claude." +
-              "<textarea readonly style='width:100%;height:120px;margin-top:9px;font-family:monospace;font-size:11px;" +
-              "border:1px solid #ccd4de;border-radius:6px;padding:8px'>" + esc(rep) + "</textarea>" +
-              "<p style='font-size:12.5px;color:#5b6b7d;margin:8px 0 0'>Check your listings before saving again, " +
-              "so this cannot create a second copy.</p>");
-          savingInPage = false;
+
+          function finish(extra) {
+            say("<strong>Saved without leaving the page.</strong>" + (extra || "") +
+                "<textarea readonly style='width:100%;height:130px;margin-top:9px;font-family:monospace;font-size:11px;" +
+                "border:1px solid #ccd4de;border-radius:6px;padding:8px'>" + esc(rep) + "</textarea>" +
+                "<p style='font-size:12.5px;color:#5b6b7d;margin:8px 0 0'>Copy this to Claude. Check your listings " +
+                "before saving again, so this cannot create a second copy.</p>");
+            savingInPage = false;
+          }
+
+          if (!PHOTOS.length) { finish(" No photos were queued."); return; }
+
+          // The save response is not the photo page. group_id and data_id
+          // live on the addphotos page, so follow the redirect and read them
+          // off it rather than guessing an id.
+          var addUrl = (r.url && r.url.indexOf("addphotos") !== -1) ? r.url : "";
+          if (!addUrl) {
+            var SL = String.fromCharCode(47);
+            var m = txt.match(new RegExp(SL + "account" + SL + "properties" + SL + "addphotos" + SL + "[a-z0-9]+", "i"));
+            if (m) addUrl = m[0];
+          }
+          if (!addUrl) {
+            rep += String.fromCharCode(10) + "photo upload: SKIPPED, no addphotos url in the response";
+            finish(" The listing saved but the photo page could not be located, so your " +
+                   PHOTOS.length + " photos were not uploaded. They are still listed on step 1.");
+            return;
+          }
+
+          window.fetch(addUrl, { credentials: "same-origin" })
+            .then(function (pr) { return pr.text(); })
+            .then(function (phtml) {
+              var ids = scrapeIds(phtml);
+              rep += String.fromCharCode(10) + "addphotos url: " + addUrl +
+                     String.fromCharCode(10) + "ids: group_id=" + ids.groupId +
+                     " data_id=" + ids.dataId + " user_id=" + ids.userId;
+              if (!ids.groupId || !ids.dataId) {
+                finish(" The listing saved, but the photo ids could not be read, so your photos were not " +
+                       "uploaded. Open the photo page and add them there.");
+                return;
+              }
+              return uploadPhotos(ids).then(function (res) {
+                rep += String.fromCharCode(10) + "upload status: " + res.status +
+                       String.fromCharCode(10) + "upload body: " + String(res.body).slice(0, 300);
+                var good = res.status === 200 && String(res.body).indexOf("success") !== -1;
+                finish(good ? (" " + PHOTOS.length + " photos uploaded.")
+                            : " The listing saved but the photo upload did not report success.");
+              });
+            })
+            .catch(function (e) {
+              rep += String.fromCharCode(10) + "photo stage failed: " + e;
+              finish(" The listing saved. The photo upload failed, so add them on the photo page.");
+            });
         });
       })
       .catch(function (e) {
@@ -1761,6 +1898,112 @@ const WIZARD = String.raw`(function () {
     if (note) note.innerHTML = "Filled in from the address. Edit it if you want something different.";
   }
 
+  // =============================================================
+  // PHOTO QUEUE - files chosen at step 1, uploaded after the save.
+  // Photos attach to a group_id that does not exist until the listing is
+  // created, so they are held as File objects and pushed at the end.
+  // Limits are BD's own, read straight off its validation call:
+  //   sizeAllowed 10000000, extensions png,jpg,jpeg,gif,svg,webp
+  // =============================================================
+  var PHOTOS = [];
+  var MAX_BYTES = 10000000;
+  var OK_EXT = "png,jpg,jpeg,gif,svg,webp";
+
+  function extOf(name) {
+    var n = String(name || "");
+    var dot = n.lastIndexOf(".");
+    return dot === -1 ? "" : n.slice(dot + 1).toLowerCase();
+  }
+
+  function photoProblem(f) {
+    if (!f) return "unreadable";
+    if (OK_EXT.split(",").indexOf(extOf(f.name)) === -1) return "not an image BD accepts";
+    if (f.size > MAX_BYTES) return "over 10 MB";
+    if (!f.size) return "empty file";
+    return "";
+  }
+
+  function addPhotos(list) {
+    var added = 0, skipped = [];
+    for (var i = 0; i < list.length; i++) {
+      var f = list[i];
+      var bad = photoProblem(f);
+      if (bad) { skipped.push(f.name + " (" + bad + ")"); continue; }
+      var dupe = false;
+      for (var j = 0; j < PHOTOS.length; j++) {
+        if (PHOTOS[j].name === f.name && PHOTOS[j].size === f.size) dupe = true;
+      }
+      if (dupe) continue;
+      PHOTOS.push(f);
+      added++;
+    }
+    paintPhotos(skipped);
+    return added;
+  }
+
+  function removePhoto(idx) {
+    PHOTOS.splice(idx, 1);
+    paintPhotos([]);
+  }
+
+  function kb(n) {
+    if (n > 1000000) return (n / 1000000).toFixed(1) + " MB";
+    return Math.round(n / 1000) + " KB";
+  }
+
+  function paintPhotos(skipped) {
+    var list = document.getElementById("lw-photolist");
+    var count = document.getElementById("lw-photocount");
+    if (count) {
+      count.textContent = PHOTOS.length === 0 ? "No photos chosen yet"
+        : (PHOTOS.length + (PHOTOS.length === 1 ? " photo ready" : " photos ready"));
+    }
+    if (!list) return;
+    var h = "";
+    for (var i = 0; i < PHOTOS.length; i++) {
+      h += "<li><span class=n>" + esc(PHOTOS[i].name) + "</span>" +
+           "<span class=s>" + kb(PHOTOS[i].size) + "</span>" +
+           "<button type=button class=x data-photo-remove=" + i + ">Remove</button></li>";
+    }
+    if (skipped && skipped.length) {
+      h += "<li class=bad>Skipped: " + esc(skipped.join(", ")) + "</li>";
+    }
+    list.innerHTML = h;
+  }
+
+  // STAGE 2 of BD's own flow: every file in ONE request.
+  function uploadPhotos(ids) {
+    if (!PHOTOS.length) return Promise.resolve({ skipped: true });
+    var url = "/wapi/widget?request_type=GET" +
+      "&widget_name=" + encodeURIComponent("Bootstrap Theme - Account - Photo Albums Upload Form") +
+      "&header_type=json&mfaction=upload_image";
+    var fd = new window.FormData();
+    for (var i = 0; i < PHOTOS.length; i++) fd.append("album_images[]", PHOTOS[i], PHOTOS[i].name);
+    fd.append("group_id", ids.groupId);
+    fd.append("user_id", ids.userId);
+    fd.append("data_id", ids.dataId);
+    fd.append("data_type", ids.dataType || "4");
+    return window.fetch(url, { method: "POST", body: fd, credentials: "same-origin" })
+      .then(function (r) { return r.text().then(function (t) { return { status: r.status, body: t }; }); });
+  }
+
+  // group_id and data_id live on the addphotos page, not in the save response.
+  function scrapeIds(html) {
+    var Q = String.fromCharCode(34);   // double quote
+    var A = String.fromCharCode(39);   // single quote
+    function grab(key) {
+      var qc = "[" + Q + A + "]?";
+      var re = new RegExp("name=" + qc + key + qc + "[^>]*value=" + qc + "([0-9]+)", "i");
+      var m = html.match(re);
+      if (m) return m[1];
+      var re2 = new RegExp(key + qc + "[ ]*[:=][ ]*" + qc + "([0-9]+)", "i");
+      var m2 = html.match(re2);
+      return m2 ? m2[1] : "";
+    }
+    return { groupId: grab("group_id"), dataId: grab("data_id"),
+             userId: grab("user_id") || getField("logged_user"), dataType: grab("data_type") || "4" };
+  }
+
   function startAddressWatch() {
     if (window.__rdcLwAddrWatch) return;
     window.__rdcLwAddrWatch = setInterval(function () {
@@ -1829,6 +2072,7 @@ const WIZARD = String.raw`(function () {
     native.appendChild(FORM);
 
     bindMirror(wrap);
+    bindPhotoZone(wrap);
 
     wrap.addEventListener("click", function (e) {
       var t = e.target;
@@ -1848,6 +2092,7 @@ const WIZARD = String.raw`(function () {
       else if (act === "shownative") setFormMode("full");
       else if (act === "togglenative") setFormMode("full");
       else if (act === "usewizard") applyFormModeForStep(stepIndex);
+      else if (act === "pickphotos") { var pi = document.getElementById("lw-photoinput"); if (pi) pi.click(); }
     });
 
     // The first step is rendered with class "on" directly in the HTML, so
