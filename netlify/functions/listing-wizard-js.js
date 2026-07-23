@@ -1,4 +1,4 @@
-// lw-v36  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v37  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,30 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v37 2026-07-23  A SAVED LISTING WAS BEING CALLED A FAILURE.
+//                      Reported live: 'This did not save', while the report
+//                      underneath it read
+//                        final url: .../account/properties/editgroup/<hash>
+//                      which is BD showing the edit page for a listing that
+//                      very much exists.
+//                      BD SIGNALS A SAVED LISTING TWO WAYS and v30-v36 knew
+//                      only one:
+//                        NEW listing   -> /addphotos/<hash> in the response
+//                        SAVED or EDIT -> lands on /editgroup/<hash>
+//                      Either hash proves a listing exists. A rejected post
+//                      returns the form page carrying neither.
+//                      This is the exact MIRROR of the v30 bug, where a
+//                      rejection was announced as a success. Same root
+//                      cause both times: one observed response shape treated
+//                      as the only possible shape.
+//                      The photo page is now DERIVED from the editgroup hash
+//                      when no addphotos link came back, since both URLs
+//                      carry the same listing hash, so photos still upload
+//                      on a save that lands on the edit page.
+//                      NOTE the wizard also mounts on /editgroup/ pages, so
+//                      publishing from an edit posts to editgroup and comes
+//                      back that way. That path is supported now rather than
+//                      misreported.
 //   lw-v36 2026-07-23  PHASE 2. CLAUDE-DRAFTED DESCRIPTIONS. Step 6 gains a
 //                      rough-notes box and a Write the description button,
 //                      calling listing-description.js (ld-v1) on Netlify.
@@ -716,12 +740,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v36";
+const LW_VERSION = "lw-v37";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v36";
+  var LW_VERSION = "lw-v37";
   var DEBUG = false;
 
   // =============================================================
@@ -2377,22 +2401,39 @@ const WIZARD = String.raw`(function () {
           }
 
           // DID IT SAVE? Answer that FIRST, before anything about photos.
-          // An earlier build reported "Saved without leaving the page" and
-          // returned early whenever no photos were queued, so a rejected post
-          // with no photos looked like a clean success.
-          // The proof of a save is an addphotos link: BD only offers one once
-          // a listing exists. group_id and data_id live on that page.
-          var addUrl = (r.url && r.url.indexOf("addphotos") !== -1) ? r.url : "";
-          if (!addUrl) {
-            var SL = String.fromCharCode(47);
-            var m = txt.match(new RegExp(SL + "account" + SL + "properties" + SL + "addphotos" + SL + "[a-z0-9]+", "i"));
-            if (m) addUrl = m[0];
+          //
+          // BD SIGNALS A SAVED LISTING TWO DIFFERENT WAYS and v30-v36 knew
+          // only one of them:
+          //   NEW listing   -> the response carries /addphotos/<hash>
+          //   SAVED or EDIT -> the response lands on /editgroup/<hash>
+          // Reported live: a save that came back on editgroup was announced as
+          // "This did not save", the exact mirror of the earlier bug where a
+          // rejection was announced as a success. EITHER hash proves a listing
+          // exists. A rejected post returns the form page carrying neither.
+          var SL = String.fromCharCode(47);
+          function findPath(kind) {
+            var re = new RegExp(SL + "account" + SL + "properties" + SL + kind + SL + "[a-z0-9]+", "i");
+            if (r.url) { var mu = String(r.url).match(re); if (mu) return mu[0]; }
+            var mb = txt.match(re);
+            return mb ? mb[0] : "";
           }
-          if (!addUrl) {
-            // No addphotos link means BD handed the form back rather than
-            // creating a listing. Reporting that as saved is the worst kind
-            // of lie a tool can tell, because the member walks away.
-            rep += String.fromCharCode(10) + "no addphotos link in the response";
+
+          var addUrl = findPath("addphotos");
+          var editUrl = findPath("editgroup");
+
+          // The photo page and the edit page share the listing hash, so one
+          // can be built from the other when only the edit URL came back.
+          if (!addUrl && editUrl) {
+            addUrl = editUrl.replace("editgroup", "addphotos");
+            rep += String.fromCharCode(10) + "addphotos url derived from the editgroup hash";
+          }
+          if (editUrl) rep += String.fromCharCode(10) + "editgroup url: " + editUrl;
+
+          if (!addUrl && !editUrl) {
+            // Neither hash anywhere means BD handed the form back rather than
+            // saving. Announcing that as saved is the worst kind of lie a tool
+            // can tell, because the member walks away believing it worked.
+            rep += String.fromCharCode(10) + "no addphotos or editgroup link in the response";
             var errBits = [];
             var lowered = txt.toLowerCase();
             var markers = ["required field", "is required", "please enter", "error"];
