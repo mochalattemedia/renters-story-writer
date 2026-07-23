@@ -1,4 +1,4 @@
-// lw-v25  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v26  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,33 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v26 2026-07-23  ONE ACTION ON THE FINAL STEP. Kenny's call.
+//                      v24/v25 put a green Save and go live beside a link
+//                      that was the ONLY path uploading photos, plus a
+//                      warning explaining why not to press the obvious one.
+//                      Two buttons where one quietly does less is a trap
+//                      dressed as a choice, and the warning was a patch over
+//                      a design that should not have existed.
+//                      The last step is now: photos shown as thumbnails for
+//                      a final check, add or remove right there, then ONE
+//                      Publish listing button, with Save as draft beside
+//                      Back. Both go through the in-page path so photos
+//                      always travel with the listing.
+//
+//                      LEARNED FROM THE LIVE SAVE REPORT: the details POST
+//                      DOES NOT REDIRECT. redirected:false, final url stays
+//                      /account/properties/newgroup, and it returns ~299KB
+//                      of page back. So the new listing id never arrives via
+//                      a redirect, which was the working assumption. An
+//                      addphotos link IS present inside that HTML and gets
+//                      followed, but scraping group_id and data_id off that
+//                      page failed.
+//                      SO THE REPORT NOW DUMPS THE MARKUP around group_id,
+//                      data_id, data_type and user_id when the scrape comes
+//                      up empty, instead of guessing at the shape a second
+//                      time. Every unknown this session was settled by
+//                      looking at the artifact, never by reasoning about it.
+//                      Photos stay queued on any failure.
 //   lw-v25 2026-07-23  CLOSED A TRAP v24 OPENED. Adding the drop zone made
 //                      it possible to queue photos and then press the green
 //                      button, which posts the form the normal way. The
@@ -457,12 +484,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v25";
+const LW_VERSION = "lw-v26";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v25";
+  var LW_VERSION = "lw-v26";
   var DEBUG = false;
 
   // =============================================================
@@ -1119,6 +1146,13 @@ const WIZARD = String.raw`(function () {
     ".lw-dropsub{margin:0 0 8px;font-size:13px;color:#5b6b7d}",
     ".lw-dropsub a{color:#0d2d4e;text-decoration:underline;cursor:pointer;font-weight:600}",
     ".lw-photocount{margin:0;font-size:12.5px;color:#7a8798;font-weight:600}",
+    ".lw-revgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:10px}",
+    ".lw-thumb{margin:0;border:1px solid #e6ebf1;border-radius:8px;overflow:hidden;background:#fff;position:relative}",
+    ".lw-thumb img{width:100%;height:88px;object-fit:cover;display:block}",
+    ".lw-nothumb{display:block;height:88px;line-height:88px;text-align:center;color:#8593a4;font-size:12px;background:#f5f7fa}",
+    ".lw-thumb figcaption{font-size:11px;color:#5b6b7d;padding:6px 7px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".lw-thumb .x{display:block;width:100%;border:0;border-top:1px solid #eef1f5;background:none;color:#8593a4;font-size:11px;padding:5px 0;cursor:pointer;font-family:inherit}",
+    ".lw-thumb .x:hover{color:#c0392b;background:#fdf6f5}",
     ".lw-photolist{list-style:none;margin:0 0 16px;padding:0}",
     ".lw-photolist li{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #e6ebf1;border-radius:7px;margin-bottom:6px;font-size:13px;background:#fff}",
     ".lw-photolist li.bad{color:#c0392b;background:#fdf6f5;border-color:#f0d5d1;display:block}",
@@ -1357,23 +1391,52 @@ const WIZARD = String.raw`(function () {
     h += "</table>";
 
     if (!exists(F.golive)) {
-      h += "<div class='lw-warn'>The go-live control is not on this page, so use the form's own save button below.</div>";
+      h += "<div class='lw-warn'>The go-live control is not on this page, so use the form's own save button.</div>";
       h += "<div class='lw-row end'><button type='button' class='lw-btn lw-ghost' data-act='back'>Back</button>" +
            "<button type='button' class='lw-btn lw-navy' data-act='shownative'>Show the form</button></div>";
-    } else {
-      h += "<div class='lw-note'><strong>Photos come next.</strong> There is no photo upload on this form. " +
-           "Once you save, the following page is where interior and exterior photos are added. If you leave now " +
-           "you can get back to it any time from the listing" + AP + "s Actions menu, under Manage Photos.</div>";
-      h += "<div class='lw-note'>Going live publishes this to renters immediately. Save as a draft instead if the " +
-           "photos are not ready, then publish from the listing page once they are up.</div>";
-      h += "<button type='button' class='lw-btn lw-go' data-act='golive'>Save and go live</button>";
-      h += "<div id='lw-savelog'></div>";
-      h += "<div class='lw-esc' style='margin-top:14px'>" +
-           "<a data-act='golive-inpage' id='lw-inpage-link'>Save and upload photos, without leaving this page</a>" +
-           "</div>";
-      h += "<div class='lw-row'><button type='button' class='lw-btn lw-ghost' data-act='back'>Back</button>" +
-           "<button type='button' class='lw-btn lw-ghost' data-act='draft'>Save as draft</button></div>";
+      box.innerHTML = h;
+      return;
     }
+
+    // FINAL CHECK ON PHOTOS, then ONE action.
+    // v24/v25 offered a green Save and go live beside a link that was the
+    // only path that uploaded photos. Two buttons, one of which quietly did
+    // less, is a trap dressed as a choice. There is one publish path now.
+    h += "<p class='lw-eyebrow'>Photos</p>";
+    h += "<div id='lw-revphotos'></div>";
+    h += "<div class='lw-note'>Going live publishes this to renters straight away, photos included. " +
+         "Save as a draft instead if anything is missing, then publish from the listing once it is ready.</div>";
+    h += "<button type='button' class='lw-btn lw-go' data-act='publish'>Publish listing</button>";
+    h += "<div id='lw-savelog'></div>";
+    h += "<div class='lw-row'><button type='button' class='lw-btn lw-ghost' data-act='back'>Back</button>" +
+         "<button type='button' class='lw-btn lw-ghost' data-act='draft-inpage'>Save as draft</button></div>";
+    box.innerHTML = h;
+    paintReviewPhotos();
+  }
+
+  // The last thing before publishing is the photos, because that is what
+  // gets a listing sent back to draft.
+  function paintReviewPhotos() {
+    var box = document.getElementById("lw-revphotos");
+    if (!box) return;
+    if (!PHOTOS.length) {
+      box.innerHTML = "<div class='lw-warn'>No photos yet. " +
+        "<a data-act='gophotos'>Add them before you publish</a>.</div>";
+      return;
+    }
+    var h = "<div class='lw-revgrid'>";
+    for (var i = 0; i < PHOTOS.length; i++) {
+      var src = "";
+      try { src = window.URL.createObjectURL(PHOTOS[i]); } catch (e) {}
+      h += "<figure class='lw-thumb'>" +
+             (src ? "<img src='" + src + "' alt=''>" : "<span class='lw-nothumb'>image</span>") +
+             "<figcaption>" + esc(PHOTOS[i].name) + "</figcaption>" +
+             "<button type='button' class='x' data-photo-remove=" + i + ">Remove</button>" +
+           "</figure>";
+    }
+    h += "</div>";
+    h += "<p class='lw-photocount'>" + PHOTOS.length + (PHOTOS.length === 1 ? " photo" : " photos") +
+         " will upload with this listing. <a data-act='gophotos'>Add more</a></p>";
     box.innerHTML = h;
   }
 
@@ -1814,8 +1877,21 @@ const WIZARD = String.raw`(function () {
                      String.fromCharCode(10) + "ids: group_id=" + ids.groupId +
                      " data_id=" + ids.dataId + " user_id=" + ids.userId;
               if (!ids.groupId || !ids.dataId) {
+                // Show the surrounding markup rather than guessing at it a
+                // second time. Every unknown this session was settled by
+                // looking at the artifact, never by reasoning about it.
+                var hint = "";
+                var keys = ["group_id", "data_id", "data_type", "user_id"];
+                for (var k = 0; k < keys.length; k++) {
+                  var at = phtml.indexOf(keys[k]);
+                  hint += String.fromCharCode(10) + keys[k] + ": " +
+                    (at === -1 ? "NOT FOUND in the page"
+                               : phtml.slice(Math.max(0, at - 90), at + 110).replace(/[ ]+/g, " "));
+                }
+                rep += String.fromCharCode(10) + "page length: " + phtml.length + hint;
                 finish(" The listing saved, but the photo ids could not be read, so your photos were not " +
-                       "uploaded. Open the photo page and add them there.");
+                       "uploaded yet. The report below shows what that page actually contains, which is what " +
+                       "I need to fix it. Your photos are still queued here.");
                 return;
               }
               return uploadPhotos(ids).then(function (res) {
@@ -2010,6 +2086,7 @@ const WIZARD = String.raw`(function () {
       h += "<li class=bad>Skipped: " + esc(skipped.join(", ")) + "</li>";
     }
     list.innerHTML = h;
+    paintReviewPhotos();
   }
 
   // STAGE 2 of BD's own flow: every file in ONE request.
@@ -2127,8 +2204,10 @@ const WIZARD = String.raw`(function () {
         showStep(Math.min(stepIndex + 1, STEPS.length - 1));
       }
       else if (act === "back") showStep(Math.max(stepIndex - 1, 0));
+      else if (act === "publish") submitInPage(true);
+      else if (act === "draft-inpage") submitInPage(false);
+      else if (act === "gophotos") showStep(0);
       else if (act === "golive") submitForm(true);
-      else if (act === "golive-inpage") submitInPage(true);
       else if (act === "draft") submitForm(false);
       else if (act === "shownative") setFormMode("full");
       else if (act === "togglenative") setFormMode("full");
