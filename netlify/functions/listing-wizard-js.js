@@ -1,4 +1,4 @@
-// lw-v12  <-- PASTE CHECK  ***  WIZARD UI IS OFF IN THIS BUILD  ***: this is the version. Must match ?version=1
+// lw-v14  <-- PASTE CHECK  ***  WIZARD BACK ON, BUILT FROM THE REAL FORM  ***: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,67 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v14 2026-07-22  BUILT FROM THE ACTUAL FORM. MOUNT_UI back to true.
+//                      The live dump of property_listing_316 exposed four
+//                      real bugs, all invisible from the POST capture:
+//
+//                      1. RENT IS post_promo, NOT property_price. The
+//                         form-group LABELED '* Rent:' contains post_promo.
+//                         property_price is a standalone HIDDEN input with
+//                         no label that BD syncs itself. v1-v13 wrote rent
+//                         to property_price, and wrote a 'promotional rent'
+//                         the form does not have to post_promo. So the rent
+//                         went nowhere and the promo field was the rent.
+//                         Second label-vs-variable trap on this form.
+//                      2. RENT, DEPOSIT AND MOVE-IN EACH HAVE TWO INPUTS
+//                         SHARING ONE NAME: a hidden 'fixed-' formatted twin
+//                         and the visible text box, hidden one FIRST in the
+//                         DOM. Taking nodes[0] wrote the invisible twin and
+//                         left the member's field empty. one() now prefers
+//                         the first non-hidden node.
+//                      3. THE FORM IS NAMED property_listing_316. An exact
+//                         match on 'property_listing' never hit; discovery
+//                         was surviving on a fallback. Prefix match now.
+//                      4. TWO SUBMIT BUTTONS. FormValidation's
+//                         button.fv-hidden-submit comes first in the DOM, so
+//                         go-live was clicking it rather than the real Save.
+//                         Real submits are tried first now.
+//
+//                      ALSO: address1, city and zip_code DO NOT EXIST on
+//                      this form. The address is a Places autocomplete with
+//                      no name attribute (id pac-input) inside a div.well
+//                      that holds NOTHING NAMED, so that container is MOVED
+//                      into the wizard card and the raw form is hidden
+//                      completely. Nothing leaves the POST because the
+//                      fields it feeds (lat, lon, country_sn, state_sn,
+//                      post_location) are separate hidden inputs.
+//                      Step 1 now refuses to advance until lat/lon actually
+//                      land, so a listing can no longer be built on top of
+//                      an address that never geocoded.
+//                      Editors are plain contenteditable, not tinymce or
+//                      CKEditor. The v9 fallback path covers it and the
+//                      read-back gate still guards it.
+//                      LATE FIX before ship: the new address gate read
+//                      lat/lon to confirm the geocode, but a form with
+//                      NO lat/lon would have trapped the member on step
+//                      1 with no way forward. It FAILS OPEN now: no
+//                      fields to check means no gate. Found because the
+//                      older test mocks lack those fields.
+//   lw-v13 2026-07-22  ON-PAGE REPORT PANEL. Wizard still OFF.
+//                      The console route failed twice in practice: the
+//                      command name was unfamiliar, and the first attempt
+//                      ran before the build had deployed so it threw
+//                      'not defined', which reads like a broken file rather
+//                      than a stale one. Asking a solo founder to open dev
+//                      tools to unblock a build is friction I introduced.
+//                      The report now renders as a panel above BD's form
+//                      with the text prefilled and a Copy button. No dev
+//                      tools. It reads the form and changes nothing.
+//                      ALSO: the retry loop logged the UI-OFF line 13 times
+//                      per page load, because it only stopped when it found
+//                      a wizard that was never going to mount. Logs once now
+//                      and the interval clears when the panel is up.
+//                      The panel disappears when MOUNT_UI goes back to true.
 //   lw-v12 2026-07-22  *** WIZARD UI TURNED OFF. DIAGNOSTIC BUILD. ***
 //                      Live report: the address region never appeared on
 //                      step 1, the member could not find where to enter the
@@ -183,12 +244,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v12";
+const LW_VERSION = "lw-v14";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v12";
+  var LW_VERSION = "lw-v14";
   var DEBUG = false;
 
   // =============================================================
@@ -208,7 +269,7 @@ const WIZARD = String.raw`(function () {
   // TO TURN IT BACK ON: set this to true. Do that only after rdcLwProbe()
   // output has been read and the field lookups are keyed to real ids.
   // =============================================================
-  var MOUNT_UI = false;
+  var MOUNT_UI = true;
 
   // PATH SCOPE - deliberately broad, then gated by the form itself.
   // lw-v1 scoped to /account/properties/add because the capture spec called
@@ -256,9 +317,20 @@ const WIZARD = String.raw`(function () {
   // is wrong. Writing beds -> property_baths is CORRECT.
   // Flipping this to match the variable names flips every listing.
   // ---------------------------------------------------------------
+  // *** RENT IS post_promo, NOT property_price. *** Confirmed from the live
+  // form dump: the form-group LABELED "* Rent:" contains post_promo. The
+  // field named property_price is a standalone HIDDEN input with no id and
+  // no label, which BD syncs itself. Writing rent to property_price put it
+  // somewhere the member could not see and BD did not read. Same class of
+  // trap as the bed/bath names: MAP BY LABEL, NEVER BY VARIABLE NAME.
+  //
+  // There is also NO promotional-rent field on this form. lw-v1 to v13
+  // carried one, invented from the capture spec, and it wrote to post_promo,
+  // which is the actual Rent field. So the wizard's "Promotional rent" was
+  // the real rent and its "Monthly rent" went nowhere.
   var F = {
     title:      "group_name",
-    price:      "property_price",
+    price:      "post_promo",
     beds:       "property_baths",        // <-- BEDROOMS. Correct. See above.
     baths:      "property_beds",         // <-- BATHROOMS. Correct. See above.
     sqft:       "property_sqr_foot",
@@ -268,7 +340,6 @@ const WIZARD = String.raw`(function () {
     duration:   "property_duration",
     furnished:  "status",
     deposit:    "deposit_amount",
-    promo:      "post_promo",
     movein:     "total_cost_to_movei",
     mincredit:  "minimum_cc_requ",
     minincome:  "minimum_income_requ",
@@ -276,18 +347,26 @@ const WIZARD = String.raw`(function () {
     terms:      "group_desc_2",
     golive:     "group_status",
     location:   "post_location",
-    address1:   "address1",
-    city:       "city",
-    zip:        "zip_code",
     lat:        "lat",
     lon:        "lon"
   };
+  // NOT ON THIS FORM (confirmed by dump): address1, city, zip_code. The
+  // address is entered through a Google Places autocomplete with NO name
+  // attribute (id "pac-input"), and the widget writes lat, lon, country_sn,
+  // state_sn and post_location. Nothing to mirror; the widget owns it.
 
   // ---------------------------------------------------------------
   // FORM DISCOVERY
   // ---------------------------------------------------------------
   var FORM = null;
   function findForm() {
+    // BD names the form property_listing_NNN (property_listing_316 live), so
+    // an exact match on "property_listing" never hits. Prefix match first.
+    var forms0 = document.querySelectorAll("form");
+    for (var z = 0; z < forms0.length; z++) {
+      var nm = (forms0[z].getAttribute("name") || "") + " " + (forms0[z].id || "");
+      if (nm.indexOf("property_listing") !== -1) return forms0[z];
+    }
     var f = document.querySelector("form[name=property_listing]");
     if (f) return f;
     var marker = document.querySelector("input[name=formname][value=property_listing]");
@@ -305,7 +384,19 @@ const WIZARD = String.raw`(function () {
     if (!n.length && scope !== document) n = document.querySelectorAll("[name='" + name + "']");
     return n.length ? n : null;
   }
-  function one(name) { var n = el(name); return n ? n[0] : null; }
+  // Rent, Deposit and Total move-in fees each have TWO inputs sharing one
+  // name: a hidden "fixed-" formatted companion and the visible text box the
+  // member types into. The hidden one comes FIRST in the DOM, so taking
+  // nodes[0] wrote to the invisible twin and left the visible field empty.
+  function one(name) {
+    var n = el(name);
+    if (!n) return null;
+    for (var i = 0; i < n.length; i++) {
+      var t = (n[i].type || "").toLowerCase();
+      if (t !== "hidden") return n[i];
+    }
+    return n[0];
+  }
   function exists(name) { return !!one(name); }
 
   function fire(node) {
@@ -325,7 +416,7 @@ const WIZARD = String.raw`(function () {
   function setField(name, value) {
     var nodes = el(name);
     if (!nodes) { log("MISSING field on set:", name); return false; }
-    var first = nodes[0];
+    var first = one(name) || nodes[0];
     var type = (first.type || "").toLowerCase();
 
     if (type === "radio" || type === "checkbox") {
@@ -364,7 +455,7 @@ const WIZARD = String.raw`(function () {
   function getField(name) {
     var nodes = el(name);
     if (!nodes) return "";
-    var first = nodes[0];
+    var first = one(name) || nodes[0];
     var type = (first.type || "").toLowerCase();
     if (type === "radio" || type === "checkbox") {
       for (var i = 0; i < nodes.length; i++) if (nodes[i].checked) return nodes[i].value;
@@ -638,10 +729,19 @@ const WIZARD = String.raw`(function () {
     return rows;
   };
 
+  // BD's form carries TWO submits: FormValidation's button.fv-hidden-submit
+  // (first in the DOM) and the real one in .form-actions. Clicking the hidden
+  // one is not the same as the member pressing Save, so it goes last.
   function submitButtons() {
     var scope = FORM || document;
-    var list = scope.querySelectorAll("input[type=submit], button[type=submit], button.btn-submit, #save_form");
-    return [].slice.call(list);
+    var list = [].slice.call(scope.querySelectorAll("input[type=submit], button[type=submit], button.btn-submit, #save_form"));
+    var real = [], hidden = [];
+    for (var i = 0; i < list.length; i++) {
+      var c = (list[i].className || "");
+      if (c.indexOf("fv-hidden-submit") !== -1) hidden.push(list[i]);
+      else real.push(list[i]);
+    }
+    return real.concat(hidden);
   }
 
   var missing = [];
@@ -703,6 +803,10 @@ const WIZARD = String.raw`(function () {
     ".lw-rev td.empty{color:#c0392b;font-weight:400;font-style:italic}",
     ".lw-esc{margin-top:14px;font-size:12.5px;color:#8593a4;text-align:center}",
     ".lw-esc a{color:#5b6b7d;text-decoration:underline;cursor:pointer}",
+    ".lw-addrstate.skip{display:none}",
+    ".lw-addrstate{margin-top:12px;font-size:13px;color:#8a6d1f;background:#fffbea;border:1px solid #f0e2b0;border-radius:8px;padding:10px 13px}",
+    ".lw-addrstate.ok{color:#1e6b3c;background:#f2faf5;border-color:#bfe3ce}",
+    "#lw-addr-slot .well{margin:0;border:1px solid #dfe4ea;border-radius:9px;padding:14px}",
     "#lw-native{display:none}",
     "#lw-native.show{display:block}",
     "#lw-native.address-only{background:#fff;border:1px solid #dfe4ea;border-top:0;border-radius:0 0 12px 12px;padding:4px 26px 20px;max-width:860px;margin:-26px 0 26px}",
@@ -744,8 +848,7 @@ const WIZARD = String.raw`(function () {
       sub: "Renters filter hard on this. A listing that states the real number up front gets fewer dead leads and fewer people walking away at the last step.",
       fields: [
         { key: "deposit", label: "Security deposit", kind: "number", required: false, placeholder: "1800" },
-        { key: "movein", label: "Total cost to move in", kind: "number", required: false, hint: "Deposit plus first month plus any fees" },
-        { key: "promo", label: "Promotional rent", kind: "number", required: false, hint: "Leave blank if none" }
+        { key: "movein", label: "Total cost to move in", kind: "number", required: false, hint: "Deposit plus first month plus any fees" }
       ]
     },
     {
@@ -832,9 +935,10 @@ const WIZARD = String.raw`(function () {
 
   function noteHTML(kind) {
     if (kind === "address") {
-      return "<div class='lw-note'>Fill in the address in the block just below, and give it a moment to find the " +
-        "location. It saves on its own, separately from everything else, which is why it sits outside this card. " +
-        "Every other field is handled here.</div>";
+      return "<div class='lw-note'>Start typing the street address and pick it from the list. The map confirms " +
+        "the pin. This one saves on its own as you choose it, separately from everything else.</div>" +
+        "<div id='lw-addr-slot'></div>" +
+        "<div id='lw-addr-state' class='lw-addrstate'></div>";
     }
     if (kind === "photos") {
       return "<div class='lw-note'>Photos upload on their own page after this form is saved. Finish here, hit " +
@@ -944,6 +1048,14 @@ const WIZARD = String.raw`(function () {
     for (var j = 0; j < pips.length; j++) pips[j].className = "lw-pip" + (j <= n ? " on" : "");
     stepIndex = n;
     applyFormModeForStep(n);
+    if (STEPS[n] && STEPS[n].note === "address") {
+      paintAddressState();
+      if (!window.__rdcLwAddrWatch) {
+        window.__rdcLwAddrWatch = setInterval(function () {
+          if (STEPS[stepIndex] && STEPS[stepIndex].note === "address") paintAddressState();
+        }, 900);
+      }
+    }
     if (STEPS[n] && STEPS[n].note === "review") renderReview();
     try {
       var card = document.getElementById("lw-card");
@@ -1062,6 +1174,8 @@ const WIZARD = String.raw`(function () {
   }
 
   function addressAutocomplete() {
+    var byId = document.getElementById("pac-input");
+    if (byId) return byId;
     var scope = FORM || document;
     var ins = scope.querySelectorAll("input[type=text], input:not([type])");
     for (var i = 0; i < ins.length; i++) {
@@ -1083,6 +1197,37 @@ const WIZARD = String.raw`(function () {
       if (c.querySelector && c.querySelector("a[href*='maps.google']")) return c;
     }
     return null;
+  }
+
+  // THE ADDRESS WIDGET IS RELOCATABLE. Its container (div.well) holds the
+  // Places autocomplete and the map and NOTHING WITH A NAME ATTRIBUTE, so
+  // moving it out of the form drops nothing from the POST. The named fields
+  // it feeds (lat, lon, country_sn, state_sn, post_location) are separate
+  // hidden inputs that stay put. Moving a node carries its event listeners,
+  // so Google's binding travels with it. This is what lets the raw form be
+  // hidden completely instead of half-shown.
+  var addrMoved = false;
+
+  function addressWidgetContainer() {
+    var pac = addressAutocomplete();
+    if (!pac) return null;
+    var block = topLevelBlockOf(pac);
+    if (!block) return null;
+    var named = block.querySelectorAll("input[name], select[name], textarea[name]");
+    if (named.length) { log("address block carries named fields, will not move it", named.length); return null; }
+    return block;
+  }
+
+  function relocateAddressWidget() {
+    if (addrMoved) return true;
+    var block = addressWidgetContainer();
+    var slot = document.getElementById("lw-addr-slot");
+    if (!block || !slot) return false;
+    slot.appendChild(block);
+    block.style.display = "";
+    addrMoved = true;
+    log("address widget relocated into the wizard");
+    return true;
   }
 
   function addressBlocks() {
@@ -1158,6 +1303,7 @@ const WIZARD = String.raw`(function () {
     setEscLabel("<a data-act='togglenative'>Show all fields on one page</a>");
 
     if (mode === "address") {
+      if (relocateAddressWidget()) { n.className = ""; return; }
       var blocks = addressBlocks();
       if (!blocks.length) { n.className = ""; return; }
       var kids = formChildren();
@@ -1187,6 +1333,37 @@ const WIZARD = String.raw`(function () {
     if (force) setFormMode("full");
   }
 
+  // READ BACK THE GEOCODE. The widget saves itself, so the only proof it
+  // fired is lat/lon landing in the hidden inputs. Bible rule 15.
+  function addressState() {
+    // FAIL OPEN. If this form has no lat/lon at all there is nothing to
+    // confirm, so the gate must not exist. Gating on a field that cannot be
+    // filled would trap the member on step 1 with no way forward, which is
+    // a worse failure than an unverified address.
+    if (!exists(F.lat) || !exists(F.lon)) return { skip: true, ok: true, text: "" };
+    var la = getField(F.lat), lo = getField(F.lon);
+    var loc = stripTags(getField(F.location));
+    if (la && lo && String(la) !== "0" && String(lo) !== "0") {
+      return { ok: true, text: loc || (la + ", " + lo) };
+    }
+    return { ok: false, text: "" };
+  }
+
+  function paintAddressState() {
+    var box = document.getElementById("lw-addr-state");
+    if (!box) return;
+    var st = addressState();
+    if (st.skip) { box.innerHTML = ""; box.className = "lw-addrstate skip"; return true; }
+    if (st.ok) {
+      box.className = "lw-addrstate ok";
+      box.innerHTML = "Location saved: " + esc(st.text);
+    } else {
+      box.className = "lw-addrstate";
+      box.innerHTML = "No location saved yet. Pick the address from the dropdown so the map pin sets.";
+    }
+    return st.ok;
+  }
+
   function applyFormModeForStep(n) {
     if (STEPS[n] && STEPS[n].note === "address") setFormMode("address");
     else setFormMode("hidden");
@@ -1199,9 +1376,13 @@ const WIZARD = String.raw`(function () {
     FORM = findForm();
     if (!FORM) { log("BD listing form not found, standing down"); return; }
     if (!MOUNT_UI) {
-      try {
-        console.log("[Listing wizard] " + LW_VERSION + " - UI OFF. BD's form is untouched. Run rdcLwDump() to report the form structure.");
-      } catch (e) {}
+      if (!window.__rdcLwToldOff) {
+        window.__rdcLwToldOff = true;
+        try {
+          console.log("[Listing wizard] " + LW_VERSION + " - UI OFF. BD's form is untouched.");
+        } catch (e) {}
+        mountReportPanel();
+      }
       return;
     }
     if (document.getElementById("lw-wrap")) return;
@@ -1236,6 +1417,7 @@ const WIZARD = String.raw`(function () {
       e.preventDefault();
       if (act === "next") {
         if (!validateStep(stepIndex)) return;
+        if (STEPS[stepIndex] && STEPS[stepIndex].note === "address" && !paintAddressState()) return;
         if (STEPS[stepIndex] && STEPS[stepIndex].hasDesc && !verifyDescription()) return;
         showStep(Math.min(stepIndex + 1, STEPS.length - 1));
       }
@@ -1255,6 +1437,65 @@ const WIZARD = String.raw`(function () {
     log("mounted", { level: LEVEL, missing: missing.length });
   }
 
+  // -------------------------------------------------------------
+  // ON-PAGE REPORT PANEL. Shown only while MOUNT_UI is false.
+  // The console route failed twice in practice, so the report is put on
+  // the page with a copy button. It READS the form and nothing else.
+  // -------------------------------------------------------------
+  function mountReportPanel() {
+    if (document.getElementById("lw-report")) return;
+    if (!FORM) return;
+
+    var css = document.createElement("style");
+    css.appendChild(document.createTextNode([
+      "#lw-report{font-family:inherit;max-width:860px;margin:0 0 22px;background:#f7f9fb;border:1px solid #dbe2ea;border-radius:10px;padding:18px 20px}",
+      "#lw-report h3{margin:0 0 6px;font-size:16px;color:#0d2d4e;font-weight:600}",
+      "#lw-report p{margin:0 0 12px;font-size:13px;color:#5b6b7d;line-height:1.5}",
+      "#lw-report textarea{width:100%;min-height:130px;font-family:monospace;font-size:11px;line-height:1.45;border:1px solid #ccd4de;border-radius:7px;padding:10px;color:#25333f;background:#fff}",
+      "#lw-report .lw-rbtns{display:flex;gap:8px;margin-top:10px;align-items:center}",
+      "#lw-report button{border:0;border-radius:7px;padding:9px 18px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:#0d2d4e;color:#fff}",
+      "#lw-report button.ghost{background:#fff;color:#0d2d4e;border:1px solid #ccd4de}",
+      "#lw-report .lw-rmsg{font-size:12.5px;color:#1e8449;font-weight:600}"
+    ].join("")));
+    document.head.appendChild(css);
+
+    var box = document.createElement("div");
+    box.id = "lw-report";
+    box.innerHTML =
+      "<h3>Listing form report</h3>" +
+      "<p>Diagnostic only. Nothing on this page has been changed. Press Copy, paste it back to Claude, " +
+      "and this panel goes away with the next build.</p>" +
+      "<textarea id='lw-rtext' readonly></textarea>" +
+      "<div class='lw-rbtns'><button type='button' id='lw-rcopy'>Copy report</button>" +
+      "<button type='button' class='ghost' id='lw-rhide'>Hide</button>" +
+      "<span class='lw-rmsg' id='lw-rmsg'></span></div>";
+
+    FORM.parentNode.insertBefore(box, FORM);
+
+    var ta = document.getElementById("lw-rtext");
+    try { ta.value = window.rdcLwDump(); } catch (e) { ta.value = "report failed: " + e; }
+
+    document.getElementById("lw-rcopy").onclick = function () {
+      var msg = document.getElementById("lw-rmsg");
+      try {
+        ta.removeAttribute("readonly");
+        ta.select();
+        ta.setSelectionRange(0, 999999);
+        var done = false;
+        try { done = document.execCommand("copy"); } catch (e) {}
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(ta.value);
+          done = true;
+        }
+        ta.setAttribute("readonly", "readonly");
+        msg.textContent = done ? "Copied. Paste it to Claude." : "Select the text above and copy.";
+      } catch (e2) {
+        msg.textContent = "Select the text above and copy.";
+      }
+    };
+    document.getElementById("lw-rhide").onclick = function () { box.style.display = "none"; };
+  }
+
   function ready(fn) {
     if (document.readyState === "complete" || document.readyState === "interactive") setTimeout(fn, 60);
     else document.addEventListener("DOMContentLoaded", function () { setTimeout(fn, 60); });
@@ -1266,7 +1507,7 @@ const WIZARD = String.raw`(function () {
     var tries = 0;
     var t = setInterval(function () {
       tries++;
-      if (document.getElementById("lw-wrap") || tries > 12) { clearInterval(t); return; }
+      if (document.getElementById("lw-wrap") || document.getElementById("lw-report") || tries > 12) { clearInterval(t); return; }
       mount();
     }, 500);
   });
