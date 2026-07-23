@@ -1,4 +1,4 @@
-// lw-v22  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v23  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,15 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v23 2026-07-23  DROPPED THE TITLE PLACEHOLDER. A placeholder only
+//                      shows while a field is empty, and since v22 that
+//                      field fills itself from the address, so the Denver,
+//                      CO example was dead weight that only ever appeared
+//                      in the gap before the geocode landed. The hint above
+//                      the field explains where the value came from, which
+//                      is the part worth keeping.
+//                      Placeholders stay on rent, deposit and minimum income
+//                      because those are typed, not derived.
 //   lw-v22 2026-07-23  THE TITLE FILLS ITSELF FROM THE ADDRESS.
 //                      Entering an address and then typing the city and
 //                      state again is duplicate entry, and BD's own title
@@ -389,12 +398,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v22";
+const LW_VERSION = "lw-v23";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v22";
+  var LW_VERSION = "lw-v23";
   var DEBUG = false;
 
   // =============================================================
@@ -1073,7 +1082,7 @@ const WIZARD = String.raw`(function () {
       sub: "Start with the address. It has to be entered in the field below so the map pin and geocode are saved before anything else.",
       note: "address",
       fields: [
-        { key: "title", label: "Listing title", kind: "text", required: true, placeholder: "Denver, CO", hint: "Filled in from the address above. Change it if you want." }
+        { key: "title", label: "Listing title", kind: "text", required: true, hint: "Filled in from the address above. Change it if you want." }
       ]
     },
     {
