@@ -1,4 +1,4 @@
-// lw-v14  <-- PASTE CHECK  ***  WIZARD BACK ON, BUILT FROM THE REAL FORM  ***: this is the version. Must match ?version=1
+// lw-v16  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,25 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v16 2026-07-22  PHOTOS SIGNPOSTED AT THE SAVE POINT. Reported live:
+//                      'dont see a spot for photos'. There is no photo
+//                      upload on this form and there never was; BD's own
+//                      label says photos are added on the page AFTER saving.
+//                      The wizard said so on step 6, five steps before the
+//                      member needed to know, and said nothing at the point
+//                      of saving. The review step now states plainly that
+//                      photos come next and names the Actions > Manage
+//                      Photos route back. Step 6 leads with 'nothing to
+//                      upload here' so it reads as a checklist to shoot
+//                      against rather than a step with a missing control.
+//                      A REAL UPLOAD INSIDE THE WIZARD stays blocked on the
+//                      photo-upload call capture, which is still not done.
+//   lw-v15 2026-07-22  DOUBLE BACK BUTTON ON THE REVIEW STEP. renderReview
+//                      builds its own row (Save and go live, then Back and
+//                      Save as draft), while stepHTML was still appending
+//                      the generic Back/Continue row underneath it. Every
+//                      step now has exactly one button row, asserted in the
+//                      suite so it cannot come back.
 //   lw-v14 2026-07-22  BUILT FROM THE ACTUAL FORM. MOUNT_UI back to true.
 //                      The live dump of property_listing_316 exposed four
 //                      real bugs, all invisible from the POST capture:
@@ -244,12 +263,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v14";
+const LW_VERSION = "lw-v16";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v14";
+  var LW_VERSION = "lw-v16";
   var DEBUG = false;
 
   // =============================================================
@@ -941,8 +960,9 @@ const WIZARD = String.raw`(function () {
         "<div id='lw-addr-state' class='lw-addrstate'></div>";
     }
     if (kind === "photos") {
-      return "<div class='lw-note'>Photos upload on their own page after this form is saved. Finish here, hit " +
-        "<strong>Save and go live</strong>, then use <strong>Actions, Manage Photos</strong> on the listing.</div>" +
+      return "<div class='lw-note'><strong>Nothing to upload on this step.</strong> BD adds photos on the page " +
+        "that follows saving, so this is the checklist to shoot against before you get there. You can also " +
+        "return later from the listing" + AP + "s Actions menu, under Manage Photos.</div>" +
         "<p class='lw-eyebrow'>What is required</p>" +
         "<ul class='lw-check'>" +
         "<li>The outside: front, and the street it sits on</li>" +
@@ -972,10 +992,16 @@ const WIZARD = String.raw`(function () {
       h += wide ? "<div class='" + wide + "'>" + body + "</div>" : body;
     }
 
-    h += "<div class='lw-row" + (i === 0 ? " end" : "") + "'>";
-    if (i > 0) h += "<button type='button' class='lw-btn lw-ghost' data-act='back'>Back</button>";
-    if (i < STEPS.length - 1) h += "<button type='button' class='lw-btn lw-navy' data-act='next'>Continue</button>";
-    h += "</div></div>";
+    // The review step builds its OWN button row inside renderReview, so the
+    // generic row must not be added underneath it or the member sees two
+    // Back buttons stacked.
+    if (s.note !== "review") {
+      h += "<div class='lw-row" + (i === 0 ? " end" : "") + "'>";
+      if (i > 0) h += "<button type='button' class='lw-btn lw-ghost' data-act='back'>Back</button>";
+      if (i < STEPS.length - 1) h += "<button type='button' class='lw-btn lw-navy' data-act='next'>Continue</button>";
+      h += "</div>";
+    }
+    h += "</div>";
     return h;
   }
 
@@ -1026,6 +1052,9 @@ const WIZARD = String.raw`(function () {
       h += "<div class='lw-row end'><button type='button' class='lw-btn lw-ghost' data-act='back'>Back</button>" +
            "<button type='button' class='lw-btn lw-navy' data-act='shownative'>Show the form</button></div>";
     } else {
+      h += "<div class='lw-note'><strong>Photos come next.</strong> There is no photo upload on this form. " +
+           "Once you save, the following page is where interior and exterior photos are added. If you leave now " +
+           "you can get back to it any time from the listing" + AP + "s Actions menu, under Manage Photos.</div>";
       h += "<div class='lw-note'>Going live publishes this to renters immediately. Save as a draft instead if the " +
            "photos are not ready, then publish from the listing page once they are up.</div>";
       h += "<button type='button' class='lw-btn lw-go' data-act='golive'>Save and go live</button>";
