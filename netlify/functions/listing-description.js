@@ -1,4 +1,4 @@
-// ld-v1   <-- PASTE CHECK: this is the version. Must match ?version=1
+// ld-v2   <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING DESCRIPTION WRITER  ·  listing-description.js
 // =====================================================================
@@ -44,11 +44,28 @@
 //   GET ?version=1  -> { "version": "ld-v1", "model": "..." }
 //
 // CHANGELOG
+//   ld-v2  2026-07-23  THE STYLE RULES WERE STRANGLING THE PROSE. ld-v1 said
+//                      adjectives do less work than facts and preferred
+//                      "two bedrooms, both with closets" over "spacious and
+//                      charming". Next to a hard ban on inventing anything,
+//                      the model read that as STRIP ALL DESCRIPTION and
+//                      produced flat inventories. Reported live: descriptions
+//                      "read a bit odd", and the dropped list showed it
+//                      rewording "good parking" as a subjectivity problem.
+//                      THE LINE IS INVENTION, NOT SUBJECTIVITY. If the notes
+//                      say good parking, that is the landlord characterising
+//                      their own property and it stays. Adjectives are fine
+//                      when the notes or fields support them.
+//                      ALSO: the dropped list was reporting STYLE edits. It
+//                      is for substance only now, meaning fair housing
+//                      removals and unsupported claims. Nobody needs telling
+//                      their sentence was tightened; they need telling when
+//                      something cannot legally or honestly be published.
 //   ld-v1  2026-07-23  First build. Fair-housing constrained, fact-bound,
 //                      reports what it removed and why.
 // =====================================================================
 
-const LD_VERSION = "ld-v1";
+const LD_VERSION = "ld-v2";
 const MODEL = process.env.LD_MODEL || "claude-sonnet-5";
 
 const SYSTEM = [
@@ -80,22 +97,42 @@ const SYSTEM = [
   "or handles the transaction. Write as the property's own listing.",
   "",
   "STYLE.",
-  "Plain American English. Short declarative sentences. Lead with the",
-  "specifics renters actually search for: layout, parking, laundry, pets,",
-  "outdoor space, what is nearby. Adjectives do less work than facts, so",
-  "prefer 'two bedrooms, both with closets' over 'spacious and charming'.",
+  "Write something a person would want to read. Plain American English,",
+  "warm but not salesy, and it should flow as prose rather than read as an",
+  "inventory list. Lead with the specifics renters search for: layout,",
+  "parking, laundry, pets, outdoor space, what is nearby.",
+  "",
+  "ADJECTIVES ARE FINE when they describe the PROPERTY truthfully and the",
+  "landlord's notes support them. If the notes say good parking, then good",
+  "parking is the landlord's own characterisation of their property and you",
+  "may keep it. Words like bright, quiet, updated, spacious are allowed IF",
+  "the notes or fields support them. What you may not do is make them up.",
+  "The line is invention, not subjectivity.",
+  "",
+  "Do not turn every phrase into a bare fact. 'Off-street parking for one",
+  "car and laundry in the basement' is better than 'Parking: 1. Laundry:",
+  "basement.' Connect the sentences.",
+  "",
   "No exclamation marks. No ALL CAPS. No emoji. No markdown. No headings.",
+  "No hype words like stunning, luxurious, must see, rare opportunity.",
   "Two short paragraphs at most. Do not restate the rent, deposit, or",
   "screening requirements; they are shown separately on the listing.",
   "",
   "OUTPUT.",
   "Return ONLY a JSON object, no preamble, no code fences:",
-  '{"description": "the text", "dropped": ["short note about anything from the',
-  'landlord notes you did not use, and why"]}',
-  "Each dropped note names the phrase and the reason in one plain sentence,",
-  "for example: 'Left out \"great for young families\" because describing who",
-  "should live there is a fair housing issue.'",
-  "If nothing was dropped, return an empty array."
+  '{"description": "the text", "dropped": ["short note"]}',
+  "",
+  "THE dropped LIST IS FOR SUBSTANCE, NOT STYLE. Put an entry there ONLY",
+  "when you removed something for one of two reasons:",
+  "  1. it was a fair housing problem, or",
+  "  2. it was a claim nothing supports and you could not verify it.",
+  "NEVER list ordinary rewording, tightening, or word choice. The member does",
+  "not need to be told you rephrased their sentence; they need to be told",
+  "when something they wrote cannot legally or honestly be published.",
+  "Each entry names the phrase and the reason in one plain sentence, e.g.",
+  "\'Left out \"great for young families\" because describing who should live",
+  "there is a fair housing issue.\'",
+  "If nothing was removed for those two reasons, return an empty array."
 ].join("\n");
 
 function factLines(f) {
