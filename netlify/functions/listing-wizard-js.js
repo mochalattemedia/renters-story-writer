@@ -1,4 +1,4 @@
-// lw-v39  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v41  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,71 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v41 2026-07-23  THE WIZARD NOW COUNTS PHOTOS ALREADY ON A LISTING.
+//                      v40 stopped DENYING them; it still could not SEE
+//                      them, and its edit detection did not even fire.
+//
+//                      WHY IT DID NOT FIRE: v40 sniffed the path for
+//                      'editgroup', a string lifted from a POST response
+//                      rather than from the page a member actually lands on.
+//                      DETECTION NOW COMES FROM THE PAGE: an existing
+//                      listing carries an Upload Photos tab linking to
+//                      /account/properties/addphotos/<hash>. If that link is
+//                      present the listing exists, AND the hash comes free,
+//                      which is exactly what is needed to go and look.
+//                      A signal taken from the page beats a signal inferred
+//                      from a URL every time; this is the second detection
+//                      bug in two versions from guessing at paths.
+//
+//                      THE COUNT: the wizard fetches that photo page and
+//                      counts images under an uploads, media, photo or album
+//                      path, skipping logos, icons, avatars and
+//                      placeholders, deduping by src. It shows up as
+//                      '8 photos already on this listing', beside '1 photo
+//                      ready to add' when both apply, and the published line
+//                      totals existing plus new rather than reporting only
+//                      what this session added.
+//                      IT IS HEURISTIC, because that page's markup has never
+//                      been inspected. So it is shown as a plain number that
+//                      can be checked against the listing, and a failed
+//                      count says NOTHING rather than asserting zero. If it
+//                      reads wrong, rdcLwDump() on the photo page makes it
+//                      exact.
+//   lw-v40 2026-07-23  TWO BUGS ON THE EDIT PATH, BOTH REPORTED LIVE.
+//
+//                      1. RENT READ AS EMPTY WHEN EDITING. The wizard showed
+//                         its own placeholder and 'Monthly rent is needed'
+//                         beside a listing BD was displaying as 1800.
+//                         On the NEW form the field labelled '* Rent:' is
+//                         post_promo. On the EDIT form it is not. One label,
+//                         two names, and the name was hardcoded.
+//                         THE RENT FIELD IS NOW RESOLVED BY ITS LABEL AT
+//                         MOUNT, across post_promo, property_price,
+//                         property_rent and rent: whichever VISIBLE money
+//                         field sits under a Rent label wins, falling back
+//                         to whichever visible candidate already carries a
+//                         value, which is what an edit form looks like.
+//                         This is the third instance of the same trap on
+//                         this form. MAP BY LABEL, NEVER BY VARIABLE NAME
+//                         has now cost bed/bath, rent-on-new, and
+//                         rent-on-edit. Assume any hardcoded field name is
+//                         wrong on a form you have not inspected.
+//
+//                      2. EXISTING PHOTOS WERE DENIED. The photo queue lives
+//                         in this browser tab, so on an edit the wizard
+//                         knows nothing about photos already on the listing.
+//                         It announced 'No photos on this listing yet' and
+//                         threatened a demotion to draft, about photos that
+//                         were visibly there.
+//                         An edit is now detected from the path or the form
+//                         action, and the copy says what is actually true:
+//                         anything already on the listing stays, and what is
+//                         added here uploads alongside it. NO WARNING is
+//                         shown for zero queued photos on an edit, because
+//                         zero queued does not mean zero attached.
+//                         Reading the real count would need the photo page;
+//                         not claiming a false one costs nothing and is
+//                         honest today.
 //   lw-v39 2026-07-23  THE CONFIRMATION SENTENCE, THIRD PASS. v35 fixed the
 //                      stapled-together version and introduced '4 photos are
 //                      on it, and renters can find it now', which leads with
@@ -774,12 +839,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v39";
+const LW_VERSION = "lw-v41";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v39";
+  var LW_VERSION = "lw-v41";
   var DEBUG = false;
 
   // =============================================================
@@ -1278,6 +1343,49 @@ const WIZARD = String.raw`(function () {
   // "Required Field" inside the same .form-group.
   var reqCache = {};
 
+  // RESOLVE THE RENT FIELD BY ITS LABEL, NOT BY A HARDCODED NAME.
+  // On the NEW-listing form the field labelled "* Rent:" is post_promo.
+  // On the EDIT form it is evidently something else, because the wizard read
+  // an empty value and displayed its own placeholder while BD showed 1800.
+  // Two forms, two names, one label. The Bible's rule from the bed/bath trap
+  // applies: MAP BY LABEL, NEVER BY VARIABLE NAME. The name is found at mount
+  // from whichever visible money field sits under a Rent label.
+  var CANDIDATE_RENT = ["post_promo", "property_price", "property_rent", "rent"];
+
+  function labelTextFor(node) {
+    var box = node, hops = 0;
+    while (box && hops < 5) {
+      var cls = " " + (box.className || "") + " ";
+      if (cls.indexOf(" form-group ") !== -1) break;
+      box = box.parentNode; hops++;
+    }
+    if (!box || !box.querySelector) return "";
+    var lab = box.querySelector("label");
+    return lab ? (lab.textContent || "").replace(/[^a-zA-Z ]/g, "").toLowerCase().replace(/[ ]+/g, " ").trim() : "";
+  }
+
+  function resolveRentField() {
+    if (!FORM) return "";
+    for (var i = 0; i < CANDIDATE_RENT.length; i++) {
+      var nodes = el(CANDIDATE_RENT[i]);
+      if (!nodes) continue;
+      for (var j = 0; j < nodes.length; j++) {
+        if ((nodes[j].type || "").toLowerCase() === "hidden") continue;
+        var lt = labelTextFor(nodes[j]);
+        if (lt.indexOf("rent") !== -1 && lt.indexOf("rental duration") === -1) return CANDIDATE_RENT[i];
+      }
+    }
+    // An edit form looks like: a visible candidate that already has a value.
+    for (var k = 0; k < CANDIDATE_RENT.length; k++) {
+      var n2 = one(CANDIDATE_RENT[k]);
+      if (n2 && (n2.type || "").toLowerCase() !== "hidden" && String(n2.value || "").trim()) return CANDIDATE_RENT[k];
+    }
+    for (var m = 0; m < CANDIDATE_RENT.length; m++) {
+      if (exists(CANDIDATE_RENT[m])) return CANDIDATE_RENT[m];
+    }
+    return "";
+  }
+
   function isRequiredOnForm(name) {
     if (reqCache[name] !== undefined) return reqCache[name];
     var node = one(name);
@@ -1723,8 +1831,11 @@ const WIZARD = String.raw`(function () {
         "<li>Shared spaces: laundry, yard, garage, hallways, parking</li>" +
         "<li>Daylight, lights on, nothing blurry, no logos or watermarks</li>" +
         "</ul>" +
-        "<div class='lw-note'>These upload at the end, once the listing exists. Anything short of the list above " +
-        "gets set back to draft, with an email saying what is missing.</div>";
+        (isEditing()
+          ? "<div class='lw-note'>Anything already on this listing stays. Whatever you add here uploads " +
+            "alongside it when you publish.</div>"
+          : "<div class='lw-note'>These upload at the end, once the listing exists. Anything short of the " +
+            "list above gets set back to draft, with an email saying what is missing.</div>");
     }
     if (kind === "draft") {
       return "<div class='lw-draft'>" +
@@ -1842,8 +1953,18 @@ const WIZARD = String.raw`(function () {
     var box = document.getElementById("lw-revphotos");
     if (!box) return;
     if (!PHOTOS.length) {
-      box.innerHTML = "<div class='lw-warn'>No photos yet. " +
-        "<a data-act='gophotos'>Add them before you publish</a>.</div>";
+      if (isEditing()) {
+        box.innerHTML = (existingPhotoCount && existingPhotoCount > 0)
+          ? ("<div class='lw-note'>" + existingPhotoCount +
+             (existingPhotoCount === 1 ? " photo is" : " photos are") +
+             " already on this listing and stay as they are. " +
+             "<a data-act='gophotos'>Add more</a> if you want to.</div>")
+          : ("<div class='lw-note'>Photos already on this listing stay as they are. " +
+             "<a data-act='gophotos'>Add more</a> if you want to.</div>");
+      } else {
+        box.innerHTML = "<div class='lw-warn'>No photos yet. " +
+          "<a data-act='gophotos'>Add them before you publish</a>.</div>";
+      }
       return;
     }
     var h = "<div class='lw-revgrid'>";
@@ -2337,7 +2458,10 @@ const WIZARD = String.raw`(function () {
   // The listing is the subject, not the photo count. "4 photos are on it"
   // led with the wrong thing and "on it" was vague about what "it" was.
   function doneSentence(live, photos) {
-    var withPhotos = photos ? (" with " + photos + (photos === 1 ? " photo" : " photos")) : "";
+    // On an edit, what matters is the total on the listing, not the number
+    // this session happened to add.
+    var total = photos + ((existingPhotoCount && existingPhotoCount > 0) ? existingPhotoCount : 0);
+    var withPhotos = total ? (" with " + total + (total === 1 ? " photo" : " photos")) : "";
     if (live) {
       return photos
         ? ("It is live" + withPhotos + ", and renters can find it now.")
@@ -2522,8 +2646,9 @@ const WIZARD = String.raw`(function () {
           rep += String.fromCharCode(10) + "addphotos url: " + addUrl;
           if (!PHOTOS.length) {
             finish({ photos: 0, photoUrl: addUrl,
-              photoWarning: "<strong>No photos on this listing yet.</strong> Listings without them get set " +
-                            "back to draft. Add them now while you are here." });
+              photoWarning: isEditing() ? "" :
+                "<strong>No photos on this listing yet.</strong> Listings without them get set " +
+                "back to draft. Add them now while you are here." });
             return;
           }
 
@@ -2735,8 +2860,15 @@ const WIZARD = String.raw`(function () {
     var list = document.getElementById("lw-photolist");
     var count = document.getElementById("lw-photocount");
     if (count) {
-      count.textContent = PHOTOS.length === 0 ? "No photos chosen yet"
-        : (PHOTOS.length + (PHOTOS.length === 1 ? " photo ready" : " photos ready"));
+      var already = (existingPhotoCount && existingPhotoCount > 0)
+        ? (existingPhotoCount + (existingPhotoCount === 1 ? " photo already on this listing" : " photos already on this listing"))
+        : "";
+      if (PHOTOS.length) {
+        count.textContent = PHOTOS.length + (PHOTOS.length === 1 ? " photo ready to add" : " photos ready to add") +
+          (already ? ", " + already : "");
+      } else {
+        count.textContent = already ? already : (isEditing() ? "" : "No photos chosen yet");
+      }
     }
     if (!list) return;
     var h = "";
@@ -2828,6 +2960,84 @@ const WIZARD = String.raw`(function () {
   // leaving the warning on screen pointing at a form nobody could see.
   var forcedFull = false;
 
+  // EDITING AN EXISTING LISTING. The photo queue lives in this browser tab
+  // only, so on an edit the wizard knows nothing about photos already on the
+  // listing. Saying "No photos on this listing yet" is then both false and
+  // alarming, because it threatens a demotion to draft over photos that exist.
+  // DETECT AN EXISTING LISTING FROM THE PAGE, NOT FROM THE URL.
+  // v40 sniffed the path for "editgroup", a string taken from a POST response
+  // rather than from the page a member actually lands on, and it did not
+  // fire. The page itself carries a far better signal: an existing listing
+  // has an Upload Photos tab linking to /account/properties/addphotos/<hash>.
+  // If that link is on the page, the listing exists AND the hash comes free,
+  // which is also exactly what is needed to go and count its photos.
+  var editPhotoUrl = null;
+
+  function existingPhotoPageUrl() {
+    if (editPhotoUrl !== null) return editPhotoUrl;
+    editPhotoUrl = "";
+    try {
+      var links = document.querySelectorAll("a[href]");
+      for (var i = 0; i < links.length; i++) {
+        var h = links[i].getAttribute("href") || "";
+        if (h.toLowerCase().indexOf("/account/properties/addphotos/") !== -1) {
+          editPhotoUrl = h;
+          break;
+        }
+      }
+    } catch (e) {}
+    return editPhotoUrl;
+  }
+
+  function isEditing() {
+    if (existingPhotoPageUrl()) return true;
+    var p = (window.location.pathname || "").toLowerCase();
+    if (p.indexOf("editgroup") !== -1) return true;
+    var a = FORM ? String(FORM.getAttribute("action") || "").toLowerCase() : "";
+    return a.indexOf("editgroup") !== -1;
+  }
+
+  // COUNT WHAT IS ALREADY THERE. The photo queue is browser-side, so on an
+  // edit the only way to know is to go and look at the photo page.
+  // The count is HEURISTIC because that page's markup has never been
+  // inspected, so it is reported as a plain number the member can check
+  // against the listing, and a failure to count says nothing rather than
+  // asserting zero.
+  var existingPhotoCount = null;
+
+  function countExistingPhotos() {
+    var url = existingPhotoPageUrl();
+    if (!url || !window.fetch || !window.DOMParser) return Promise.resolve(null);
+    return window.fetch(url, { credentials: "same-origin" })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new window.DOMParser().parseFromString(html, "text/html");
+        var imgs = doc.querySelectorAll("img");
+        var seen = {};
+        var n = 0;
+        for (var i = 0; i < imgs.length; i++) {
+          var src = imgs[i].getAttribute("src") || imgs[i].getAttribute("data-src") || "";
+          if (!src) continue;
+          var low = src.toLowerCase();
+          // Listing photos live under an uploads/media path. Icons, logos and
+          // avatars do not, so this filters most chrome out.
+          if (low.indexOf("upload") === -1 && low.indexOf("/media/") === -1 &&
+              low.indexOf("/photo") === -1 && low.indexOf("/album") === -1) continue;
+          if (low.indexOf("logo") !== -1 || low.indexOf("avatar") !== -1 ||
+              low.indexOf("icon") !== -1 || low.indexOf("placeholder") !== -1) continue;
+          var key = src.split("?")[0];
+          if (seen[key]) continue;
+          seen[key] = true;
+          n++;
+        }
+        existingPhotoCount = n;
+        log("existing photos counted:", n);
+        paintPhotos([]);
+        return n;
+      })
+      .catch(function (e) { log("photo count failed", e); return null; });
+  }
+
   function applyFormModeForStep(n) {
     if (forcedFull) { setFormMode("full"); return; }
     if (STEPS[n] && STEPS[n].note === "address") setFormMode("address");
@@ -2851,6 +3061,12 @@ const WIZARD = String.raw`(function () {
       return;
     }
     if (document.getElementById("lw-wrap")) return;
+
+    var rentField = resolveRentField();
+    if (rentField && rentField !== F.price) {
+      log("rent resolved by label:", F.price, "->", rentField);
+      F.price = rentField;
+    }
 
     auditFields();
     if (!exists(F.price) && !exists(F.title)) {
@@ -2928,6 +3144,7 @@ const WIZARD = String.raw`(function () {
     // moved or sized while hidden, so the move should happen as early as
     // possible and only once.
     relocateAddressWidget();
+    if (isEditing()) { try { countExistingPhotos(); } catch (e) {} }
     applyFormModeForStep(0);
     paintAddressState();
     startAddressWatch();
