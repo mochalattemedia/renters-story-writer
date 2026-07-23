@@ -1,4 +1,4 @@
-// lw-v37  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v38  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,27 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v38 2026-07-23  THE DRAFT BUTTON SAID 'That did not work' FOR EVERY
+//                      POSSIBLE CAUSE, which is a silent failure wearing a
+//                      label. Reported live on the first run, where the real
+//                      cause was simply that listing-description.js had not
+//                      been deployed yet, and nothing on screen said so.
+//                      Each cause needs a different action from the member,
+//                      so each gets its own sentence now:
+//                        404       -> not deployed on this site yet
+//                        no key    -> deployed but no API key set
+//                        429       -> rate limited, try again shortly
+//                        502       -> the service answered with an error
+//                        5xx       -> the service hit an error
+//                        400       -> not enough to write from, add notes
+//                        thrown    -> could not reach it at all, which is
+//                                     nearly always offline, blocked or CORS
+//                      Every branch still ends with 'You can write it
+//                      yourself below' and NONE of them touch what the
+//                      member has already typed.
+//                      GENERAL: an error message that cannot distinguish
+//                      between not-installed and rate-limited is telling the
+//                      member nothing and sending them to me instead.
 //   lw-v37 2026-07-23  A SAVED LISTING WAS BEING CALLED A FAILURE.
 //                      Reported live: 'This did not save', while the report
 //                      underneath it read
@@ -740,12 +761,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v37";
+const LW_VERSION = "lw-v38";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v37";
+  var LW_VERSION = "lw-v38";
   var DEBUG = false;
 
   // =============================================================
@@ -1929,12 +1950,36 @@ const WIZARD = String.raw`(function () {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ facts: facts, notes: notes })
     })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (r) {
+        return r.text().then(function (t) {
+          var j = null;
+          try { j = JSON.parse(t); } catch (e) {}
+          return { ok: r.ok, status: r.status, j: j, raw: t };
+        });
+      })
       .then(function (res) {
         drafting = false;
         if (!res.ok || !res.j || !res.j.description) {
-          if (msg) msg.textContent = "That did not work. Write it yourself below, or try again.";
-          log("draft failed", res.j);
+          // ONE MESSAGE FOR EVERY CAUSE IS A SILENT FAILURE WEARING A LABEL.
+          // Each of these needs a different action from the member, so each
+          // gets its own sentence.
+          var why = "That did not work.";
+          var err = (res.j && res.j.error) ? String(res.j.error) : "";
+          if (res.status === 404) {
+            why = "The description writer is not deployed on this site yet.";
+          } else if (err.indexOf("ANTHROPIC_API_KEY") !== -1) {
+            why = "The description writer is deployed but has no API key set.";
+          } else if (res.status === 502) {
+            why = "The description service answered with an error. Worth trying again in a moment.";
+          } else if (res.status === 429) {
+            why = "The description service is rate limited right now. Try again shortly.";
+          } else if (res.status >= 500) {
+            why = "The description service hit an error.";
+          } else if (res.status === 400) {
+            why = "There was not enough to write from. Add a few more notes.";
+          }
+          if (msg) msg.textContent = why + " You can write it yourself below.";
+          log("draft failed", res.status, res.raw && res.raw.slice(0, 200));
           return;
         }
         target.value = res.j.description;
@@ -1955,7 +2000,10 @@ const WIZARD = String.raw`(function () {
       })
       .catch(function (e) {
         drafting = false;
-        if (msg) msg.textContent = "That did not work. Write it yourself below.";
+        // A fetch that throws rather than returning a status is nearly always
+        // the request never leaving: offline, blocked, or CORS.
+        if (msg) msg.textContent = "Could not reach the description service. " +
+          "Check the connection, then write it yourself below if it keeps failing.";
         log("draft error", e);
       });
   }
