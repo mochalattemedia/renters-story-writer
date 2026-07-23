@@ -1,4 +1,4 @@
-// lw-v4   <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v12  <-- PASTE CHECK  ***  WIZARD UI IS OFF IN THIS BUILD  ***: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,134 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v12 2026-07-22  *** WIZARD UI TURNED OFF. DIAGNOSTIC BUILD. ***
+//                      Live report: the address region never appeared on
+//                      step 1, the member could not find where to enter the
+//                      address or photos, and a listing came back empty.
+//                      MOUNT_UI is now false. The file renders nothing,
+//                      hides nothing, writes nothing. BD's form behaves
+//                      exactly as it did before this file existed. Only the
+//                      diagnostic hooks are installed.
+//
+//                      WHY OFF RATHER THAN PATCHED: every version v1-v11 was
+//                      built from a captured POST body and two screenshots.
+//                      The address and editor lookups are heuristics that
+//                      have now demonstrably failed on the real DOM. Adding
+//                      a twelfth guess on top of a failure is not a fix, and
+//                      the failure mode is a member losing work.
+//
+//                      NEW: rdcLwDump() returns the WHOLE form structure as
+//                      one copyable string and puts it on the clipboard.
+//                      console.table could not be copied out of a browser,
+//                      which is a large part of why this information never
+//                      arrived across eleven versions. It lists every field
+//                      INCLUDING UNNAMED ONES, because BD's address
+//                      autocomplete has an id and a placeholder but no name.
+//
+//                      TO TURN THE WIZARD BACK ON: set MOUNT_UI = true, but
+//                      only after the dump has been read and the address and
+//                      description lookups are keyed to real ids.
+//   lw-v11 2026-07-22  PHOTOS + MOVE-IN COPY. Three fixes. (1) The photos
+//                      line said the consequence ('set back to draft') and
+//                      the warning box below the checklist said it again, so
+//                      the step scolded twice before asking for anything.
+//                      The subtitle now explains WHY, the warning box states
+//                      the consequence ONCE. (2) 'This platform holds a
+//                      standard' read as policy language; replaced with what
+//                      the standard is FOR, which is a renter deciding
+//                      without having to ask. (3) US SPELLING: 'enquiries'
+//                      appeared twice, on the photos and move-in steps. Both
+//                      reworded. Member-facing copy is now clean on the
+//                      usual British/US splits.
+//   lw-v10 2026-07-22  DESCRIPTION COPY CORRECTED. 'Rough is fine' and
+//                      'Write it rough' were written as if Claude-drafted
+//                      descriptions were already wired. They are not. What
+//                      the member types publishes verbatim, so the copy was
+//                      inviting a worse listing than they would otherwise
+//                      have written. Hint now reads 'Publishes exactly as
+//                      you write it'.
+//
+//                      *** STANDING CHECK FOR THIS FILE ***
+//                      Three separate pieces of member-facing copy have now
+//                      described capabilities that are not live: identity
+//                      verification coverage (v8), income verification (v8),
+//                      and description drafting (v10). The pattern is that
+//                      the ROADMAP reads as the PRESENT while writing copy.
+//                      Before shipping any copy change, check every claim
+//                      against what is actually deployed today, not what is
+//                      planned. When the drafting feature does ship, this
+//                      hint is the place to say so.
+//   lw-v9  2026-07-22  FIRST VERSION BUILT AGAINST A SIGHT OF THE REAL FORM.
+//                      Two structural corrections from screenshots:
+//                      (1) THE ADDRESS REGION IS THREE ELEMENTS, not one: a
+//                      geocoding autocomplete input, the Google map, and a
+//                      separate Property Location textarea holding the public
+//                      display string. v5-v8 walked up from the first match
+//                      and showed ONE container, so step 1 probably showed
+//                      the read-only display box and hid the input that
+//                      feeds the map. Now every form child holding any part
+//                      of the address region is shown, and BD's own title
+//                      field is hidden inside it so it cannot duplicate the
+//                      wizard's.
+//                      (2) PROPERTY DESCRIPTION IS A RICH-TEXT EDITOR. An
+//                      editor bound to a textarea overwrites that textarea
+//                      with its own content on submit, so writing the raw
+//                      field and trusting it would post an EMPTY
+//                      description. The wizard now writes through tinymce,
+//                      CKEditor or a contenteditable, then READS BACK. If
+//                      the write did not take it refuses to advance, keeps
+//                      the typed text on screen to copy, and reveals BD's
+//                      own editor. Silent data loss becomes a visible stop.
+//                      STILL UNSEEN: element names and ids. rdcLwProbe()
+//                      would replace the heuristics here with facts.
+//   lw-v8  2026-07-22  SCREENING COPY CORRECTED, and it was an ACCURACY bug,
+//                      not a style one. The old line claimed 'Renters on
+//                      Renters.com are identity verified, and many have
+//                      verified income'. Both are overclaims: only a share
+//                      of members are identity verified (the Bible already
+//                      corrected this exact phrasing on the homepage band in
+//                      v34), and income verification is still gated behind
+//                      INCOME_LIVE = false pending the Plaid entitlement, so
+//                      NO member has verified income yet. New copy makes no
+//                      verification claim at all and adds a note that either
+//                      field can be left blank.
+//                      RULE FOR THIS FILE: member-facing copy must not claim
+//                      a platform capability that is not live. Grep for
+//                      'verified' before shipping any copy change.
+//   lw-v7  2026-07-22  MONEY FIELDS SANITISE THEMSELVES. The rent hint read
+//                      'Numbers only', which does not say what it wants.
+//                      Rather than reword it, the wizard now accepts 1800,
+//                      $1,800, 1,800.00 or '$1800 /mo' and writes 1800 to
+//                      BD, matching the raw value in the capture. On blur
+//                      the wizard field shows the same clean number that was
+//                      stored, so the screen and BD can never disagree.
+//                      Hints replaced with placeholders. Applies to rent,
+//                      deposit, promo, move-in total and minimum income.
+//                      KNOWN EDGE: '1.800' is stored as 1.800, since a lone
+//                      dot is read as a decimal point, not a thousands
+//                      separator. Fine for US listings, wrong for European
+//                      convention. Revisit only if it shows up in practice.
+//   lw-v6  2026-07-22  COPY. Listing title now asks for City, State with a
+//                      Denver, CO placeholder and matching hint, matching
+//                      BD's own convention in the capture (Washougal, WA).
+//                      Escape-hatch link reworded: 'Show all fields on one
+//                      page' / 'Back to step-by-step'. The old wording said
+//                      'Prefer the original form?', which framed the guided
+//                      flow as a skin over the real thing and planted doubt
+//                      before a PM had tried it. Also added placeholder
+//                      support to the field renderer.
+//   lw-v5  2026-07-22  ONE INTERFACE AT A TIME. Reported live: the wizard
+//                      and BD's raw form were both on screen, which read as
+//                      two competing forms. lw-v1 to v4 called showNative
+//                      (true) on mount so the address widget stayed usable.
+//                      Replaced with a three-state controller: step 1 shows
+//                      the wizard plus ONLY the address block of BD's form,
+//                      every later step hides the form entirely, and the
+//                      escape hatch shows the raw form with the wizard
+//                      collapsed. The address block is ISOLATED IN PLACE,
+//                      never relocated: those inputs must stay inside the
+//                      form element or they drop out of the details POST,
+//                      and BD's geocode widget is bound to the real input.
 //   lw-v4  2026-07-22  VERSION MOVED TO LINE 1. No behaviour change. The
 //                      stamp sat on line 2 under a divider, so confirming
 //                      the right file was being pasted meant reading past
@@ -55,13 +183,32 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v4";
+const LW_VERSION = "lw-v12";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v4";
+  var LW_VERSION = "lw-v12";
   var DEBUG = false;
+
+  // =============================================================
+  // MOUNT_UI - MASTER SWITCH. CURRENTLY OFF.
+  // =============================================================
+  // false = the wizard renders NOTHING and touches NOTHING. BD's form
+  //         behaves exactly as it did before this file existed. Only the
+  //         diagnostic hooks are installed.
+  // true  = the guided wizard mounts.
+  //
+  // Turned off in lw-v12 after a live report that the address region never
+  // appeared on step 1 and a listing came back empty. Every version to date
+  // was built from a captured POST body and two screenshots, never from the
+  // actual DOM, so the address and editor lookups are heuristics. Guessing
+  // again on top of a failure is not a fix.
+  //
+  // TO TURN IT BACK ON: set this to true. Do that only after rdcLwProbe()
+  // output has been read and the field lookups are keyed to real ids.
+  // =============================================================
+  var MOUNT_UI = false;
 
   // PATH SCOPE - deliberately broad, then gated by the form itself.
   // lw-v1 scoped to /account/properties/add because the capture spec called
@@ -208,8 +355,9 @@ const WIZARD = String.raw`(function () {
 
     first.value = value;
     fire(first);
-    // WYSIWYG mirrors: BD may back group_desc with an editor iframe.
-    syncEditor(name, value);
+    // WYSIWYG mirror. Returns false if an editor is present and refused it.
+    var edOk = syncEditor(name, value);
+    if (!edOk) log("editor write did not take for", name);
     return true;
   }
 
@@ -240,20 +388,127 @@ const WIZARD = String.raw`(function () {
     return getField(name);
   }
 
-  function syncEditor(name, value) {
+  // Property Description is a rich-text editor on BD's form. An editor bound
+  // to a textarea writes ITS OWN content over that textarea on submit, so
+  // writing the raw textarea and trusting it would post an empty description.
+  // Write through every editor API we can reach, then READ BACK. If the write
+  // did not take, the wizard stops pretending and hands over BD's own editor.
+  function editorFor(name) {
+    var node = one(name);
+    var id = node ? (node.id || name) : name;
     try {
-      if (window.tinymce && window.tinymce.get && window.tinymce.get(name)) {
-        window.tinymce.get(name).setContent(value);
-        return;
-      }
-      if (window.CKEDITOR && window.CKEDITOR.instances && window.CKEDITOR.instances[name]) {
-        window.CKEDITOR.instances[name].setData(value);
-        return;
+      if (window.tinymce && window.tinymce.get) {
+        var t = window.tinymce.get(id) || window.tinymce.get(name);
+        if (t) return { kind: "tinymce", api: t };
       }
     } catch (e) {}
+    try {
+      if (window.CKEDITOR && window.CKEDITOR.instances) {
+        var c = window.CKEDITOR.instances[id] || window.CKEDITOR.instances[name];
+        if (c) return { kind: "ckeditor", api: c };
+      }
+    } catch (e) {}
+    try {
+      var block = node ? node.parentNode : null;
+      var hops = 0;
+      while (block && hops < 4) {
+        var ce = block.querySelector ? block.querySelector("[contenteditable=true]") : null;
+        if (ce) return { kind: "contenteditable", api: ce };
+        block = block.parentNode; hops++;
+      }
+    } catch (e) {}
+    return null;
   }
 
+  function syncEditor(name, value) {
+    var ed = editorFor(name);
+    if (!ed) return true;
+    try {
+      if (ed.kind === "tinymce") { ed.api.setContent(value || ""); return readBackEditor(name, value); }
+      if (ed.kind === "ckeditor") { ed.api.setData(value || ""); return readBackEditor(name, value); }
+      if (ed.kind === "contenteditable") {
+        ed.api.innerHTML = value ? "<p>" + esc(value).split(String.fromCharCode(10)).join("</p><p>") + "</p>" : "";
+        return readBackEditor(name, value);
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function readBackEditor(name, expected) {
+    var ed = editorFor(name);
+    if (!ed) return true;
+    var got = "";
+    try {
+      if (ed.kind === "tinymce") got = ed.api.getContent({ format: "text" }) || "";
+      else if (ed.kind === "ckeditor") got = stripTags(ed.api.getData() || "");
+      else got = ed.api.textContent || "";
+    } catch (e) { return false; }
+    var want = stripTags(expected || "");
+    if (!want) return true;
+    return norm(got).indexOf(norm(want).slice(0, 40)) !== -1;
+  }
+
+  var descHandedOver = false;
+
+  function verifyDescription() {
+    if (!exists(F.desc)) return true;
+    if (!editorFor(F.desc)) return true;
+    var typed = "";
+    var box = document.getElementById("lw-i-desc");
+    if (box) typed = box.value;
+    if (!typed) return true;
+    var okNow = readBackEditor(F.desc, typed);
+    if (okNow) return true;
+    handOverDescription(typed);
+    return false;
+  }
+
+  function handOverDescription(typed) {
+    if (descHandedOver) return;
+    descHandedOver = true;
+    var step = null;
+    for (var i = 0; i < STEPS.length; i++) if (STEPS[i].note === "descfallback") step = i;
+    var wrap = document.querySelector("#lw-card .lw-f[data-fkey=desc]");
+    if (wrap) {
+      wrap.innerHTML = "<div class='lw-warn'><strong>This one has to be typed in BD" + AP + "s own editor.</strong> " +
+        "The description box below is a formatting editor and it does not accept text from this wizard. " +
+        "Your text is copied to the clipboard note below, paste it in and carry on.</div>" +
+        "<textarea readonly style='min-height:90px'>" + esc(typed) + "</textarea>";
+    }
+    setFormMode("desc");
+  }
+
+  var AP = String.fromCharCode(39);
+
   function norm(s) { return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+  // MONEY INPUT - the member can type 1800, $1,800, 1,800.00 or "1800 / mo".
+  // All of it becomes 1800 before it reaches BD. Telling a property manager
+  // to omit the dollar sign is asking a person to do the machine's job, and
+  // BD's captured POST wants the raw number (property_price: 1800).
+  function cleanMoney(v) {
+    var src = String(v == null ? "" : v);
+    var out = "";
+    var dot = false;
+    for (var i = 0; i < src.length; i++) {
+      var c = src.charAt(i);
+      if (c >= "0" && c <= "9") { out += c; continue; }
+      if (c === "." && !dot && out.length) { out += c; dot = true; }
+    }
+    if (out.charAt(out.length - 1) === ".") out = out.slice(0, -1);
+    // Drop a trailing .00 so 1,800.00 stores as 1800, matching the capture.
+    if (out.indexOf(".") !== -1) {
+      var parts = out.split(".");
+      if (parts[1] === "" || parseInt(parts[1], 10) === 0) out = parts[0];
+    }
+    return out;
+  }
+
+  function moneyKeys() {
+    return { price: 1, deposit: 1, promo: 1, movein: 1, minincome: 1 };
+  }
+
+  function isMoneyKey(k) { return moneyKeys()[k] === 1; }
 
   function optionsFor(name) {
     var n = one(name);
@@ -273,6 +528,90 @@ const WIZARD = String.raw`(function () {
   // missing or renamed field is diagnosed by looking, not by guessing.
   // Run rdcLwProbe() in the console on /account/properties/add.
   // ---------------------------------------------------------------
+  // A full structural report of BD's listing form, as ONE copyable string.
+  // console.table cannot be copied out of a browser easily, which is why
+  // eleven versions shipped without this information ever arriving.
+  window.rdcLwDump = function () {
+    var L = [];
+    function line(t) { L.push(t); }
+    line("=== RENTERS LISTING FORM DUMP  " + LW_VERSION + " ===");
+    line("url: " + window.location.pathname);
+    line("plan level: " + LEVEL + "   body class: " + (document.body.className || ""));
+    var f = findForm();
+    line("form found: " + (!!f) + "   name=" + (f ? f.getAttribute("name") : "-") + "   id=" + (f ? f.id : "-") + "   action=" + (f ? f.getAttribute("action") : "-"));
+    if (!f) { var out0 = L.join(String.fromCharCode(10)); try { console.log(out0); } catch (e) {} return out0; }
+
+    line("");
+    line("--- TOP-LEVEL BLOCKS INSIDE THE FORM ---");
+    for (var i = 0; i < f.children.length; i++) {
+      var c = f.children[i];
+      if (c.tagName === "SCRIPT" || c.tagName === "STYLE") continue;
+      var named = [];
+      var fields = c.querySelectorAll ? c.querySelectorAll("input,select,textarea") : [];
+      for (var j = 0; j < fields.length; j++) {
+        var nm = fields[j].getAttribute("name") || fields[j].id || "";
+        var ty = (fields[j].type || fields[j].tagName || "").toLowerCase();
+        if (nm || ty !== "hidden") named.push(nm + ":" + ty);
+      }
+      var label = (c.textContent || "").replace(/[ ]+/g, " ").trim().slice(0, 60);
+      line("[" + i + "] <" + c.tagName.toLowerCase() + "> id=" + (c.id || "-") + " class=" + (c.className || "-"));
+      line("     text: " + label);
+      line("     fields: " + (named.length ? named.join(", ") : "(none)"));
+    }
+
+    line("");
+    // Include UNNAMED inputs. BD's address autocomplete carries an id and a
+    // placeholder but NO name attribute, so a name-only listing hides the one
+    // element the wizard most needs to locate.
+    line("--- EVERY FIELD (named or not) ---");
+    var all = f.querySelectorAll("input,select,textarea");
+    for (var k = 0; k < all.length; k++) {
+      var e2 = all[k];
+      var n2 = e2.getAttribute("name") || ("(no name, id=" + (e2.id || "?") + ")");
+      if (!e2.getAttribute("name") && !e2.id && !e2.getAttribute("placeholder")) continue;
+      var extra = "";
+      if (e2.tagName === "SELECT") {
+        var ov = [];
+        for (var o = 0; o < e2.options.length; o++) ov.push(e2.options[o].value);
+        extra = "  options=[" + ov.join("|") + "]";
+      }
+      var ph = e2.getAttribute("placeholder");
+      if (ph) extra += "  placeholder=" + JSON.stringify(ph);
+      line(n2 + "   <" + e2.tagName.toLowerCase() + " type=" + (e2.type || "-") + "> id=" + (e2.id || "-") + extra);
+    }
+
+    line("");
+    line("--- WIZARD FIELD MAP RESOLUTION ---");
+    for (var key in F) {
+      if (!F.hasOwnProperty(key)) continue;
+      var nd = one(F[key]);
+      line((nd ? "  OK   " : "  MISS ") + key + " -> " + F[key] + (nd ? ("  <" + nd.tagName.toLowerCase() + " type=" + (nd.type || "-") + ">") : ""));
+    }
+
+    line("");
+    line("--- EDITORS AND WIDGETS ---");
+    line("tinymce present: " + (!!window.tinymce));
+    line("CKEDITOR present: " + (!!window.CKEDITOR));
+    line("google maps present: " + (!!(window.google && window.google.maps)));
+    var ce = f.querySelectorAll("[contenteditable=true]");
+    line("contenteditable nodes in form: " + ce.length);
+    var ifr = f.querySelectorAll("iframe");
+    line("iframes in form: " + ifr.length);
+    line("submit buttons: " + submitButtons().length);
+    line("csrf token present: " + (!!one("form_security_token")));
+    line("=== END DUMP ===");
+
+    var out = L.join(String.fromCharCode(10));
+    try { console.log(out); } catch (e) {}
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(out);
+        try { console.log("[copied to clipboard]"); } catch (e2) {}
+      }
+    } catch (e3) {}
+    return out;
+  };
+
   window.rdcLwProbe = function () {
     var rows = [];
     for (var key in F) {
@@ -366,6 +705,7 @@ const WIZARD = String.raw`(function () {
     ".lw-esc a{color:#5b6b7d;text-decoration:underline;cursor:pointer}",
     "#lw-native{display:none}",
     "#lw-native.show{display:block}",
+    "#lw-native.address-only{background:#fff;border:1px solid #dfe4ea;border-top:0;border-radius:0 0 12px 12px;padding:4px 26px 20px;max-width:860px;margin:-26px 0 26px}",
     "@media(max-width:640px){.lw-grid,.lw-grid3{grid-template-columns:1fr}#lw-card{padding:20px 16px 18px}.lw-h{font-size:20px}}"
   ].join("");
 
@@ -381,14 +721,14 @@ const WIZARD = String.raw`(function () {
       sub: "Start with the address. It has to be entered in the field below so the map pin and geocode are saved before anything else.",
       note: "address",
       fields: [
-        { key: "title", label: "Listing title", kind: "text", required: true, hint: "What renters see first. City and street, or the building name." }
+        { key: "title", label: "Listing title", kind: "text", required: true, placeholder: "Denver, CO", hint: "City and state, for example Denver, CO" }
       ]
     },
     {
       title: "The basics",
       sub: "Rent, size and layout. These are the filters renters search on, so they matter more than the description.",
       fields: [
-        { key: "price", label: "Monthly rent", kind: "number", required: true, hint: "Numbers only" },
+        { key: "price", label: "Monthly rent", kind: "number", required: true, placeholder: "1800" },
         { key: "ptype", label: "Property type", kind: "select", required: true },
         { key: "beds", label: "Bedrooms", kind: "select-or-text", required: true },
         { key: "baths", label: "Bathrooms", kind: "select-or-text", required: true },
@@ -401,32 +741,33 @@ const WIZARD = String.raw`(function () {
     },
     {
       title: "Move-in costs",
-      sub: "Renters filter hard on this. Listings that state the real move-in number get far fewer dead enquiries.",
+      sub: "Renters filter hard on this. A listing that states the real number up front gets fewer dead leads and fewer people walking away at the last step.",
       fields: [
-        { key: "deposit", label: "Security deposit", kind: "number", required: false, hint: "Numbers only" },
+        { key: "deposit", label: "Security deposit", kind: "number", required: false, placeholder: "1800" },
         { key: "movein", label: "Total cost to move in", kind: "number", required: false, hint: "Deposit plus first month plus any fees" },
         { key: "promo", label: "Promotional rent", kind: "number", required: false, hint: "Leave blank if none" }
       ]
     },
     {
       title: "Screening requirements",
-      sub: "State these up front. Renters on Renters.com are identity verified, and many have verified income, so a stated minimum filters rather than deters.",
+      sub: "Stating these up front saves everyone time. Renters who cannot meet them move on, and the ones who do apply already know they qualify. Leave either blank if you would rather not screen on it.",
       fields: [
         { key: "mincredit", label: "Minimum credit score", kind: "number", required: false },
-        { key: "minincome", label: "Minimum monthly income", kind: "number", required: false, hint: "Numbers only" }
+        { key: "minincome", label: "Minimum monthly income", kind: "number", required: false, placeholder: "5000" }
       ]
     },
     {
+      hasDesc: true,
       title: "Describe the place",
-      sub: "Write it rough. Plain sentences beat a list of adjectives, and renters skim for specifics: parking, laundry, pets, what is nearby.",
+      sub: "Renters skim for specifics, so lead with them: parking, laundry, pets, storage, what is within walking distance. Plain sentences do more work than a list of adjectives.",
       fields: [
-        { key: "desc", label: "Description", kind: "textarea", required: true, hint: "Rough is fine" },
+        { key: "desc", label: "Description", kind: "textarea", required: true, hint: "Publishes exactly as you write it" },
         { key: "terms", label: "Screening and terms note", kind: "textarea", required: false, hint: "Application process, pet policy, anything a renter should know before applying" }
       ]
     },
     {
       title: "Photos",
-      sub: "Photos are the single biggest driver of enquiries, and this platform holds a standard. Listings that fall short get set back to draft.",
+      sub: "Good photos do more for a listing than anything else on the page. We ask for the whole place, inside and out, so a renter can tell whether it suits them before they ask.",
       note: "photos",
       fields: []
     },
@@ -477,9 +818,9 @@ const WIZARD = String.raw`(function () {
     } else if (kind === "textarea") {
       h += "<textarea id='" + id + "' data-fkey='" + f.key + "'>" + esc(stripTags(cur)) + "</textarea>";
     } else {
-      var t = kind === "number" ? "text" : "text";
       var im = kind === "number" ? " inputmode='numeric'" : "";
-      h += "<input type='" + t + "' id='" + id + "' data-fkey='" + f.key + "' value='" + esc(cur) + "'" + im + ">";
+      var ph = f.placeholder ? " placeholder='" + esc(f.placeholder) + "'" : "";
+      h += "<input type='text' id='" + id + "' data-fkey='" + f.key + "' value='" + esc(cur) + "'" + im + ph + ">";
     }
     h += "<div class='lw-err'></div></div>";
     return h;
@@ -491,10 +832,9 @@ const WIZARD = String.raw`(function () {
 
   function noteHTML(kind) {
     if (kind === "address") {
-      return "<div class='lw-note'><strong>The address field is below this wizard, on the form itself.</strong> " +
-        "It saves on its own the moment it is complete, separately from everything else, so fill it in first and " +
-        "wait for the map to settle. Everything after this step is handled here.</div>" +
-        "<div class='lw-esc'><a data-act='shownative'>Show the address field</a></div>";
+      return "<div class='lw-note'>Fill in the address in the block just below, and give it a moment to find the " +
+        "location. It saves on its own, separately from everything else, which is why it sits outside this card. " +
+        "Every other field is handled here.</div>";
     }
     if (kind === "photos") {
       return "<div class='lw-note'>Photos upload on their own page after this form is saved. Finish here, hit " +
@@ -507,8 +847,8 @@ const WIZARD = String.raw`(function () {
         "<li>Shared spaces: laundry, yard, garage, hallways, parking</li>" +
         "<li>Daylight, lights on, nothing blurry, no logos or watermarks</li>" +
         "</ul>" +
-        "<div class='lw-warn'>A listing that goes live short of this gets set back to draft and you will get an email " +
-        "saying which photos are missing. It is faster to shoot them now.</div>";
+        "<div class='lw-warn'>A listing that goes live short of this gets set back to draft, with an email saying which " +
+        "shots are missing. Faster to take them now than to do it twice.</div>";
     }
     if (kind === "review") return "<div id='lw-review'></div>";
     return "";
@@ -540,7 +880,7 @@ const WIZARD = String.raw`(function () {
     for (var p = 0; p < STEPS.length; p++) h += "<div class='lw-pip" + (p === 0 ? " on" : "") + "'></div>";
     h += "</div>";
     for (var i = 0; i < STEPS.length; i++) h += stepHTML(STEPS[i], i);
-    h += "</div><div class='lw-esc'><a data-act='togglenative'>Prefer the original form? Show it</a></div>";
+    h += "</div><div class='lw-esc' id='lw-esc-line'><a data-act='togglenative'>Show all fields on one page</a></div>";
     return h;
   }
 
@@ -603,6 +943,7 @@ const WIZARD = String.raw`(function () {
     }
     for (var j = 0; j < pips.length; j++) pips[j].className = "lw-pip" + (j <= n ? " on" : "");
     stepIndex = n;
+    applyFormModeForStep(n);
     if (STEPS[n] && STEPS[n].note === "review") renderReview();
     try {
       var card = document.getElementById("lw-card");
@@ -640,17 +981,23 @@ const WIZARD = String.raw`(function () {
   // time the user reaches Review, BD's own form is already fully filled.
   // ---------------------------------------------------------------
   function bindMirror(root) {
-    root.addEventListener("input", function (e) {
+    function push(e) {
       var t = e.target;
       var key = t && t.getAttribute ? t.getAttribute("data-fkey") : null;
       if (!key || !F[key]) return;
-      setField(F[key], t.value);
-    }, true);
-    root.addEventListener("change", function (e) {
+      setField(F[key], isMoneyKey(key) ? cleanMoney(t.value) : t.value);
+    }
+    root.addEventListener("input", push, true);
+    root.addEventListener("change", push, true);
+    // On blur, show the member the same clean number that was stored, so what
+    // is on screen and what BD holds can never disagree.
+    root.addEventListener("blur", function (e) {
       var t = e.target;
       var key = t && t.getAttribute ? t.getAttribute("data-fkey") : null;
-      if (!key || !F[key]) return;
-      setField(F[key], t.value);
+      if (!key || !isMoneyKey(key)) return;
+      var c = cleanMoney(t.value);
+      if (t.value !== c) t.value = c;
+      setField(F[key], c);
     }, true);
   }
 
@@ -675,11 +1022,174 @@ const WIZARD = String.raw`(function () {
     showNative(true);
   }
 
-  function showNative(force) {
+  // -------------------------------------------------------------
+  // FORM VISIBILITY - three states, only ever ONE interface on screen.
+  //   "hidden"  steps 2-7. Wizard only.
+  //   "address" step 1. Wizard, plus ONLY the address block of BD's form.
+  //   "full"    escape hatch. BD's raw form, wizard collapsed.
+  //
+  // The address block is ISOLATED, never moved. Those inputs must stay
+  // inside the form element or they drop out of the details POST, and the
+  // geocode widget is bound to the real input. So the other direct children
+  // of the form are hidden around it instead.
+  // -------------------------------------------------------------
+  var formChildState = null;
+
+  function formChildren() {
+    if (!FORM) return [];
+    var out = [];
+    for (var i = 0; i < FORM.children.length; i++) {
+      var c = FORM.children[i];
+      var tag = c.tagName;
+      if (tag === "INPUT" && (c.type || "").toLowerCase() === "hidden") continue;
+      if (tag === "SCRIPT" || tag === "STYLE") continue;
+      out.push(c);
+    }
+    return out;
+  }
+
+  // The address region is THREE things on BD's form, confirmed from a live
+  // screenshot: the geocoding autocomplete input, the Google map, and a
+  // separate "Property Location" textarea holding the public display string.
+  // Returning one container showed whichever came first, often the read-only
+  // display box rather than the input that actually feeds the map. So collect
+  // every form child that holds any part of the address region.
+  function topLevelBlockOf(node) {
+    if (!node || !FORM) return null;
+    var n = node;
+    while (n && n.parentNode && n.parentNode !== FORM) n = n.parentNode;
+    return n && n.parentNode === FORM ? n : null;
+  }
+
+  function addressAutocomplete() {
+    var scope = FORM || document;
+    var ins = scope.querySelectorAll("input[type=text], input:not([type])");
+    for (var i = 0; i < ins.length; i++) {
+      var ph = (ins[i].getAttribute("placeholder") || "").toLowerCase();
+      if (ph.indexOf("main st") !== -1 || (ph.indexOf("example") !== -1 && ph.indexOf(",") !== -1 && /[0-9]{5}/.test(ph))) return ins[i];
+      var cls = (ins[i].className || "") + " " + (ins[i].id || "") + " " + (ins[i].getAttribute("name") || "");
+      if (cls.toLowerCase().indexOf("autocomplete") !== -1 || cls.toLowerCase().indexOf("pac-") !== -1) return ins[i];
+    }
+    return null;
+  }
+
+  function mapNode() {
+    var scope = FORM || document;
+    var cands = scope.querySelectorAll("div");
+    for (var i = 0; i < cands.length; i++) {
+      var c = cands[i];
+      var id = (c.id || "") + " " + (c.className || "");
+      if (id.toLowerCase().indexOf("map") !== -1 && c.offsetHeight > 80) return c;
+      if (c.querySelector && c.querySelector("a[href*='maps.google']")) return c;
+    }
+    return null;
+  }
+
+  function addressBlocks() {
+    var seen = [];
+    function add(node) {
+      var b = topLevelBlockOf(node);
+      if (!b) return;
+      for (var i = 0; i < seen.length; i++) if (seen[i] === b) return;
+      seen.push(b);
+    }
+    add(addressAutocomplete());
+    add(mapNode());
+    add(one(F.location));
+    add(one(F.address1));
+    add(one(F.city));
+    add(one(F.zip));
+    return seen;
+  }
+
+  // The wizard already collects the listing title, so BD's own title field
+  // must not reappear inside a shown address block.
+  function hideTitleWithin(blocks) {
+    var t = one(F.title);
+    if (!t) return;
+    var b = topLevelBlockOf(t);
+    for (var i = 0; i < blocks.length; i++) {
+      if (blocks[i] !== b) continue;
+      // Same container as the address. Hide just the title input's own row.
+      var row = t;
+      var hops = 0;
+      while (row && row.parentNode && row.parentNode !== blocks[i] && hops < 4) { row = row.parentNode; hops++; }
+      if (row && row.parentNode === blocks[i]) row.style.display = "none";
+      return;
+    }
+  }
+
+  function captureChildState() {
+    if (formChildState) return;
+    formChildState = [];
+    var kids = formChildren();
+    for (var i = 0; i < kids.length; i++) {
+      formChildState.push({ node: kids[i], display: kids[i].style.display });
+    }
+  }
+
+  function restoreChildren() {
+    if (!formChildState) return;
+    for (var i = 0; i < formChildState.length; i++) {
+      formChildState[i].node.style.display = formChildState[i].display;
+    }
+  }
+
+  function setEscLabel(html) {
+    var esc = document.getElementById("lw-esc-line");
+    if (esc) esc.innerHTML = html;
+  }
+
+  function setFormMode(mode) {
     var n = document.getElementById("lw-native");
+    var card = document.getElementById("lw-card");
     if (!n) return;
-    if (force) { n.className = "show"; return; }
-    n.className = n.className === "show" ? "" : "show";
+    captureChildState();
+
+    if (mode === "full") {
+      restoreChildren();
+      n.className = "show";
+      if (card) card.style.display = "none";
+      setEscLabel("<a data-act='usewizard'>Back to step-by-step</a>");
+      return;
+    }
+
+    if (card) card.style.display = "";
+    setEscLabel("<a data-act='togglenative'>Show all fields on one page</a>");
+
+    if (mode === "address") {
+      var blocks = addressBlocks();
+      if (!blocks.length) { n.className = ""; return; }
+      var kids = formChildren();
+      for (var i = 0; i < kids.length; i++) {
+        var show = false;
+        for (var j = 0; j < blocks.length; j++) if (kids[i] === blocks[j]) show = true;
+        kids[i].style.display = show ? "" : "none";
+      }
+      hideTitleWithin(blocks);
+      n.className = "show address-only";
+      return;
+    }
+
+    if (mode === "desc") {
+      var dblock = topLevelBlockOf(one(F.desc));
+      if (!dblock) { n.className = ""; return; }
+      var dk = formChildren();
+      for (var a = 0; a < dk.length; a++) dk[a].style.display = (dk[a] === dblock) ? "" : "none";
+      n.className = "show address-only";
+      return;
+    }
+
+    n.className = "";
+  }
+
+  function showNative(force) {
+    if (force) setFormMode("full");
+  }
+
+  function applyFormModeForStep(n) {
+    if (STEPS[n] && STEPS[n].note === "address") setFormMode("address");
+    else setFormMode("hidden");
   }
 
   // ---------------------------------------------------------------
@@ -688,6 +1198,12 @@ const WIZARD = String.raw`(function () {
   function mount() {
     FORM = findForm();
     if (!FORM) { log("BD listing form not found, standing down"); return; }
+    if (!MOUNT_UI) {
+      try {
+        console.log("[Listing wizard] " + LW_VERSION + " - UI OFF. BD's form is untouched. Run rdcLwDump() to report the form structure.");
+      } catch (e) {}
+      return;
+    }
     if (document.getElementById("lw-wrap")) return;
 
     auditFields();
@@ -718,17 +1234,23 @@ const WIZARD = String.raw`(function () {
       var act = t && t.getAttribute ? t.getAttribute("data-act") : null;
       if (!act) return;
       e.preventDefault();
-      if (act === "next") { if (validateStep(stepIndex)) showStep(Math.min(stepIndex + 1, STEPS.length - 1)); }
+      if (act === "next") {
+        if (!validateStep(stepIndex)) return;
+        if (STEPS[stepIndex] && STEPS[stepIndex].hasDesc && !verifyDescription()) return;
+        showStep(Math.min(stepIndex + 1, STEPS.length - 1));
+      }
       else if (act === "back") showStep(Math.max(stepIndex - 1, 0));
       else if (act === "golive") submitForm(true);
       else if (act === "draft") submitForm(false);
-      else if (act === "shownative") showNative(true);
-      else if (act === "togglenative") showNative(false);
+      else if (act === "shownative") setFormMode("full");
+      else if (act === "togglenative") setFormMode("full");
+      else if (act === "usewizard") applyFormModeForStep(stepIndex);
     });
 
-    // The address widget lives on BD's form and saves itself. Step 1 needs it
-    // reachable, so the native form is visible while the wizard sits on step 1.
-    showNative(true);
+    // Step 1 shows the wizard plus ONLY the address block of BD's form.
+    // Every later step hides the form completely, so the member never sees
+    // two interfaces at once.
+    applyFormModeForStep(0);
 
     log("mounted", { level: LEVEL, missing: missing.length });
   }
