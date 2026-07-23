@@ -23,6 +23,15 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v2  2026-07-22  PATH SCOPE FIX. lw-v1 scoped to /account/properties/add
+//                      because the capture spec named that as the page the form
+//                      posts FROM. The form actually renders at
+//                      /account/properties/newgroup, which is also the POST
+//                      target, so lw-v1 never mounted on a real new listing.
+//                      Scope is now the whole /account/properties area and the
+//                      real gate is form presence: no BD listing form on the
+//                      page means stand down. A future path discovery is now a
+//                      function change, never a head-code change.
 //   lw-v1  2026-07-22  First build. Seven-step guided flow over BD's form,
 //                      go-live surfaced as a real button, review reads back
 //                      off the BD fields, escape hatch to the raw form.
@@ -30,16 +39,23 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v1";
+const LW_VERSION = "lw-v2";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v1";
+  var LW_VERSION = "lw-v2";
   var DEBUG = false;
 
+  // PATH SCOPE - deliberately broad, then gated by the form itself.
+  // lw-v1 scoped to /account/properties/add because the capture spec called
+  // that "the page it posts from". The listing form actually renders at
+  // /account/properties/newgroup, which is ALSO the POST target, so lw-v1
+  // never mounted. Both are covered now, and the real gate is findForm():
+  // no BD listing form on the page means the wizard stands down. That way a
+  // future path discovery is a function change, never a head-code change.
   var PATH = (window.location.pathname || "").toLowerCase();
-  if (PATH.indexOf("/account/properties/add") === -1) return;
+  if (PATH.indexOf("/account/properties") === -1) return;
   if (window.__rdcLwMounted) return;
   window.__rdcLwMounted = true;
 
