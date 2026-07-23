@@ -1,4 +1,4 @@
-// lw-v29  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v31  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,69 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v31 2026-07-23  THE RAW FORM IS GONE FROM VIEW. Kenny's call, and
+//                      the right one: a property manager should never be
+//                      shown the interface the wizard exists to replace.
+//                      The standing 'Show all fields on one page' link is
+//                      removed.
+//
+//                      WHAT REPLACED IT, because the hatch was not pure
+//                      decoration. It existed so nobody could be trapped by
+//                      a field the wizard fails to render, and that risk is
+//                      real: BD marks nearly everything required, and a
+//                      field added later that the wizard does not map would
+//                      make the save fail forever with no way to fill it.
+//                      So instead of a permanent door for a rare case, the
+//                      case is DETECTED. On mount the wizard walks every
+//                      named field BD marks required and checks it is
+//                      mapped. If one is not, the full form is revealed with
+//                      a plain explanation and everything already collected
+//                      sitting in it. If none is, which is the normal state,
+//                      the member never learns the form exists.
+//                      An UNMAPPED OPTIONAL field is not a trap and does not
+//                      trigger it.
+//                      The rejected-save message still offers the form,
+//                      because at that point something on it is being
+//                      complained about and hiding it would be unhelpful.
+//
+//                      A forcedFull flag was needed: the reveal ran before
+//                      the step logic, which promptly hid the form again and
+//                      left a warning pointing at something invisible.
+//   lw-v30 2026-07-23  THE SAVE WAS BEING REJECTED AND CALLED A SUCCESS.
+//                      A live report came back with no addphotos link, where
+//                      an earlier one had had it. Same page, same size. The
+//                      difference is that BD REJECTED the post and handed
+//                      the form back, because BD marks nearly every field on
+//                      that form REQUIRED and this wizard treated eight of
+//                      them as optional. Step 5 went further and told the
+//                      member to leave two of them blank.
+//
+//                      THREE FIXES:
+//                      1. REQUIRED-NESS IS READ OFF THE LIVE FORM, not
+//                         hardcoded. BD marks it two ways, a leading star in
+//                         the label and the words Required Field inside the
+//                         same .form-group, and both are checked. Same
+//                         principle as cloning select options: the form is
+//                         the source of truth, not my copy of it.
+//                      2. PUBLISH IS GATED ON EVERY REQUIRED FIELD ACROSS
+//                         ALL STEPS, not just the visible one. An empty
+//                         field on step 3 must not be discovered by BD at
+//                         step 7. It jumps back to the field and names it.
+//                      3. A REJECTED SAVE IS REPORTED AS A REJECTED SAVE.
+//                         The proof of a save is an addphotos link, which BD
+//                         only offers once a listing exists. Absent it, the
+//                         wizard says so plainly, keeps the photos, and
+//                         points at the raw form to find the complaint.
+//                         It also scrapes the response for validation text
+//                         and prints what it found.
+//
+//                      AND A SECOND BUG THE TESTS CAUGHT: with no photos
+//                      queued, the old code reported success and returned
+//                      BEFORE checking whether the save worked, so a
+//                      rejected post with no photos looked clean. The
+//                      did-it-save question is answered first now.
+//                      Step 5 no longer tells anyone to leave a required
+//                      field blank.
 //   lw-v29 2026-07-23  COPY PASS ACROSS ALL SEVEN STEPS. Four subtitles cut.
 //                      STEP 2 was the worst: it told the member to pick the
 //                      address from the dropdown THREE times, in the
@@ -558,12 +621,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v29";
+const LW_VERSION = "lw-v31";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v29";
+  var LW_VERSION = "lw-v31";
   var DEBUG = false;
 
   // =============================================================
@@ -1012,6 +1075,44 @@ const WIZARD = String.raw`(function () {
 
   function isMoneyKey(k) { return moneyKeys()[k] === 1; }
 
+  // BD MARKS ALMOST EVERY FIELD REQUIRED, and the wizard's own static flags
+  // disagreed with it on eight of them. A member could reach Publish with
+  // fields BD demands empty, BD would reject the post, and the wizard would
+  // report success. So required-ness is READ OFF THE LIVE FORM rather than
+  // hardcoded, the same way select options are.
+  // BD renders it two ways: a leading * in the label, and the words
+  // "Required Field" inside the same .form-group.
+  var reqCache = {};
+
+  function isRequiredOnForm(name) {
+    if (reqCache[name] !== undefined) return reqCache[name];
+    var node = one(name);
+    if (!node) { reqCache[name] = false; return false; }
+    var box = node;
+    var hops = 0;
+    while (box && hops < 5) {
+      var cls = " " + (box.className || "") + " ";
+      if (cls.indexOf(" form-group ") !== -1) break;
+      box = box.parentNode; hops++;
+    }
+    if (!box || !box.textContent) { reqCache[name] = false; return false; }
+    var txt = box.textContent;
+    var req = txt.indexOf("Required Field") !== -1;
+    if (!req) {
+      var lab = box.querySelector ? box.querySelector("label") : null;
+      var lt = lab ? (lab.textContent || "").replace(/^[ ]+/, "") : "";
+      if (lt.charAt(0) === "*") req = true;
+    }
+    reqCache[name] = req;
+    return req;
+  }
+
+  function fieldRequired(f) {
+    if (!exists(F[f.key])) return false;
+    var live = isRequiredOnForm(F[f.key]);
+    return live || f.required === true;
+  }
+
   function optionsFor(name) {
     var n = one(name);
     var out = [];
@@ -1155,6 +1256,31 @@ const WIZARD = String.raw`(function () {
     return real.concat(hidden);
   }
 
+  // THE REASON THE ESCAPE HATCH CAN GO. It existed so nobody could be
+  // trapped by a field the wizard failed to render. Rather than keep a
+  // permanent door for a rare case, find the case: walk every named field BD
+  // marks required and check the wizard actually maps it. If one is
+  // unmapped the raw form is revealed WITH a reason. If none is, the member
+  // never sees it, which is the whole point.
+  function unmappedRequired() {
+    if (!FORM) return [];
+    var mapped = {};
+    for (var k in F) { if (F.hasOwnProperty(k)) mapped[F[k]] = true; }
+    var skip = { sized: 1, form: 1, formname: 1, dowiz: 1, save: 1, logged_user: 1,
+                 form_security_token: 1, country_sn: 1, state_sn: 1, lat: 1, lon: 1 };
+    var out = [];
+    var all = FORM.querySelectorAll("input[name], select[name], textarea[name]");
+    var seen = {};
+    for (var i = 0; i < all.length; i++) {
+      var nm = all[i].getAttribute("name");
+      if (!nm || seen[nm] || mapped[nm] || skip[nm]) continue;
+      if ((all[i].type || "").toLowerCase() === "hidden") continue;
+      seen[nm] = true;
+      if (isRequiredOnForm(nm)) out.push(nm);
+    }
+    return out;
+  }
+
   var missing = [];
   function auditFields() {
     missing = [];
@@ -1291,7 +1417,7 @@ const WIZARD = String.raw`(function () {
     },
     {
       title: "Screening requirements",
-      sub: "Stating these up front saves everyone time. Leave either blank if you would rather not screen on it.",
+      sub: "Stating these up front saves everyone time, and this site requires both.",
       fields: [
         { key: "mincredit", label: "Minimum credit score", kind: "number", required: false },
         { key: "minincome", label: "Minimum monthly income", kind: "number", required: false, placeholder: "5000" }
@@ -1335,7 +1461,7 @@ const WIZARD = String.raw`(function () {
     var id = "lw-i-" + f.key;
     var cur = getField(name);
     var h = "<div class='lw-f' data-fkey='" + f.key + "'>";
-    h += "<label for='" + id + "'>" + esc(f.label) + (f.required ? " *" : "");
+    h += "<label for='" + id + "'>" + esc(f.label) + (fieldRequired(f) ? " *" : "");
     if (f.hint) h += " <span class='lw-hint'>" + esc(f.hint) + "</span>";
     h += "</label>";
 
@@ -1425,7 +1551,7 @@ const WIZARD = String.raw`(function () {
     for (var p = 0; p < STEPS.length; p++) h += "<div class='lw-pip" + (p === 0 ? " on" : "") + "'></div>";
     h += "</div>";
     for (var i = 0; i < STEPS.length; i++) h += stepHTML(STEPS[i], i);
-    h += "</div><div class='lw-esc' id='lw-esc-line'><a data-act='togglenative'>Show all fields on one page</a></div>";
+    h += "</div><div class='lw-esc' id='lw-esc-line'></div>";
     return h;
   }
 
@@ -1543,7 +1669,7 @@ const WIZARD = String.raw`(function () {
     if (!s) return true;
     for (var i = 0; i < s.fields.length; i++) {
       var f = s.fields[i];
-      if (!f.required) continue;
+      if (!fieldRequired(f)) continue;
       var wrap = document.querySelector("#lw-card .lw-step[data-step='" + n + "'] .lw-f[data-fkey='" + f.key + "']");
       if (!wrap) continue;
       var input = wrap.querySelector("input,select,textarea");
@@ -1831,12 +1957,12 @@ const WIZARD = String.raw`(function () {
       restoreChildren();
       n.className = "show";
       if (card) card.style.display = "none";
-      setEscLabel("<a data-act='usewizard'>Back to step-by-step</a>");
+      setEscLabel("<a data-act='usewizard'>Back to the guided steps</a>");
       return;
     }
 
     if (card) card.style.display = "";
-    setEscLabel("<a data-act='togglenative'>Show all fields on one page</a>");
+    setEscLabel("");
 
     if (mode === "address") {
       if (relocateAddressWidget()) { n.className = ""; return; }
@@ -1877,8 +2003,34 @@ const WIZARD = String.raw`(function () {
   // green button is still there.
   var savingInPage = false;
 
+  // A field left empty on step 3 must not be discovered by BD on step 7.
+  function firstIncompleteStep() {
+    for (var n = 0; n < STEPS.length; n++) {
+      var st = STEPS[n];
+      if (!st.fields) continue;
+      for (var i = 0; i < st.fields.length; i++) {
+        var f = st.fields[i];
+        if (!fieldRequired(f)) continue;
+        if (!String(getField(F[f.key]) || "").trim()) return { step: n, key: f.key, label: f.label };
+      }
+    }
+    return null;
+  }
+
   function submitInPage(goLive) {
     if (savingInPage) return;
+    var gap = firstIncompleteStep();
+    if (gap) {
+      var box = document.getElementById("lw-savelog");
+      if (box) {
+        box.innerHTML = "<div class='lw-warn' style='margin-top:14px'><strong>" + esc(gap.label) +
+          " is still empty.</strong> This site requires it, and saving without it would be rejected " +
+          "without telling you why. Taking you back to it now.</div>";
+      }
+      showStep(gap.step);
+      setTimeout(function () { validateStep(gap.step); }, 40);
+      return;
+    }
     var out = document.getElementById("lw-savelog");
     function say(html, cls) {
       if (out) out.innerHTML = "<div class='" + (cls || "lw-note") + "' style='margin-top:14px'>" + html + "</div>";
@@ -1923,11 +2075,12 @@ const WIZARD = String.raw`(function () {
             savingInPage = false;
           }
 
-          if (!PHOTOS.length) { finish(" No photos were queued."); return; }
-
-          // The save response is not the photo page. group_id and data_id
-          // live on the addphotos page, so follow the redirect and read them
-          // off it rather than guessing an id.
+          // DID IT SAVE? Answer that FIRST, before anything about photos.
+          // An earlier build reported "Saved without leaving the page" and
+          // returned early whenever no photos were queued, so a rejected post
+          // with no photos looked like a clean success.
+          // The proof of a save is an addphotos link: BD only offers one once
+          // a listing exists. group_id and data_id live on that page.
           var addUrl = (r.url && r.url.indexOf("addphotos") !== -1) ? r.url : "";
           if (!addUrl) {
             var SL = String.fromCharCode(47);
@@ -1935,18 +2088,37 @@ const WIZARD = String.raw`(function () {
             if (m) addUrl = m[0];
           }
           if (!addUrl) {
-            rep += String.fromCharCode(10) + "photo upload: SKIPPED, no addphotos url in the response";
-            finish(" The listing saved but the photo page could not be located, so your " +
-                   PHOTOS.length + " photos were not uploaded. They are still listed on step 1.");
+            // No addphotos link means BD handed the form back rather than
+            // creating a listing. Reporting that as saved is the worst kind
+            // of lie a tool can tell, because the member walks away.
+            rep += String.fromCharCode(10) + "no addphotos link in the response";
+            var errBits = [];
+            var lowered = txt.toLowerCase();
+            var markers = ["required field", "is required", "please enter", "error"];
+            for (var mi = 0; mi < markers.length; mi++) {
+              var at = lowered.indexOf(markers[mi]);
+              if (at !== -1) errBits.push(txt.slice(Math.max(0, at - 70), at + 90).replace(/[ ]+/g, " "));
+            }
+            if (errBits.length) rep += String.fromCharCode(10) + "page mentions: " + errBits.join(" || ").slice(0, 500);
+            savingInPage = false;
+            say("<strong>This did not save.</strong> The site returned the form again instead of a new " +
+                "listing, which usually means it rejected something on it. Nothing was published" +
+                (PHOTOS.length ? (" and your " + PHOTOS.length + " photos are still here") : "") + ". Use " +
+                "<a data-act='togglenative'>Open the full form</a> to see what it is complaining about." +
+                "<textarea readonly style='width:100%;height:130px;margin-top:9px;font-family:monospace;" +
+                "font-size:11px;border:1px solid #ccd4de;border-radius:6px;padding:8px'>" + esc(rep) + "</textarea>",
+                "lw-warn");
             return;
           }
+
+          rep += String.fromCharCode(10) + "addphotos url: " + addUrl;
+          if (!PHOTOS.length) { finish(" No photos were queued, so nothing was uploaded."); return; }
 
           window.fetch(addUrl, { credentials: "same-origin" })
             .then(function (pr) { return pr.text(); })
             .then(function (phtml) {
               var ids = scrapeIds(phtml);
-              rep += String.fromCharCode(10) + "addphotos url: " + addUrl +
-                     String.fromCharCode(10) + "ids: group_id=" + ids.groupId +
+              rep += String.fromCharCode(10) + "ids: group_id=" + ids.groupId +
                      " data_id=" + ids.dataId + " user_id=" + ids.userId;
               if (!ids.groupId || !ids.dataId) {
                 // Show the surrounding markup rather than guessing at it a
@@ -2232,7 +2404,13 @@ const WIZARD = String.raw`(function () {
     return st.ok;
   }
 
+  // When a required field is unmapped the full form must STAY up. Without
+  // this flag the step logic hid it again a moment after it was revealed,
+  // leaving the warning on screen pointing at a form nobody could see.
+  var forcedFull = false;
+
   function applyFormModeForStep(n) {
+    if (forcedFull) { setFormMode("full"); return; }
     if (STEPS[n] && STEPS[n].note === "address") setFormMode("address");
     else setFormMode("hidden");
   }
@@ -2279,6 +2457,21 @@ const WIZARD = String.raw`(function () {
     bindMirror(wrap);
     bindPhotoZone(wrap);
 
+    var orphans = unmappedRequired();
+    if (orphans.length) {
+      var warn = document.createElement("div");
+      warn.className = "lw-warn";
+      warn.style.maxWidth = "860px";
+      warn.innerHTML = "<strong>This site is asking for " + orphans.length +
+        (orphans.length === 1 ? " field" : " fields") + " the guided steps do not cover yet.</strong> " +
+        "The full form is below so nothing blocks you. Everything the steps collected is already " +
+        "filled in there.";
+      wrap.parentNode.insertBefore(warn, wrap.nextSibling);
+      forcedFull = true;
+      setFormMode("full");
+      log("unmapped required fields:", orphans.join(", "));
+    }
+
     wrap.addEventListener("click", function (e) {
       var t = e.target;
       var act = t && t.getAttribute ? t.getAttribute("data-act") : null;
@@ -2298,7 +2491,7 @@ const WIZARD = String.raw`(function () {
       else if (act === "draft") submitForm(false);
       else if (act === "shownative") setFormMode("full");
       else if (act === "togglenative") setFormMode("full");
-      else if (act === "usewizard") applyFormModeForStep(stepIndex);
+      else if (act === "usewizard") { forcedFull = false; applyFormModeForStep(stepIndex); }
       else if (act === "pickphotos") { var pi = document.getElementById("lw-photoinput"); if (pi) pi.click(); }
     });
 
