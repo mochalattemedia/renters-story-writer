@@ -1,4 +1,4 @@
-// lw-v19  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v22  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,70 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v22 2026-07-23  THE TITLE FILLS ITSELF FROM THE ADDRESS.
+//                      Entering an address and then typing the city and
+//                      state again is duplicate entry, and BD's own title
+//                      placeholder asks for exactly what the geocode already
+//                      returned. Once lat/lon land, the title is filled with
+//                      City, ST derived from post_location, using the hidden
+//                      state_sn field for the state code because that is
+//                      given rather than parsed. Street segments are skipped
+//                      by testing for a leading digit, and a trailing USA or
+//                      United States is dropped.
+//                      A TYPED TITLE IS NEVER OVERWRITTEN. The moment the
+//                      member edits that field it is marked touched and the
+//                      autofill stands down permanently, so a building name
+//                      survives every later address repaint.
+//
+//                      ALSO: STALE VALIDATION MESSAGES. 'Listing title is
+//                      needed before you continue' stayed on screen beside a
+//                      field that plainly had content, because errors were
+//                      only recomputed on the next Continue click. They now
+//                      clear on the first keystroke that gives the field a
+//                      value. A message that survives its own fix is worse
+//                      than no message.
+//   lw-v21 2026-07-23  THE STEP TITLE WAS WRITING A CHECK IT COULD NOT CASH.
+//                      'Photos first' as a heading promises somewhere to put
+//                      photos. There is no upload on that step and cannot be
+//                      one until the photo-upload call is captured, so the
+//                      title was the bug, not the missing control.
+//                      Now 'Have your photos ready', and the subtitle says
+//                      in its first line that there is nothing to upload
+//                      here. A readiness step named as a readiness step.
+//
+//                      A DROP ZONE WAS DELIBERATELY NOT ADDED. Holding files
+//                      the wizard cannot deliver is worse than no control:
+//                      the member does the work of selecting photos and
+//                      nothing happens to them. It goes in when the upload
+//                      call is known, not before.
+//
+//                      GUARD ADDED: the step must contain no file input AND
+//                      its title must not imply one. If a future version
+//                      renames this step back to an action, the suite fails
+//                      until a real control exists to justify it.
+//   lw-v20 2026-07-23  PHOTOS STEP CUT DOWN. TWO REGRESSIONS OF MY OWN.
+//                      1. 'reshooting is slower than shooting once'. Kenny
+//                         flagged 'shoot' as odd back at v11 and it was
+//                         changed to 'take'. Writing a fresh subtitle for
+//                         the photos-first step, I reached for the same word
+//                         again. Gone, and now asserted against.
+//                      2. THE DRAFT CONSEQUENCE APPEARED THREE TIMES on one
+//                         step: subtitle, top note, bottom warning. v11
+//                         fixed exactly this duplication; v19 reintroduced
+//                         it by adding new copy without reading what already
+//                         sat below it. The step is now one subtitle, the
+//                         checklist, and ONE closing box carrying both the
+//                         timing and the consequence. 92 words to 87, and it
+//                         reads as preparation rather than a lecture.
+//
+//                      NEW GUARDS IN THE SUITE, so neither can return:
+//                        - no shoot/shooting/reshooting anywhere in copy
+//                        - 'set back to draft' appears EXACTLY ONCE across
+//                          the entire wizard
+//                        - the photos step stays under 120 words
+//                        - no British spellings in member-facing copy
+//                      Copy feedback is cheaper to encode as a test than to
+//                      remember, and I have now failed to remember twice.
 //   lw-v19 2026-07-23  PHOTOS FIRST, AND AN EMPTY YELLOW STRIP FIXED.
 //                      1. THE BLANK STRIP. The address status box rendered
 //                         as a styled but EMPTY yellow bar. showStep() fills
@@ -325,12 +389,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v19";
+const LW_VERSION = "lw-v22";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v19";
+  var LW_VERSION = "lw-v22";
   var DEBUG = false;
 
   // =============================================================
@@ -524,6 +588,7 @@ const WIZARD = String.raw`(function () {
     terms:      "group_desc_2",
     golive:     "group_status",
     location:   "post_location",
+    state:      "state_sn",
     lat:        "lat",
     lon:        "lon"
   };
@@ -999,8 +1064,8 @@ const WIZARD = String.raw`(function () {
   var STEPS = [
     {
       note: "photos",
-      title: "Photos first",
-      sub: "Photos do more for a listing than anything else on the page. Check you have these before you fill anything in. A listing that goes live short of them gets set back to draft, and reshooting is slower than shooting once.",
+      title: "Have your photos ready",
+      sub: "Photos do more for a listing than anything else on it. There is nothing to upload on this step, so use it to check you have the shots below before you fill anything in.",
       fields: []
     },
     {
@@ -1008,7 +1073,7 @@ const WIZARD = String.raw`(function () {
       sub: "Start with the address. It has to be entered in the field below so the map pin and geocode are saved before anything else.",
       note: "address",
       fields: [
-        { key: "title", label: "Listing title", kind: "text", required: true, placeholder: "Denver, CO", hint: "City and state, for example Denver, CO" }
+        { key: "title", label: "Listing title", kind: "text", required: true, placeholder: "Denver, CO", hint: "Filled in from the address above. Change it if you want." }
       ]
     },
     {
@@ -1118,10 +1183,7 @@ const WIZARD = String.raw`(function () {
         "<div id='lw-addr-state' class='lw-addrstate'>Pick the address from the dropdown so the map pin sets.</div>";
     }
     if (kind === "photos") {
-      return "<div class='lw-note'><strong>Nothing to upload yet.</strong> Photos attach to the listing after it " +
-        "is saved, so the upload comes at the end. This step is here first so you find out what is needed before " +
-        "you fill anything in, rather than after.</div>" +
-        "<p class='lw-eyebrow'>What is required</p>" +
+      return "<p class='lw-eyebrow'>What is required</p>" +
         "<ul class='lw-check'>" +
         "<li>The outside: front, and the street it sits on</li>" +
         "<li>Every room, including each bedroom and each bathroom</li>" +
@@ -1129,8 +1191,8 @@ const WIZARD = String.raw`(function () {
         "<li>Shared spaces: laundry, yard, garage, hallways, parking</li>" +
         "<li>Daylight, lights on, nothing blurry, no logos or watermarks</li>" +
         "</ul>" +
-        "<div class='lw-warn'>A listing that goes live short of this gets set back to draft, with an email saying which " +
-        "shots are missing. Faster to take them now than to do it twice.</div>";
+        "<div class='lw-note'>You will upload these at the end, once the listing is saved. Anything short of the " +
+        "list above gets set back to draft, with an email saying what is missing.</div>";
     }
     if (kind === "review") return "<div id='lw-review'></div>";
     return "";
@@ -1279,11 +1341,23 @@ const WIZARD = String.raw`(function () {
   // This is what makes stage A (auto-submit) nearly free later: by the
   // time the user reaches Review, BD's own form is already fully filled.
   // ---------------------------------------------------------------
+  function clearFieldError(key) {
+    var wrap = document.querySelector("#lw-card .lw-f[data-fkey='" + key + "']");
+    if (!wrap) return;
+    wrap.className = "lw-f";
+    var e = wrap.querySelector(".lw-err");
+    if (e) e.textContent = "";
+  }
+
   function bindMirror(root) {
     function push(e) {
       var t = e.target;
       var key = t && t.getAttribute ? t.getAttribute("data-fkey") : null;
       if (!key || !F[key]) return;
+      // A validation message that survives the fix is worse than none: the
+      // member reads "this is needed" beside a field that plainly has content.
+      if (String(t.value || "").trim()) clearFieldError(key);
+      if (key === "title") titleTouched = true;
       setField(F[key], isMoneyKey(key) ? cleanMoney(t.value) : t.value);
     }
     root.addEventListener("input", push, true);
@@ -1618,6 +1692,66 @@ const WIZARD = String.raw`(function () {
     }
   }
 
+  // DERIVE THE TITLE FROM THE ADDRESS. BD's own placeholder for the title
+  // asks for "San Diego, CA", and the geocoded address already contains
+  // exactly that, so typing it a second time is pure duplicate entry.
+  // post_location looks like "648 Pleasure Dr, Flanders, NY 11901".
+  // The state code is also on the form as the hidden state_sn field, which
+  // is more reliable than parsing, so it is preferred when present.
+  function deriveCityState() {
+    var loc = stripTags(getField(F.location));
+    if (!loc) return "";
+    var parts = loc.split(",");
+    var segs = [];
+    for (var i = 0; i < parts.length; i++) {
+      var t = parts[i].replace(/^[ ]+/, "").replace(/[ ]+$/, "");
+      if (!t) continue;
+      var up = t.toUpperCase();
+      if (up === "USA" || up === "US" || up === "UNITED STATES") continue;
+      segs.push(t);
+    }
+    if (!segs.length) return "";
+
+    var code = String(getField(F.state) || "").replace(/[^A-Za-z]/g, "").toUpperCase();
+
+    // Find the segment carrying the state, then the city sits just before it.
+    var stateIdx = -1;
+    for (var j = segs.length - 1; j >= 0; j--) {
+      var seg = segs[j].toUpperCase();
+      if (code && seg.indexOf(code) === 0) { stateIdx = j; break; }
+      if (!code && /^[A-Z][A-Z]([ ]|$)/.test(seg)) { stateIdx = j; break; }
+    }
+    if (stateIdx === -1) stateIdx = segs.length - 1;
+
+    var st = code;
+    if (!st) {
+      var m = segs[stateIdx].toUpperCase().match(/^[A-Z][A-Z]/);
+      st = m ? m[0] : "";
+    }
+    var city = stateIdx > 0 ? segs[stateIdx - 1] : "";
+    // A street segment starts with a house number; that is not a city.
+    if (city && /^[0-9]/.test(city) && stateIdx - 2 >= 0) city = segs[stateIdx - 2];
+    if (!city || !st) return "";
+    return city + ", " + st;
+  }
+
+  var titleTouched = false;
+
+  function autofillTitle() {
+    if (titleTouched) return;
+    var box = document.getElementById("lw-i-title");
+    if (!box) return;
+    var derived = deriveCityState();
+    if (!derived) return;
+    if (box.value && box.value !== derived && titleTouched) return;
+    if (box.value === derived) return;
+    box.value = derived;
+    setField(F.title, derived);
+    clearFieldError("title");
+    var note = document.getElementById("lw-title-note");
+    if (note) note.innerHTML = "Filled in from the address. Edit it if you want something different.";
+  }
+
   function startAddressWatch() {
     if (window.__rdcLwAddrWatch) return;
     window.__rdcLwAddrWatch = setInterval(function () {
@@ -1633,6 +1767,7 @@ const WIZARD = String.raw`(function () {
     if (st.ok) {
       box.className = "lw-addrstate ok";
       box.innerHTML = "Location saved: " + esc(st.text);
+      autofillTitle();
     } else {
       box.className = "lw-addrstate";
       box.innerHTML = "No location saved yet. Pick the address from the dropdown so the map pin sets.";
