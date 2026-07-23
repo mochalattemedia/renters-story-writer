@@ -1,4 +1,4 @@
-// lw-v26  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v29  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,80 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v29 2026-07-23  COPY PASS ACROSS ALL SEVEN STEPS. Four subtitles cut.
+//                      STEP 2 was the worst: it told the member to pick the
+//                      address from the dropdown THREE times, in the
+//                      subtitle, a note box and the status strip. The
+//                      subtitle also said the address was 'in the field
+//                      below', which stopped being true at v22 when the
+//                      widget was moved INTO the card. Both the subtitle and
+//                      the note are gone; the strip stays because it is the
+//                      only one that reports actual state.
+//                      STEP 3 read its own field labels back aloud, and
+//                      claimed the basics 'matter more than the
+//                      description', which undercuts step 6. Cut.
+//                      STEP 7 said the review 'is read back from the form
+//                      itself', which describes my implementation rather
+//                      than helping anyone. Cut. Retitled Review and
+//                      publish, matching the button it now carries.
+//                      STEPS 4, 5, 6 KEPT but tightened. They earn their
+//                      space because they explain WHY to fill fields that
+//                      are optional, which a label cannot do.
+//                      Description lost its hint: 'Shown on the public
+//                      listing' was true of the field beneath it too, so it
+//                      distinguished nothing.
+//                      Subtitle words across the wizard: 49, from roughly
+//                      160. THE TEST: does this sentence tell the member
+//                      something the labels and controls cannot? If not it
+//                      is noise between them and the field they came for.
+//   lw-v28 2026-07-23  CUT A SENTENCE THAT SAID NOTHING NEW. The photo step
+//                      opened with 'Photos do more for a listing than
+//                      anything else on it. Add them here and they go up on
+//                      their own once the listing is saved.' It sat between
+//                      a title that already said Add your photos and a
+//                      closing box that already explained the timing, so it
+//                      repeated both of its neighbours and read awkwardly
+//                      doing it. Gone.
+//                      The drop zone also echoed the step title in bold
+//                      directly beneath it; it now leads with the action,
+//                      Drag photos here or choose files.
+//                      Subtitles are optional per step now, so a step that
+//                      does not need one does not render an empty paragraph.
+//                      GUARDS: the step title must appear exactly once, and
+//                      the accepted formats exactly once.
+//                      PATTERN WORTH KEEPING: when a step gains a real
+//                      control, the prose written for the version that
+//                      lacked one usually becomes redundant. Reread the
+//                      whole step after adding a control, not just the part
+//                      being changed.
+//   lw-v27 2026-07-23  THE IDS ARE IN JAVASCRIPT, NOT IN MARKUP.
+//                      The v26 diagnostic dumped the addphotos page and
+//                      showed it building its own upload body inline:
+//                        data.append(QgroupIdQ, 257);
+//                        data.append(QuserIdQ, 3650);
+//                        data.append(QdataIdQ, 12);
+//                        data.append(QdataTypeQ, 4);
+//                      (Q standing in for a double quote.) v24 through v26
+//                      searched for name=QgroupIdQ value=Q257Q, a shape that
+//                      does not exist anywhere on that page, so the scrape
+//                      returned empty every single time. The quoted-key form
+//                      is tried FIRST now, with the markup forms kept as
+//                      fallbacks in case BD renders it differently elsewhere.
+//                      Verified against the exact text from the live page.
+//
+//                      ALSO CONFIRMED BY THAT REPORT: the saves have been
+//                      working all along. group_id 253 appeared in the photo
+//                      capture and 257 in the id dump, both real listings
+//                      with their own photo pages. Only the photo half was
+//                      failing, and it failed loudly rather than pretending,
+//                      which is the one thing that went right.
+//
+//                      THE TEST MOCK NOW MIRRORS REALITY: the save response
+//                      does NOT redirect and carries the addphotos link in
+//                      its body, and the ids come from JavaScript. Building
+//                      the mock from the real capture rather than from what
+//                      the API ought to look like is what these versions
+//                      were missing.
 //   lw-v26 2026-07-23  ONE ACTION ON THE FINAL STEP. Kenny's call.
 //                      v24/v25 put a green Save and go live beside a link
 //                      that was the ONLY path uploading photos, plus a
@@ -484,12 +558,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v26";
+const LW_VERSION = "lw-v29";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v26";
+  var LW_VERSION = "lw-v29";
   var DEBUG = false;
 
   // =============================================================
@@ -1143,6 +1217,7 @@ const WIZARD = String.raw`(function () {
     ".lw-drop{border:2px dashed #ccd8e4;border-radius:11px;padding:26px 20px;text-align:center;background:#fbfdff;margin-bottom:14px;transition:border-color .15s,background .15s}",
     ".lw-drop.over{border-color:#0d2d4e;background:#f2f7fc}",
     ".lw-dropbig{margin:0 0 4px;font-size:16px;font-weight:600;color:#0d2d4e}",
+    ".lw-dropbig a{color:#0d2d4e;text-decoration:underline;cursor:pointer}",
     ".lw-dropsub{margin:0 0 8px;font-size:13px;color:#5b6b7d}",
     ".lw-dropsub a{color:#0d2d4e;text-decoration:underline;cursor:pointer;font-weight:600}",
     ".lw-photocount{margin:0;font-size:12.5px;color:#7a8798;font-weight:600}",
@@ -1180,12 +1255,12 @@ const WIZARD = String.raw`(function () {
     {
       note: "photos",
       title: "Add your photos",
-      sub: "Photos do more for a listing than anything else on it. Add them here and they go up on their own once the listing is saved.",
+      sub: "",
       fields: []
     },
     {
       title: "Where is it?",
-      sub: "Start with the address. It has to be entered in the field below so the map pin and geocode are saved before anything else.",
+      sub: "",
       note: "address",
       fields: [
         { key: "title", label: "Listing title", kind: "text", required: true, hint: "Filled in from the address above. Change it if you want." }
@@ -1193,7 +1268,7 @@ const WIZARD = String.raw`(function () {
     },
     {
       title: "The basics",
-      sub: "Rent, size and layout. These are the filters renters search on, so they matter more than the description.",
+      sub: "",
       fields: [
         { key: "price", label: "Monthly rent", kind: "number", required: true, placeholder: "1800" },
         { key: "ptype", label: "Property type", kind: "select", required: true },
@@ -1208,7 +1283,7 @@ const WIZARD = String.raw`(function () {
     },
     {
       title: "Move-in costs",
-      sub: "Renters filter hard on this. A listing that states the real number up front gets fewer dead leads and fewer people walking away at the last step.",
+      sub: "Renters filter hard on this, so stating the real number up front means fewer dead leads.",
       fields: [
         { key: "deposit", label: "Security deposit", kind: "number", required: false, placeholder: "1800" },
         { key: "movein", label: "Total cost to move in", kind: "number", required: false, hint: "Deposit plus first month plus any fees" }
@@ -1216,7 +1291,7 @@ const WIZARD = String.raw`(function () {
     },
     {
       title: "Screening requirements",
-      sub: "Stating these up front saves everyone time. Renters who cannot meet them move on, and the ones who do apply already know they qualify. Leave either blank if you would rather not screen on it.",
+      sub: "Stating these up front saves everyone time. Leave either blank if you would rather not screen on it.",
       fields: [
         { key: "mincredit", label: "Minimum credit score", kind: "number", required: false },
         { key: "minincome", label: "Minimum monthly income", kind: "number", required: false, placeholder: "5000" }
@@ -1225,15 +1300,15 @@ const WIZARD = String.raw`(function () {
     {
       hasDesc: true,
       title: "Describe the place",
-      sub: "Renters skim for specifics, so lead with them: parking, laundry, pets, storage, what is within walking distance. Plain sentences do more work than a list of adjectives.",
+      sub: "Renters skim for specifics, so lead with them: parking, laundry, pets, storage, what is nearby.",
       fields: [
-        { key: "desc", label: "Description", kind: "textarea", required: true, hint: "Shown on the public listing" },
+        { key: "desc", label: "Description", kind: "textarea", required: true },
         { key: "terms", label: "Application process and lease terms", kind: "textarea", required: false, hint: "How to apply, pet policy, anything worth knowing before they ask" }
       ]
     },
     {
-      title: "Review and go live",
-      sub: "This is read back from the form itself, so it is exactly what will be saved.",
+      title: "Review and publish",
+      sub: "",
       note: "review",
       fields: []
     }
@@ -1292,16 +1367,13 @@ const WIZARD = String.raw`(function () {
 
   function noteHTML(kind) {
     if (kind === "address") {
-      return "<div class='lw-note'>Start typing the street address and pick it from the list. The map confirms " +
-        "the pin. This one saves on its own as you choose it, separately from everything else.</div>" +
-        "<div id='lw-addr-slot'></div>" +
+      return "<div id='lw-addr-slot'></div>" +
         "<div id='lw-addr-state' class='lw-addrstate'>Pick the address from the dropdown so the map pin sets.</div>";
     }
     if (kind === "photos") {
       return "<div id='lw-drop' class='lw-drop'>" +
-          "<p class='lw-dropbig'>Add your photos</p>" +
-          "<p class='lw-dropsub'>Drag them here, or <a data-act='pickphotos'>choose files</a>. " +
-          "JPG, PNG, GIF, WEBP or SVG, up to 10 MB each.</p>" +
+          "<p class='lw-dropbig'>Drag photos here, or <a data-act='pickphotos'>choose files</a></p>" +
+          "<p class='lw-dropsub'>JPG, PNG, GIF, WEBP or SVG, up to 10 MB each.</p>" +
           "<input type='file' id='lw-photoinput' multiple accept='image/*' style='display:none'>" +
           "<p class='lw-photocount' id='lw-photocount'>No photos chosen yet</p>" +
         "</div>" +
@@ -1325,7 +1397,7 @@ const WIZARD = String.raw`(function () {
     var h = "<div class='lw-step" + (i === 0 ? " on" : "") + "' data-step='" + i + "'>";
     h += "<p class='lw-eyebrow'>Step " + (i + 1) + " of " + STEPS.length + "</p>";
     h += "<h2 class='lw-h'>" + esc(s.title) + "</h2>";
-    h += "<p class='lw-sub'>" + esc(s.sub) + "</p>";
+    if (s.sub) h += "<p class='lw-sub'>" + esc(s.sub) + "</p>";
     if (s.note) h += noteHTML(s.note);
 
     var body = "";
@@ -2109,14 +2181,29 @@ const WIZARD = String.raw`(function () {
   function scrapeIds(html) {
     var Q = String.fromCharCode(34);   // double quote
     var A = String.fromCharCode(39);   // single quote
+
+    // THE IDS ARE IN JAVASCRIPT, NOT IN MARKUP. Confirmed from the live
+    // addphotos page, which builds its upload body inline:
+    //     data.append("group_id", 257);
+    //     data.append("user_id", 3650);
+    //     data.append("data_id", 12);
+    //     data.append("data_type", 4);
+    // v24-v26 looked for name="group_id" value="257", which never existed on
+    // that page, so the scrape came up empty every time. The quoted-key form
+    // is tried FIRST now; the markup forms stay as fallbacks in case BD
+    // renders it differently elsewhere.
     function grab(key) {
-      var qc = "[" + Q + A + "]?";
-      var re = new RegExp("name=" + qc + key + qc + "[^>]*value=" + qc + "([0-9]+)", "i");
-      var m = html.match(re);
-      if (m) return m[1];
-      var re2 = new RegExp(key + qc + "[ ]*[:=][ ]*" + qc + "([0-9]+)", "i");
-      var m2 = html.match(re2);
-      return m2 ? m2[1] : "";
+      var qc = "[" + Q + A + "]";
+      var pats = [
+        key + qc + "[ ]*,[ ]*([0-9]+)",          // "group_id", 257
+        "name=" + qc + "?" + key + qc + "?[^>]*value=" + qc + "?([0-9]+)",
+        key + qc + "?[ ]*[:=][ ]*" + qc + "?([0-9]+)"
+      ];
+      for (var i = 0; i < pats.length; i++) {
+        var m = html.match(new RegExp(pats[i], "i"));
+        if (m && m[1]) return m[1];
+      }
+      return "";
     }
     return { groupId: grab("group_id"), dataId: grab("data_id"),
              userId: grab("user_id") || getField("logged_user"), dataType: grab("data_type") || "4" };
