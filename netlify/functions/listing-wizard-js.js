@@ -1,4 +1,4 @@
-// lw-v35  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v36  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,27 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v36 2026-07-23  PHASE 2. CLAUDE-DRAFTED DESCRIPTIONS. Step 6 gains a
+//                      rough-notes box and a Write the description button,
+//                      calling listing-description.js (ld-v1) on Netlify.
+//                      ONLY DESCRIPTIVE FACTS TRAVEL: title, address, type,
+//                      beds, baths, sqft, year, furnished, term. Rent,
+//                      deposit and screening numbers are shown separately on
+//                      the listing and have no business in the prose.
+//                      The result fills the wizard box, BD's textarea AND
+//                      the contenteditable, and stays fully editable. It is
+//                      a draft, not a lock.
+//                      FAIR HOUSING IS THE POINT OF THE FUNCTION, not a
+//                      footnote: rental copy cannot state a preference about
+//                      who lives somewhere, and the friendly phrasings are
+//                      exactly the violations. When the writer drops
+//                      something from the notes it SAYS SO AND WHY, on
+//                      screen. Quietly sanitising teaches nobody and the
+//                      member writes it again next time.
+//                      FAILURE IS SAFE: if the service is down or the
+//                      network fails it says so and NEVER overwrites what
+//                      the member already wrote. The step still works by
+//                      hand, exactly as before.
 //   lw-v35 2026-07-23  THE CONFIRMATION LINE READS AS ONE SENTENCE. It was
 //                      'It is live and renters can find it now. 4 photos
 //                      were uploaded.' Two unrelated facts, with the photo
@@ -695,12 +716,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v35";
+const LW_VERSION = "lw-v36";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v35";
+  var LW_VERSION = "lw-v36";
   var DEBUG = false;
 
   // =============================================================
@@ -1482,6 +1503,16 @@ const WIZARD = String.raw`(function () {
     ".lw-doneacts{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}",
     ".lw-doneacts a{text-decoration:none;display:inline-block}",
     ".lw-report{width:100%;height:150px;font-family:monospace;font-size:11px;line-height:1.45;border:1px solid #ccd4de;border-radius:6px;padding:9px;color:#25333f;margin-top:8px}",
+    ".lw-draft{background:#f7f9fb;border:1px solid #e1e8f0;border-radius:10px;padding:16px 18px;margin-bottom:18px}",
+    ".lw-drafth{margin:0 0 3px;font-size:14px;font-weight:600;color:#0d2d4e}",
+    ".lw-drafts{margin:0 0 10px;font-size:13px;color:#5b6b7d;line-height:1.5}",
+    "#lw-notes{width:100%;min-height:74px;padding:10px 12px;border:1px solid #ccd4de;border-radius:7px;font-size:13.5px;font-family:inherit;color:#1e2b3a;resize:vertical;line-height:1.5}",
+    "#lw-notes:focus{outline:none;border-color:#0d2d4e;box-shadow:0 0 0 3px rgba(13,45,78,.10)}",
+    ".lw-draftrow{display:flex;align-items:center;gap:11px;margin-top:10px;flex-wrap:wrap}",
+    ".lw-draftmsg{font-size:12.5px;color:#5b6b7d}",
+    ".lw-dropnote{background:#fffbea;border:1px solid #f0e2b0;border-radius:8px;padding:11px 13px;margin-top:11px;font-size:12.5px;color:#6b5a12;line-height:1.5}",
+    ".lw-dropnote ul{margin:6px 0 0 16px;padding:0}",
+    ".lw-dropnote li{margin-bottom:4px}",
     ".lw-addrstate.skip{display:none}",
     ".lw-addrstate{margin-top:12px;font-size:13px;color:#8a6d1f;background:#fffbea;border:1px solid #f0e2b0;border-radius:8px;padding:10px 13px}",
     ".lw-addrstate.ok{color:#1e6b3c;background:#f2faf5;border-color:#bfe3ce}",
@@ -1546,6 +1577,7 @@ const WIZARD = String.raw`(function () {
     },
     {
       hasDesc: true,
+      note: "draft",
       title: "Describe the place",
       sub: "Renters skim for specifics, so lead with them: parking, laundry, pets, storage, what is nearby.",
       fields: [
@@ -1635,6 +1667,19 @@ const WIZARD = String.raw`(function () {
         "</ul>" +
         "<div class='lw-note'>These upload at the end, once the listing exists. Anything short of the list above " +
         "gets set back to draft, with an email saying what is missing.</div>";
+    }
+    if (kind === "draft") {
+      return "<div class='lw-draft'>" +
+        "<p class='lw-drafth'>Not sure how to word it?</p>" +
+        "<p class='lw-drafts'>Jot down whatever comes to mind and it gets turned into a description. " +
+        "Rough is fine here, because this box is not what publishes.</p>" +
+        "<textarea id='lw-notes' placeholder='parking, laundry, pets, yard, what is nearby, anything a renter would ask'></textarea>" +
+        "<div class='lw-draftrow'>" +
+          "<button type='button' class='lw-btn lw-navy' data-act='draftdesc'>Write the description</button>" +
+          "<span class='lw-draftmsg' id='lw-draftmsg'></span>" +
+        "</div>" +
+        "<div id='lw-dropped'></div>" +
+      "</div>";
     }
     if (kind === "review") return "<div id='lw-review'></div>";
     return "";
@@ -1819,6 +1864,76 @@ const WIZARD = String.raw`(function () {
     wrap.className = "lw-f";
     var e = wrap.querySelector(".lw-err");
     if (e) e.textContent = "";
+  }
+
+  var DESC_FN = "https://renters-story-writer.netlify.app/.netlify/functions/listing-description";
+  var drafting = false;
+
+  // Only the descriptive fields travel. Rent, deposit and screening numbers
+  // are shown separately on the listing and have no business in the prose.
+  function descFacts() {
+    var keys = ["title", "location", "ptype", "subtype", "beds", "baths", "sqft", "year", "furnished", "duration"];
+    var out = {};
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (!exists(F[k])) continue;
+      var v = k === "location" ? stripTags(getField(F[k])) : getFieldLabel(F[k]);
+      if (v && String(v).trim()) out[k] = String(v).trim();
+    }
+    return out;
+  }
+
+  function draftDescription() {
+    if (drafting) return;
+    var msg = document.getElementById("lw-draftmsg");
+    var dropBox = document.getElementById("lw-dropped");
+    var notesEl = document.getElementById("lw-notes");
+    var target = document.getElementById("lw-i-desc");
+    if (!target) return;
+    var notes = notesEl ? notesEl.value : "";
+    var facts = descFacts();
+    if (!notes.trim() && !Object.keys(facts).length) {
+      if (msg) msg.textContent = "Add a few notes first.";
+      return;
+    }
+    drafting = true;
+    if (msg) msg.textContent = "Writing...";
+    if (dropBox) dropBox.innerHTML = "";
+
+    window.fetch(DESC_FN, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ facts: facts, notes: notes })
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        drafting = false;
+        if (!res.ok || !res.j || !res.j.description) {
+          if (msg) msg.textContent = "That did not work. Write it yourself below, or try again.";
+          log("draft failed", res.j);
+          return;
+        }
+        target.value = res.j.description;
+        setField(F.desc, res.j.description);
+        clearFieldError("desc");
+        if (msg) msg.textContent = "Done. Edit it below to taste.";
+        try { target.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+
+        // Say what was left out and why. Quietly sanitising a fair housing
+        // problem teaches nobody; the member writes it again next time.
+        var dropped = res.j.dropped || [];
+        if (dropBox && dropped.length) {
+          var h = "<div class='lw-dropnote'><strong>Some of your notes were left out:</strong><ul>";
+          for (var i = 0; i < dropped.length; i++) h += "<li>" + esc(dropped[i]) + "</li>";
+          h += "</ul></div>";
+          dropBox.innerHTML = h;
+        }
+      })
+      .catch(function (e) {
+        drafting = false;
+        if (msg) msg.textContent = "That did not work. Write it yourself below.";
+        log("draft error", e);
+      });
   }
 
   function bindPhotoZone(root) {
@@ -2684,6 +2799,7 @@ const WIZARD = String.raw`(function () {
       else if (act === "publish") submitInPage(true);
       else if (act === "draft-inpage") submitInPage(false);
       else if (act === "gophotos") showStep(0);
+      else if (act === "draftdesc") draftDescription();
       else if (act === "golive") submitForm(true);
       else if (act === "draft") submitForm(false);
       else if (act === "shownative") setFormMode("full");
