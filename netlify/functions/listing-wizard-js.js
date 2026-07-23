@@ -1,4 +1,4 @@
-// lw-v44  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v45  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,26 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v45 2026-07-23  THE CHECKER CAN NOW SEE PHOTOS ALREADY ON A LISTING.
+//                      Reported live, and it read as a contradiction on one
+//                      screen: '8 photos already on this listing' directly
+//                      above 'Add some photos first.'
+//                      The cause was that checkPhotos only ever looked at
+//                      the browser-side queue, so the feature was useless on
+//                      an edit, which is exactly where someone reviewing a
+//                      listing would reach for it. The wizard was already
+//                      reading that photo page to COUNT the images; it now
+//                      keeps their URLs, fetches them same-origin, and
+//                      encodes them for the vision pass.
+//                      QUEUED PHOTOS GO FIRST and existing ones fill the
+//                      remainder up to the cap of ten, because what a member
+//                      just added is what they are asking about.
+//                      The button says what it will actually do: 'Check the
+//                      photos on this listing' when the queue is empty,
+//                      'Check these photos' when it is not.
+//                      GENERAL: two lines of UI that contradict each other
+//                      usually means one of them is describing a limitation
+//                      of the implementation rather than anything real.
 //   lw-v44 2026-07-23  THREE BADGES REMOVED. THE BROWSER STATES FACTS ONLY.
 //                      Kenny, on the filename check: 'who knows what a file
 //                      name is, it shouldnt impact or be used as a
@@ -936,12 +956,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v44";
+const LW_VERSION = "lw-v45";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v44";
+  var LW_VERSION = "lw-v45";
   var DEBUG = false;
 
   // =============================================================
@@ -1935,7 +1955,7 @@ const WIZARD = String.raw`(function () {
         "</div>" +
         "<ul class='lw-photolist' id='lw-photolist'></ul>" +
         "<div class='lw-checkrow'>" +
-          "<button type='button' class='lw-btn lw-ghost' data-act='checkphotos'>Check these photos</button>" +
+          "<button type='button' class='lw-btn lw-ghost' data-act='checkphotos' id='lw-checkbtn'>Check these photos</button>" +
           "<span class='lw-checkmsg' id='lw-checkmsg'></span>" +
         "</div>" +
         "<div id='lw-checkout'></div>" +
@@ -2281,19 +2301,62 @@ const WIZARD = String.raw`(function () {
     });
   }
 
+  // Photos already on a listing are URLs, not Files, so they have to be
+  // fetched and encoded before they can be looked at. Same origin, so the
+  // member's own session carries and nothing extra is needed.
+  function urlToThumb(url) {
+    return window.fetch(url, { credentials: "same-origin" })
+      .then(function (r) { return r.blob(); })
+      .then(function (blob) {
+        return new Promise(function (resolve) {
+          var fr = new window.FileReader();
+          fr.onload = function () {
+            var s = String(fr.result || "");
+            var comma = s.indexOf(",");
+            if (comma === -1) { resolve(null); return; }
+            var name = url.split("?")[0].split("/").pop() || "photo";
+            resolve({ name: name, media_type: blob.type || "image/jpeg", data: s.slice(comma + 1) });
+          };
+          fr.onerror = function () { resolve(null); };
+          fr.readAsDataURL(blob);
+        });
+      })
+      .catch(function () { return null; });
+  }
+
   function checkPhotos() {
     if (checking) return;
     var msg = document.getElementById("lw-checkmsg");
     var out = document.getElementById("lw-checkout");
-    if (!PHOTOS.length) { if (msg) msg.textContent = "Add some photos first."; return; }
+    var haveExisting = existingPhotoUrls.length > 0;
+    if (!PHOTOS.length && !haveExisting) {
+      if (msg) msg.textContent = "Add some photos first.";
+      return;
+    }
     checking = true;
-    if (msg) msg.textContent = "Looking at them...";
+    if (msg) {
+      msg.textContent = (!PHOTOS.length && haveExisting)
+        ? "Looking at the photos already on this listing..."
+        : "Looking at them...";
+    }
     if (out) out.innerHTML = "";
 
-    var subset = PHOTOS.slice(0, 10);
-    Promise.all(subset.map(thumbnail)).then(function (thumbs) {
+    // Queued photos first, then whatever is already on the listing, up to the
+    // cap. Checking only the queue made this useless on an edit, which is
+    // exactly where someone reviewing a listing would reach for it.
+    var jobs = PHOTOS.slice(0, 10).map(thumbnail);
+    var room = 10 - jobs.length;
+    if (room > 0 && haveExisting) {
+      jobs = jobs.concat(existingPhotoUrls.slice(0, room).map(urlToThumb));
+    }
+
+    Promise.all(jobs).then(function (thumbs) {
       var payload = thumbs.filter(Boolean);
-      if (!payload.length) { checking = false; if (msg) msg.textContent = "Could not read those images."; return; }
+      if (!payload.length) {
+        checking = false;
+        if (msg) msg.textContent = "Could not read those images.";
+        return;
+      }
       return window.fetch(PHOTO_FN, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3143,6 +3206,12 @@ const WIZARD = String.raw`(function () {
         count.textContent = already ? already : (isEditing() ? "" : "No photos chosen yet");
       }
     }
+    var btn = document.getElementById("lw-checkbtn");
+    if (btn) {
+      btn.textContent = (!PHOTOS.length && existingPhotoUrls.length)
+        ? "Check the photos on this listing"
+        : "Check these photos";
+    }
     if (!list) return;
     var h = "";
     for (var i = 0; i < PHOTOS.length; i++) {
@@ -3317,6 +3386,7 @@ const WIZARD = String.raw`(function () {
   // against the listing, and a failure to count says nothing rather than
   // asserting zero.
   var existingPhotoCount = null;
+  var existingPhotoUrls = [];
 
   function countExistingPhotos() {
     var url = existingPhotoPageUrl();
@@ -3341,6 +3411,7 @@ const WIZARD = String.raw`(function () {
           var key = src.split("?")[0];
           if (seen[key]) continue;
           seen[key] = true;
+          existingPhotoUrls.push(src);
           n++;
         }
         existingPhotoCount = n;
