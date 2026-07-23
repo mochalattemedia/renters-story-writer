@@ -1,4 +1,4 @@
-// lw-v24  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v25  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,26 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v25 2026-07-23  CLOSED A TRAP v24 OPENED. Adding the drop zone made
+//                      it possible to queue photos and then press the green
+//                      button, which posts the form the normal way. The
+//                      browser leaves the page and File objects held in
+//                      memory go with it, so the photos would vanish with no
+//                      message at all. Asking a member to choose photos
+//                      first and then discarding them silently is the worst
+//                      thing this wizard could do, and v24 shipped able to
+//                      do it.
+//                      The navigating save now REFUSES to run while photos
+//                      are queued. It explains why and offers both routes:
+//                      save in place and upload, or remove the photos and
+//                      save normally, adding them on the photo page after.
+//                      The in-page link is renamed from 'Save without
+//                      leaving this page (test)' to 'Save and upload photos,
+//                      without leaving this page', which is what it is for
+//                      now rather than a diagnostic curiosity.
+//                      GENERAL: any feature that holds state in memory has
+//                      to account for every path that leaves the page, and
+//                      the check belongs on the path, not in the docs.
 //   lw-v24 2026-07-23  PHOTOS ARE IN THE WIZARD. The capture landed.
 //
 //                      BD'S UPLOAD, DECODED FROM THE LIVE CALL:
@@ -437,12 +457,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v24";
+const LW_VERSION = "lw-v25";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v24";
+  var LW_VERSION = "lw-v25";
   var DEBUG = false;
 
   // =============================================================
@@ -1349,7 +1369,8 @@ const WIZARD = String.raw`(function () {
       h += "<button type='button' class='lw-btn lw-go' data-act='golive'>Save and go live</button>";
       h += "<div id='lw-savelog'></div>";
       h += "<div class='lw-esc' style='margin-top:14px'>" +
-           "<a data-act='golive-inpage'>Save without leaving this page (test)</a></div>";
+           "<a data-act='golive-inpage' id='lw-inpage-link'>Save and upload photos, without leaving this page</a>" +
+           "</div>";
       h += "<div class='lw-row'><button type='button' class='lw-btn lw-ghost' data-act='back'>Back</button>" +
            "<button type='button' class='lw-btn lw-ghost' data-act='draft'>Save as draft</button></div>";
     }
@@ -1477,6 +1498,26 @@ const WIZARD = String.raw`(function () {
   // SUBMIT
   // ---------------------------------------------------------------
   function submitForm(goLive) {
+    // QUEUED PHOTOS DIE ON NAVIGATION. The green button posts the form the
+    // normal way, the browser leaves the page, and File objects held in
+    // memory go with it. Silently losing a member's photos after asking them
+    // to choose photos first is the worst outcome this wizard could produce,
+    // so it stops and says so rather than saving.
+    if (PHOTOS.length) {
+      var out = document.getElementById("lw-savelog");
+      if (out) {
+        out.innerHTML = "<div class='lw-warn' style='margin-top:14px'>" +
+          "<strong>You have " + PHOTOS.length + (PHOTOS.length === 1 ? " photo" : " photos") +
+          " waiting to upload.</strong> This button leaves the page to save, and photos held here do not " +
+          "survive that, so they would be lost. Two ways forward:" +
+          "<ul style='margin:9px 0 0 18px;padding:0'>" +
+          "<li>Use <em>Save and upload photos</em> below, which saves and uploads without leaving.</li>" +
+          "<li>Or remove the photos on step 1, save here, and add them on the photo page afterwards.</li>" +
+          "</ul></div>";
+        try { out.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (e) {}
+      }
+      return;
+    }
     if (exists(F.golive)) {
       var wrote = setField(F.golive, goLive ? "1" : "0");
       var back = getField(F.golive);
