@@ -1,4 +1,4 @@
-// lw-v46  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v48  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,54 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v48 2026-07-24  THE MEMBER SEES OBSERVATIONS. THE SUSPICION IS FILED.
+//                      Kenny: state how we interpreted the images rather
+//                      than warning them, since there is no gate anyway and
+//                      it screens well on quality alone. Right on both
+//                      counts, and it dissolves the problem v47 was still
+//                      only wording around.
+//                      TWO THINGS WERE TANGLED in that box. The
+//                      OBSERVATIONS, that the flooring differs and one
+//                      exterior is a rendering, which are factual and worth
+//                      fixing whatever caused them. And the INFERENCE, that
+//                      these may not be the same property, which is a
+//                      suspicion.
+//                      The observations stay on screen, headed 'Worth
+//                      checking'. The inference is gone from the UI: it buys
+//                      nothing without a gate, costs goodwill with the
+//                      honest majority who renovated a kitchen, and tells
+//                      anyone doing it deliberately precisely what the check
+//                      looks at.
+//                      pc-v2 now files it to the SAME review list as the
+//                      fingerprint collisions, so there is one place to
+//                      look, and returns it to the browser only with the
+//                      admin key. The wizard also sends the listing address
+//                      so a finding can be attributed.
+//   lw-v47 2026-07-24  THE CONSISTENCY CAVEAT NOW SCALES WITH CONFIDENCE.
+//                      Kenny asked what this sentence was for:
+//                        'Confidence: high. Worth a look, not a conclusion.
+//                         Renovations and rooms finished at different times
+//                         read this way too.'
+//                      Its intent was to stop a model accusing anyone, since
+//                      two photos disagreeing has innocent explanations. But
+//                      it was a FIXED string appended regardless of
+//                      confidence, so at HIGH it contradicted itself: the
+//                      model is confident, now here is a reason to ignore
+//                      it. At high confidence those explanations have
+//                      already been weighed and rejected, and repeating them
+//                      muddies a finding that deserves attention.
+//                      Three wordings now, none of which accuse anyone; they
+//                      differ only in how much doubt they carry.
+//                        HIGH   'These do not look like the same property.'
+//                               clear rather than borderline, confirm before
+//                               it goes live
+//                        MEDIUM 'may not all be' + check before assuming
+//                        LOW    'only a hint, not a finding' + it may be
+//                               nothing
+//                      GENERAL: a caveat that does not move with the
+//                      confidence it is attached to is decoration. It
+//                      protects nobody at low confidence and undermines the
+//                      finding at high.
 //   lw-v46 2026-07-23  PERCEPTUAL FINGERPRINTS. THE LAYER THAT SCALES.
 //                      Kenny: 'i want something that we can scale with,
 //                      without driving costs up too much.' The vision pass
@@ -989,12 +1037,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v46";
+const LW_VERSION = "lw-v48";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v46";
+  var LW_VERSION = "lw-v48";
   var DEBUG = false;
 
   // =============================================================
@@ -2490,7 +2538,14 @@ const WIZARD = String.raw`(function () {
       return window.fetch(PHOTO_FN, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photos: payload, facts: descFacts() })
+        body: JSON.stringify({
+          photos: payload,
+          facts: descFacts(),
+          listing: {
+            id: (existingPhotoPageUrl() || "").split("/").pop() || "",
+            address: stripTags(getField(F.location))
+          }
+        })
       }).then(function (r) {
         return r.text().then(function (t) {
           var j = null; try { j = JSON.parse(t); } catch (e) {}
@@ -2544,14 +2599,20 @@ const WIZARD = String.raw`(function () {
 
     // The consistency finding is a flag for a person, never a verdict, so it
     // is worded as an observation and always carries its confidence.
-    var con = j.consistency;
-    if (con && con.consistent === false) {
+    // WHAT THE MEMBER SEES IS WHAT WAS OBSERVED, NOT WHAT WAS INFERRED.
+    // v43 to v47 showed "These may not all be the same property" with a
+    // confidence level, which is a suspicion. Kenny's call, and the right
+    // one: there is no gate here, so the accusation buys nothing and costs
+    // goodwill with the honest majority, while telling anyone doing it
+    // deliberately exactly what tripped the check.
+    // The observations underneath it were always the useful part. Someone who
+    // renovated reads "the flooring differs between rooms" and thinks
+    // nothing of it. Someone who attached the wrong photo fixes it.
+    // The inference now goes to the review list instead, next to the
+    // fingerprint collisions.
+    if (j.observations) {
       h += "<div class='lw-checkflag' style='border:1px solid;border-radius:8px;padding:11px 13px;margin-top:10px'>" +
-           "<strong>These may not all be the same property.</strong> " +
-           esc(con.note || "") +
-           "<br><span style='font-size:11.5px'>Confidence: " + esc(con.confidence || "low") +
-           ". Worth a look, not a conclusion. Renovations and rooms finished at different times " +
-           "read this way too.</span></div>";
+           "<strong>Worth checking:</strong> " + esc(j.observations) + "</div>";
     }
     out.innerHTML = h || "<p style='margin:0'>Nothing to flag.</p>";
   }
