@@ -1,4 +1,4 @@
-// lw-v45  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v46  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,39 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v46 2026-07-23  PERCEPTUAL FINGERPRINTS. THE LAYER THAT SCALES.
+//                      Kenny: 'i want something that we can scale with,
+//                      without driving costs up too much.' The vision pass
+//                      is the wrong shape for that. It costs a few cents on
+//                      every listing, forever, and spends most of that
+//                      looking at listings that are fine.
+//                      A dHash costs NOTHING and gets STRONGER with scale:
+//                      every photo stored is another photo a future reuse
+//                      can collide with.
+//                      Computed here in the browser: grayscale, 9x8, each
+//                      pixel against the one to its right, 64 bits, 16 hex
+//                      characters. Survives resizing and recompression,
+//                      which is what a scraped photo has been through.
+//                      ONLY THE FINGERPRINT LEAVES THE BROWSER, about 270
+//                      bytes for a whole listing. No image data, no API
+//                      tokens, nothing to meter.
+//
+//                      IT CATCHES THE PATTERN KENNY DESCRIBED: a real
+//                      address with borrowed interiors. Those interiors came
+//                      from somewhere, and if that somewhere is on this
+//                      platform the same image lands on two listings at two
+//                      addresses.
+//
+//                      THE MEMBER IS NEVER TOLD. Findings are recorded by
+//                      photo-hash.js for review and are not returned to the
+//                      browser without an admin key. Telling someone their
+//                      reused photo was spotted, and which one, teaches them
+//                      what to change next time, and puts an accusation in
+//                      front of the many who share a photo innocently.
+//                      It runs in the BACKGROUND after a confirmed save and
+//                      can never delay or block a publish. A fingerprint
+//                      index missing one listing is a small loss; a publish
+//                      stalling on it is not.
 //   lw-v45 2026-07-23  THE CHECKER CAN NOW SEE PHOTOS ALREADY ON A LISTING.
 //                      Reported live, and it read as a contradiction on one
 //                      screen: '8 photos already on this listing' directly
@@ -956,12 +989,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v45";
+const LW_VERSION = "lw-v46";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v45";
+  var LW_VERSION = "lw-v46";
   var DEBUG = false;
 
   // =============================================================
@@ -2324,6 +2357,103 @@ const WIZARD = String.raw`(function () {
       .catch(function () { return null; });
   }
 
+  // ---------------------------------------------------------------
+  // PERCEPTUAL FINGERPRINTS. Computed here, in the browser, for free.
+  // dHash: grayscale, 9x8, compare each pixel with the one to its right,
+  // 64 bits, 16 hex characters. Survives resizing and recompression, which
+  // is what a photo taken from another listing has been through.
+  //
+  // This is the layer that SCALES. A vision call costs a few cents on every
+  // listing forever; a fingerprint costs nothing and gets more useful with
+  // every photo stored, because each one is another photo a future reuse can
+  // collide with.
+  //
+  // The member is never told about a collision. Findings are recorded for
+  // review. Telling someone their reused photo was spotted, and which one,
+  // teaches them what to change next time.
+  // ---------------------------------------------------------------
+  var HASH_FN = "https://renters-story-writer.netlify.app/.netlify/functions/photo-hash";
+
+  function dHash(img) {
+    var W = 9, H = 8;
+    var c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    var ctx = c.getContext("2d");
+    if (!ctx) return "";
+    try { ctx.drawImage(img, 0, 0, W, H); } catch (e) { return ""; }
+    var d;
+    try { d = ctx.getImageData(0, 0, W, H).data; } catch (e) { return ""; }
+
+    var g = [];
+    for (var i = 0; i < d.length; i += 4) {
+      g.push(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+    }
+    var bits = "";
+    for (var y = 0; y < H; y++) {
+      for (var x = 0; x < W - 1; x++) {
+        bits += (g[y * W + x] > g[y * W + x + 1]) ? "1" : "0";
+      }
+    }
+    var hex = "";
+    for (var b = 0; b < 64; b += 4) hex += parseInt(bits.slice(b, b + 4), 2).toString(16);
+    return hex;
+  }
+
+  function hashOne(file) {
+    if (file.__lwHash) return Promise.resolve({ name: file.name, hash: file.__lwHash });
+    return readImage(file).then(function (r) {
+      if (!r) return null;
+      var hx = dHash(r.img);
+      try { window.URL.revokeObjectURL(r.url); } catch (e) {}
+      if (!hx || hx.length !== 16) return null;
+      file.__lwHash = hx;
+      return { name: file.name, hash: hx };
+    });
+  }
+
+  function hashUrl(url) {
+    return window.fetch(url, { credentials: "same-origin" })
+      .then(function (r) { return r.blob(); })
+      .then(function (blob) {
+        return new Promise(function (resolve) {
+          var u = "";
+          try { u = window.URL.createObjectURL(blob); } catch (e) { resolve(null); return; }
+          var img = new window.Image();
+          img.onload = function () {
+            var hx = dHash(img);
+            try { window.URL.revokeObjectURL(u); } catch (e) {}
+            resolve(hx && hx.length === 16 ? { name: (url.split("?")[0].split("/").pop() || "photo"), hash: hx } : null);
+          };
+          img.onerror = function () { resolve(null); };
+          img.src = u;
+        });
+      })
+      .catch(function () { return null; });
+  }
+
+  // Runs after a successful publish, in the background. It must never block
+  // or delay the confirmation, and a failure here is invisible by design:
+  // a fingerprint index that misses one listing is a small loss, a publish
+  // that stalls on it is not.
+  function fingerprintListing(listingId, address) {
+    var jobs = PHOTOS.map(hashOne);
+    if (existingPhotoUrls.length) {
+      jobs = jobs.concat(existingPhotoUrls.slice(0, 40 - jobs.length).map(hashUrl));
+    }
+    if (!jobs.length) return;
+    Promise.all(jobs).then(function (all) {
+      var hashes = all.filter(Boolean);
+      if (!hashes.length) return;
+      return window.fetch(HASH_FN, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "both", hashes: hashes,
+                               listing: { id: listingId || "", address: address || "" } })
+      }).then(function (r) { return r.json(); })
+        .then(function (j) { log("fingerprints stored:", j && j.stored, "flagged:", j && j.flagged); });
+    }).catch(function (e) { log("fingerprinting failed", e); });
+  }
+
   function checkPhotos() {
     if (checking) return;
     var msg = document.getElementById("lw-checkmsg");
@@ -2928,6 +3058,12 @@ const WIZARD = String.raw`(function () {
           }
 
           rep += String.fromCharCode(10) + "addphotos url: " + addUrl;
+
+          // Fingerprint in the background once the listing definitely exists.
+          try {
+            var hashId = (addUrl.split("/").pop() || "").split("?")[0];
+            fingerprintListing(hashId, stripTags(getField(F.location)));
+          } catch (e) { log("fingerprint kickoff failed", e); }
           if (!PHOTOS.length) {
             finish({ photos: 0, photoUrl: addUrl,
               photoWarning: isEditing() ? "" :
