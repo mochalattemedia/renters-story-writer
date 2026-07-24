@@ -1,4 +1,4 @@
-// lw-v48  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v50  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -24,6 +24,64 @@
 //   lw-v2 is written against fact instead of assumption.
 //
 // CHANGELOG
+//   lw-v50 2026-07-24  BED/BATH SWAP TOOL.
+//                      /account/properties?lwswap=1
+//                      THE DIAGNOSIS CHANGED, and it matters. BD's variable
+//                      names were never wrong: property_beds SHOULD hold
+//                      bedrooms. The FORM LABELS were applied to the wrong
+//                      fields, and every listing since has been entered
+//                      through them, so the data went in crossed. The header
+//                      strip that shows 2 bed 3 bath on a 3 bed 2 bath house
+//                      is CORRECT code reading crossed data.
+//                      So the fix is to put the data where the names say,
+//                      not to teach one more template to compensate. Swap
+//                      the values, swap the two labels in Form Manager, and
+//                      every template comes right at once, including the
+//                      ones nobody has looked at yet.
+//                      AND THE DROPDOWNS FIX THEMSELVES: half-steps live on
+//                      property_baths, which becomes Bathrooms. No option
+//                      editing needed at all.
+//
+//                      HOW IT WRITES: fetch the edit page, take BD's own
+//                      form, change only those two selects, post it back
+//                      with new FormData(form). The whole form travels with
+//                      its fresh CSRF token. Nothing hand-assembled.
+//
+//                      SAFETY, since this is the only tool here that
+//                      rewrites live listings:
+//                        - dry run first, writing nothing
+//                        - the word SWAP typed to confirm
+//                        - one listing at a time, paced
+//                        - EVERY write read back and verified
+//                        - stops dead on the first that does not verify
+//                        - full copyable log either way
+//                      AND IT REFUSES TO START A RUN IT CANNOT FINISH. The
+//                      two dropdowns do not offer the same values: bedrooms
+//                      carries half-steps, bathrooms does not. A listing
+//                      with 2.5 bedrooms has nowhere to move, so the DRY RUN
+//                      catches it and disables the write. A half-completed
+//                      swap leaves the site harder to reason about than the
+//                      problem it was fixing.
+//   lw-v49 2026-07-24  LISTING AUDIT, for the bed/bath migration.
+//                      /account/properties?lwaudit=1
+//                      Kenny wants the reversed variable names put right
+//                      while there are only 38 listings, which is the right
+//                      call: it is the cheapest it will ever be, and every
+//                      future integration reads those column names and gets
+//                      one more chance to be wrong.
+//                      The danger is that a bad swap is SILENT. Both fields
+//                      are numbers, both stay populated, the page still
+//                      renders. Nobody notices until a renter counts the
+//                      bedrooms.
+//                      So this records what every listing DISPLAYS before
+//                      the change, and again after. Diff the two and any
+//                      listing whose counts moved names itself.
+//                      It reads BY LABEL, not by field name, because the
+//                      field names are precisely what is about to move and
+//                      the labels are the thing that has stayed true.
+//                      READ ONLY. It fetches pages and writes nothing. It
+//                      does not appear unless the URL asks for it, and when
+//                      it does the wizard itself stands down.
 //   lw-v48 2026-07-24  THE MEMBER SEES OBSERVATIONS. THE SUSPICION IS FILED.
 //                      Kenny: state how we interpreted the images rather
 //                      than warning them, since there is no gate anyway and
@@ -1037,12 +1095,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v48";
+const LW_VERSION = "lw-v50";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v48";
+  var LW_VERSION = "lw-v50";
   var DEBUG = false;
 
   // =============================================================
@@ -3876,12 +3934,444 @@ const WIZARD = String.raw`(function () {
     if (t) t.value = netReport();
   }
 
+  // =============================================================
+  // LISTING AUDIT  ·  /account/properties?lwaudit=1
+  // =============================================================
+  // A before-and-after snapshot for the bed/bath variable migration.
+  //
+  // The columns are reversed against their labels: property_baths holds
+  // BEDROOMS. Renaming them properly means moving the stored values on every
+  // listing, and a swap that goes wrong is silent, because both fields are
+  // integers and both stay populated. Nobody notices until a renter counts
+  // the bedrooms.
+  //
+  // So: record what every listing DISPLAYS before the change, record it
+  // again after, and diff. Reading by LABEL rather than by field name, since
+  // the labels are the thing that has stayed true all session and the field
+  // names are precisely what is about to move.
+  //
+  // Admin only in practice: it does nothing unless the URL asks for it.
+  // =============================================================
+  function auditPages() {
+    var out = [];
+    var seen = {};
+    try {
+      var links = document.querySelectorAll("a[href]");
+      for (var i = 0; i < links.length; i++) {
+        var h = links[i].getAttribute("href") || "";
+        var low = h.toLowerCase();
+        if (low.indexOf("/account/properties/") === -1) continue;
+        if (low.indexOf("newgroup") !== -1) continue;
+        if (low.indexOf("addphotos") !== -1 || low.indexOf("photoorder") !== -1) continue;
+        if (!/[a-f0-9]{24,}/i.test(h)) continue;
+        var key = h.split("?")[0];
+        if (seen[key]) continue;
+        seen[key] = true;
+        out.push(key);
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  // Find a labelled value in a fetched page. Works on the edit form (a select
+  // with a chosen option) and on a public listing (a table row), because both
+  // put the number next to the word.
+  function labelledValue(doc, label) {
+    try {
+      var sel = doc.querySelectorAll("select, input, td, div, span, label, strong");
+      for (var i = 0; i < sel.length; i++) {
+        var t = (sel[i].textContent || "").replace(/[^a-zA-Z]/g, "").toLowerCase();
+        if (t !== label) continue;
+        // the value sits in the next cell, the next sibling, or the control
+        // inside the same form-group
+        var box = sel[i].parentNode;
+        var hops = 0;
+        while (box && hops < 4) {
+          var ctl = box.querySelector ? box.querySelector("select, input[type=text]") : null;
+          if (ctl) {
+            if (ctl.tagName === "SELECT") {
+              var o = ctl.options[ctl.selectedIndex];
+              if (o && o.value) return o.text || o.value;
+            } else if (ctl.value) return ctl.value;
+          }
+          box = box.parentNode; hops++;
+        }
+        var nx = sel[i].nextElementSibling;
+        if (nx && (nx.textContent || "").trim()) return (nx.textContent || "").trim().slice(0, 24);
+      }
+    } catch (e) {}
+    return "";
+  }
+
+  function runAudit() {
+    var panel = document.getElementById("lw-audit");
+    var msg = document.getElementById("lw-auditmsg");
+    var pages = auditPages();
+    if (!pages.length) { if (msg) msg.textContent = "No listings found on this page."; return; }
+    if (msg) msg.textContent = "Reading " + pages.length + " listings...";
+
+    var rows = [];
+    var i = 0;
+    function step() {
+      if (i >= pages.length) {
+        var text = ["=== RENTERS LISTING AUDIT  " + LW_VERSION + " ===",
+                    "when: " + new Date().toISOString(),
+                    "listings: " + rows.length, ""];
+        for (var r = 0; r < rows.length; r++) {
+          text.push(rows[r].page);
+          text.push("    title:     " + rows[r].title);
+          text.push("    bedrooms:  " + rows[r].beds);
+          text.push("    bathrooms: " + rows[r].baths);
+        }
+        text.push("=== END AUDIT ===");
+        var ta = document.getElementById("lw-audittext");
+        if (ta) ta.value = text.join(String.fromCharCode(10));
+        if (msg) msg.textContent = "Done. " + rows.length + " listings. Copy this and keep it.";
+        return;
+      }
+      var url = pages[i++];
+      if (msg) msg.textContent = "Reading " + i + " of " + pages.length + "...";
+      window.fetch(url, { credentials: "same-origin" })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var doc = new window.DOMParser().parseFromString(html, "text/html");
+          var t = doc.querySelector("[name=group_name]");
+          rows.push({
+            page: url,
+            title: t ? (t.value || "") : (labelledValue(doc, "propertytitle") || "(unknown)"),
+            beds: labelledValue(doc, "bedrooms") || "(not found)",
+            baths: labelledValue(doc, "bathrooms") || "(not found)"
+          });
+        })
+        .catch(function () { rows.push({ page: url, title: "(unreadable)", beds: "", baths: "" }); })
+        .then(function () { setTimeout(step, 250); });
+    }
+    step();
+  }
+
+  function mountAudit() {
+    if (document.getElementById("lw-audit")) return;
+    var box = document.createElement("div");
+    box.id = "lw-audit";
+    box.style.cssText = "max-width:860px;margin:0 0 22px;background:#fff;border:1px solid #dbe2ea;" +
+      "border-radius:10px;padding:18px 20px;font-family:inherit";
+    box.innerHTML =
+      "<h3 style='margin:0 0 6px;font-size:16px;color:#0d2d4e'>Listing audit</h3>" +
+      "<p style='margin:0 0 12px;font-size:13px;color:#5b6b7d;line-height:1.5'>Records what every listing " +
+      "currently shows for bedrooms and bathrooms. Run it before changing the fields in BD, run it again " +
+      "after, and compare. Reads only, changes nothing.</p>" +
+      "<div style='display:flex;gap:9px;align-items:center;margin-bottom:10px;flex-wrap:wrap'>" +
+        "<button type='button' id='lw-auditrun' style='border:0;border-radius:7px;padding:9px 18px;" +
+        "font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:#0d2d4e;color:#fff'>" +
+        "Read all listings</button>" +
+        "<span id='lw-auditmsg' style='font-size:12.5px;color:#5b6b7d'></span>" +
+      "</div>" +
+      "<textarea id='lw-audittext' readonly style='width:100%;height:220px;font-family:monospace;" +
+      "font-size:11px;line-height:1.45;border:1px solid #ccd4de;border-radius:6px;padding:9px'></textarea>";
+    document.body.insertBefore(box, document.body.firstChild);
+    document.getElementById("lw-auditrun").onclick = runAudit;
+  }
+
+  // =============================================================
+  // BED/BATH SWAP  ·  /account/properties?lwswap=1
+  // =============================================================
+  // property_beds currently holds BATHROOMS and property_baths holds
+  // BEDROOMS, because the form labels were applied to the wrong fields and
+  // every listing since has been entered through them. BD's variable names
+  // were right all along.
+  //
+  // This exchanges the two stored values on every listing, so the names mean
+  // what they say. The form labels are then swapped by hand in BD, and the
+  // display comes out correct everywhere, including the header strip that
+  // was already reading the fields the way the names intend.
+  //
+  // HOW IT WRITES: fetch the edit page, take BD's own form out of it, change
+  // only those two selects, and post it back with new FormData(form). The
+  // whole form travels, including its fresh CSRF token, so nothing else is
+  // touched and nothing is hand-assembled. Same path proven on publish.
+  //
+  // SAFETY, because this is the only tool here that rewrites live listings:
+  //   - dry run first, always, writing nothing
+  //   - an explicit typed confirmation before any write
+  //   - one listing at a time, paced, never in parallel
+  //   - EVERY write is read back and verified before moving on
+  //   - stops dead on the first listing that does not verify
+  //   - a full copyable log either way
+  // =============================================================
+  var swapRows = [];
+  var swapping = false;
+
+  function swapLog(line) {
+    var ta = document.getElementById("lw-swaplog");
+    if (!ta) return;
+    ta.value += line + String.fromCharCode(10);
+    ta.scrollTop = ta.scrollHeight;
+  }
+
+  function swapMsg(t) {
+    var m = document.getElementById("lw-swapmsg");
+    if (m) m.textContent = t;
+  }
+
+  function readListing(url) {
+    return window.fetch(url, { credentials: "same-origin" })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new window.DOMParser().parseFromString(html, "text/html");
+        var forms = doc.querySelectorAll("form");
+        var form = null;
+        for (var i = 0; i < forms.length; i++) {
+          var nm = (forms[i].getAttribute("name") || "") + " " + (forms[i].id || "");
+          if (nm.indexOf("property_listing") !== -1) { form = forms[i]; break; }
+        }
+        if (!form) return null;
+        function val(n) {
+          var e = form.querySelector("[name='" + n + "']");
+          if (!e) return null;
+          if (e.tagName === "SELECT") {
+            var o = e.options[e.selectedIndex];
+            return o ? o.value : "";
+          }
+          return e.value || "";
+        }
+        // The two dropdowns do NOT offer the same values: bedrooms carries
+        // half-steps, bathrooms does not. So a value can only move if the
+        // other field can hold it. Worth knowing during the dry run rather
+        // than discovering it halfway through writing.
+        function accepts(n, v) {
+          var e = form.querySelector("[name='" + n + "']");
+          if (!e) return false;
+          if (e.tagName !== "SELECT") return true;
+          for (var i = 0; i < e.options.length; i++) {
+            if (String(e.options[i].value) === String(v)) return true;
+          }
+          return false;
+        }
+        var t = form.querySelector("[name=group_name]");
+        var vb = val("property_baths"), vd = val("property_beds");
+        return {
+          url: url, doc: doc, form: form,
+          title: t ? (t.value || "") : "",
+          baths: vb,
+          beds: vd,
+          // can each value live in the field it is moving to?
+          bathsFits: accepts("property_baths", vd),
+          bedsFits: accepts("property_beds", vb)
+        };
+      })
+      .catch(function () { return null; });
+  }
+
+  function dryRun() {
+    if (swapping) return;
+    swapping = true;
+    swapRows = [];
+    var pages = auditPages();
+    var ta = document.getElementById("lw-swaplog");
+    if (ta) ta.value = "";
+    swapLog("=== DRY RUN  " + LW_VERSION + "  " + new Date().toISOString() + " ===");
+    swapLog("listings found: " + pages.length);
+    swapLog("nothing will be written");
+    swapLog("");
+
+    var i = 0;
+    function step() {
+      if (i >= pages.length) {
+        swapping = false;
+        var ok = 0, skip = 0, blocked = 0;
+        for (var r = 0; r < swapRows.length; r++) {
+          if (swapRows[r].act) ok++;
+          else if (swapRows[r].blocked) blocked++;
+          else skip++;
+        }
+        swapLog("");
+        swapLog("would swap:     " + ok);
+        swapLog("would skip:     " + skip);
+        swapLog("blocked:        " + blocked);
+        var btn = document.getElementById("lw-swapgo");
+        // A blocked listing means the run would be incomplete, leaving some
+        // listings swapped and some not, which is worse than not starting.
+        if (blocked) {
+          swapLog("");
+          swapLog("NOT SAFE TO RUN. Fix the blocked listings first, then dry run again.");
+          swapLog("A partial swap leaves the site half right, which is harder to reason about");
+          swapLog("than the problem it is fixing.");
+          swapMsg(blocked + " listing(s) cannot be swapped. Read the log.");
+          if (btn) btn.disabled = true;
+        } else {
+          swapMsg(ok + " listings would change. Read the log, then confirm below.");
+          if (btn) btn.disabled = ok === 0;
+        }
+        return;
+      }
+      var url = pages[i++];
+      swapMsg("Reading " + i + " of " + pages.length + "...");
+      readListing(url).then(function (rec) {
+        if (!rec) { swapLog("SKIP  " + url + "   (no listing form)"); swapRows.push({ url: url, act: false }); }
+        else if (!rec.baths && !rec.beds) {
+          swapLog("SKIP  " + rec.title + "   (both empty)");
+          swapRows.push({ url: url, act: false });
+        } else if (rec.baths === rec.beds) {
+          swapLog("SKIP  " + rec.title + "   (both are " + rec.baths + ", swap changes nothing)");
+          swapRows.push({ url: url, act: false });
+        } else if (!rec.bathsFits || !rec.bedsFits) {
+          // This is the one that has to be caught here and not later.
+          swapLog("BLOCKED  " + rec.title);
+          if (!rec.bedsFits) {
+            swapLog("        bedrooms " + rec.baths + " cannot move: the bathrooms dropdown does not offer it");
+          }
+          if (!rec.bathsFits) {
+            swapLog("        bathrooms " + rec.beds + " cannot move: the bedrooms dropdown does not offer it");
+          }
+          swapLog("        add the missing option in Form Manager, or change this listing first");
+          swapRows.push({ url: url, act: false, blocked: true, title: rec.title });
+        } else {
+          swapLog("SWAP  " + rec.title + "   bedrooms " + rec.baths + ", bathrooms " + rec.beds);
+          swapRows.push({ url: url, act: true, title: rec.title, newBaths: rec.beds, newBeds: rec.baths });
+        }
+        setTimeout(step, 200);
+      });
+    }
+    step();
+  }
+
+  function setSelect(form, name, value) {
+    var e = form.querySelector("[name='" + name + "']");
+    if (!e) return false;
+    if (e.tagName === "SELECT") {
+      for (var i = 0; i < e.options.length; i++) {
+        if (String(e.options[i].value) === String(value)) { e.selectedIndex = i; return true; }
+      }
+      return false;
+    }
+    e.value = value;
+    return true;
+  }
+
+  function runSwap() {
+    if (swapping) return;
+    var conf = document.getElementById("lw-swapconfirm");
+    if (!conf || conf.value.trim().toUpperCase() !== "SWAP") {
+      swapMsg("Type SWAP in the box to confirm.");
+      return;
+    }
+    var todo = [];
+    for (var r = 0; r < swapRows.length; r++) if (swapRows[r].act) todo.push(swapRows[r]);
+    if (!todo.length) { swapMsg("Run the dry run first."); return; }
+
+    swapping = true;
+    swapLog("");
+    swapLog("=== WRITING  " + new Date().toISOString() + " ===");
+    swapLog("listings to change: " + todo.length);
+    swapLog("");
+
+    var i = 0, done = 0;
+    function step() {
+      if (i >= todo.length) {
+        swapping = false;
+        swapLog("");
+        swapLog("finished. changed " + done + " of " + todo.length);
+        swapMsg("Done. " + done + " listings changed. Run the audit again and compare.");
+        return;
+      }
+      var row = todo[i++];
+      swapMsg("Writing " + i + " of " + todo.length + "...");
+
+      // Re-read immediately before writing, so the CSRF token is fresh and
+      // the form carries whatever the listing holds right now.
+      readListing(row.url).then(function (rec) {
+        if (!rec) { swapLog("FAIL  " + row.title + "   (could not re-read)"); swapping = false;
+                    swapMsg("Stopped: could not re-read " + row.title); return; }
+        var a = setSelect(rec.form, "property_baths", row.newBaths);
+        var b = setSelect(rec.form, "property_beds", row.newBeds);
+        if (!a || !b) {
+          swapLog("FAIL  " + row.title + "   (value not available in the dropdown: " +
+                  (a ? "" : "property_baths=" + row.newBaths + " ") + (b ? "" : "property_beds=" + row.newBeds) + ")");
+          swapLog("STOPPED. Nothing further will be written.");
+          swapping = false;
+          swapMsg("Stopped on " + row.title + ". See the log.");
+          return;
+        }
+        var action = rec.form.getAttribute("action") || row.url;
+        var fd;
+        try { fd = new window.FormData(rec.form); }
+        catch (e) { swapLog("FAIL  " + row.title + "   (could not read the form)"); swapping = false; return; }
+
+        window.fetch(action, { method: "POST", body: fd, credentials: "same-origin" })
+          .then(function () {
+            // READ BACK. A 200 from BD is not a save; this project has paid
+            // for that lesson more than once.
+            return readListing(row.url);
+          })
+          .then(function (after) {
+            if (!after) { swapLog("FAIL  " + row.title + "   (could not verify)"); }
+            else if (after.baths === row.newBaths && after.beds === row.newBeds) {
+              done++;
+              swapLog("OK    " + row.title + "   bedrooms " + after.beds + ", bathrooms " + after.baths);
+              setTimeout(step, 400);
+              return;
+            } else {
+              swapLog("FAIL  " + row.title + "   expected baths=" + row.newBaths + " beds=" + row.newBeds +
+                      " but read baths=" + (after ? after.baths : "?") + " beds=" + (after ? after.beds : "?"));
+            }
+            swapLog("STOPPED. Nothing further will be written.");
+            swapping = false;
+            swapMsg("Stopped on " + row.title + ". See the log.");
+          })
+          .catch(function (e) {
+            swapLog("FAIL  " + row.title + "   " + e);
+            swapLog("STOPPED. Nothing further will be written.");
+            swapping = false;
+            swapMsg("Stopped on " + row.title + ". See the log.");
+          });
+      });
+    }
+    step();
+  }
+
+  function mountSwap() {
+    if (document.getElementById("lw-swap")) return;
+    var box = document.createElement("div");
+    box.id = "lw-swap";
+    box.style.cssText = "max-width:860px;margin:0 0 22px;background:#fff;border:2px solid #c0392b;" +
+      "border-radius:10px;padding:18px 20px;font-family:inherit";
+    box.innerHTML =
+      "<h3 style='margin:0 0 6px;font-size:16px;color:#c0392b'>Bed / bath swap</h3>" +
+      "<p style='margin:0 0 12px;font-size:13px;color:#41566d;line-height:1.55'>" +
+      "Exchanges the stored bedroom and bathroom values on every listing, so the database fields match " +
+      "their names. <strong>Run the dry run first.</strong> Afterwards, swap the two labels in Form Manager, " +
+      "then run the audit and compare it with the one you took before.</p>" +
+      "<div style='display:flex;gap:9px;align-items:center;margin-bottom:10px;flex-wrap:wrap'>" +
+        "<button type='button' id='lw-swapdry' style='border:0;border-radius:7px;padding:9px 18px;font-size:13px;" +
+        "font-weight:600;cursor:pointer;font-family:inherit;background:#0d2d4e;color:#fff'>Dry run</button>" +
+        "<input id='lw-swapconfirm' placeholder='type SWAP' style='padding:8px 11px;border:1px solid #ccd4de;" +
+        "border-radius:6px;font-size:13px;width:120px;font-family:inherit'>" +
+        "<button type='button' id='lw-swapgo' disabled style='border:0;border-radius:7px;padding:9px 18px;" +
+        "font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:#c0392b;color:#fff'>" +
+        "Write the changes</button>" +
+        "<span id='lw-swapmsg' style='font-size:12.5px;color:#5b6b7d'></span>" +
+      "</div>" +
+      "<textarea id='lw-swaplog' readonly style='width:100%;height:260px;font-family:monospace;font-size:11px;" +
+      "line-height:1.45;border:1px solid #ccd4de;border-radius:6px;padding:9px'></textarea>";
+    document.body.insertBefore(box, document.body.firstChild);
+    document.getElementById("lw-swapdry").onclick = dryRun;
+    document.getElementById("lw-swapgo").onclick = runSwap;
+  }
+
   function ready(fn) {
     if (document.readyState === "complete" || document.readyState === "interactive") setTimeout(fn, 60);
     else document.addEventListener("DOMContentLoaded", function () { setTimeout(fn, 60); });
   }
 
   ready(function () {
+    if ((window.location.search || "").indexOf("lwaudit=1") !== -1) {
+      try { mountAudit(); } catch (e) { log("audit mount failed", e); }
+      return;
+    }
+    if ((window.location.search || "").indexOf("lwswap=1") !== -1) {
+      try { mountSwap(); } catch (e) { log("swap mount failed", e); }
+      return;
+    }
     mount();
     // BD renders parts of this page async. Retry a few times, then stop.
     var tries = 0;
