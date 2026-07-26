@@ -2,12 +2,27 @@
  * pm-normalize.js  ·  pn-v1
  * Renters.com  ·  PM Feed Sync (Element Z)
  *
- * Reads a property manager's HotPads/Zillow Rental Network XML feed and
- * flattens it to canonical per-UNIT records ready for the diff engine.
+ * Reads a property manager's rental syndication XML feed and flattens it to
+ * canonical per-UNIT records ready for the diff engine.
+ *
+ * Targets the industry-standard rental listing feed schema that property
+ * management software emits for syndication. Handles both flat listings
+ * (single family, individual units) and community listings with floorplan
+ * and unit-level nesting.
  *
  * Deliberately self-contained. Does not import feed-probe.js.
  *
  * CHANGELOG
+ *   pn-v4  2026-07-25  Version stamped on every response including errors.
+ *                      Bare URL now returns a ready/usage payload instead of
+ *                      a 400, so deployed version can be checked in a browser.
+ *   pn-v3  2026-07-25  Vendor-neutral comments throughout. No third-party
+ *                      names in source except the literal wire-format root
+ *                      tag, which is a data match, not a dependency.
+ *   pn-v2  2026-07-25  Hardened root detection. An HTML error page parsed as
+ *                      valid XML with zero listings, which downstream would
+ *                      read as "PM has no inventory" and delist everything.
+ *                      Unrecognized roots now hard-reject.
  *   pn-v1  2026-07-25  Initial build. Flat + community shapes, floorplan
  *                      inheritance, ListingTag extraction, deposit string
  *                      parsing, dual external keys, per-unit issue codes.
@@ -25,7 +40,7 @@
 const { XMLParser } = require('fast-xml-parser');
 const crypto = require('crypto');
 
-const NORM_VERSION = 'pn-v1';
+const NORM_VERSION = 'pn-v4';
 const PHOTO_CAP = 10;
 const FETCH_TIMEOUT_MS = 25000;
 
@@ -165,8 +180,9 @@ function dedupePhotos(list) {
 }
 
 /**
- * Real feeds violate the spec here. Tallo sends "1x monthly rent" where the
- * spec says Number. Handle both, and record whether we derived it.
+ * Real feeds violate the spec here. Sample feeds have been observed sending
+ * "1x monthly rent" where the spec calls for a Number. Handle both, and
+ * record whether the value was derived rather than stated.
  */
 function parseDeposit(raw, rent) {
   const t = txt(raw);
@@ -467,6 +483,8 @@ function normalizeFeed(xml) {
 
   const doc = parser.parse(xml);
   const rootKey = Object.keys(doc).find((k) => k !== '?xml');
+  // Literal root element name used by the wire format itself. This is a
+  // string match against incoming feed data, not a vendor dependency.
   const rootNamed = /^hotpadsitems$/i.test(rootKey || '');
   let root = doc[rootKey];
 
@@ -666,8 +684,12 @@ async function fetchFeed(url) {
 
 const json = (code, body) => ({
   statusCode: code,
-  headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-  body: JSON.stringify(body, null, 2)
+  headers: {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'X-Function-Version': NORM_VERSION
+  },
+  body: JSON.stringify({ version: NORM_VERSION, ...body }, null, 2)
 });
 
 exports.handler = async (event) => {
@@ -687,7 +709,22 @@ exports.handler = async (event) => {
 
     const url = body.url || q.url;
     const xml = body.xml || null;
-    if (!url && !xml) return json(400, { ok: false, error: 'need url or xml' });
+
+    // Bare URL: deploy check. Confirms the function loaded and its deps
+    // resolved, and reports which version is live.
+    if (!url && !xml) {
+      return json(200, {
+        ok: true,
+        status: 'ready',
+        deps: { xmlParser: 'loaded' },
+        usage: {
+          summary: '?url=<feedUrl>&summary=1',
+          sample: '?url=<feedUrl>&limit=3',
+          full: '?url=<feedUrl>',
+          post: 'POST { url } or { xml }'
+        }
+      });
+    }
 
     const raw = xml || (await fetchFeed(url));
     const result = normalizeFeed(raw);
