@@ -1,5 +1,5 @@
 /**
- * pm-normalize.js  ·  pn-v1
+ * pm-normalize.js  ·  pn-v4
  * Renters.com  ·  PM Feed Sync (Element Z)
  *
  * Reads a property manager's rental syndication XML feed and flattens it to
