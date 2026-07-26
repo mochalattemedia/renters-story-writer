@@ -1,21 +1,31 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v8   (2026-07-26, member-ID -> email lookup)
+//  FN_VERSION: slde-v9   (2026-07-26, reason CATALOG + generic subject)
 //
-//  Emails a LANDLORD when you set their rental listing back to draft because
-//  the photos don't meet the Renters.com community photo standard.
-//  - reason checkboxes shape the email; BCC copy to kenny@renters.com
-//  - always reads "your listing"; sender verify@renters.com
-//  - admin-key gated, input-hardened
+//  v9 CHANGES
+//   - ONE GENERIC SUBJECT for every reason. v8's subject named photos, which
+//     lied whenever the problem was the rent, the description, or the member's
+//     own eligibility. NOTE: the Gmail filter that files copies into
+//     RENTERS/Listing Drafts matches the OLD subject and MUST be updated, or
+//     sends stop being filed. New subject is in SUBJECT below.
+//   - REASON CATALOG: pass reasonCodes:["photos_rooms","rent_missing",...] and
+//     the wording lives HERE, server-side, so improving copy never means
+//     re-packing the bookmarklet. GET ?version=1 returns the full catalog so
+//     the bookmarklet can build its checkboxes from it.
+//   - TWO VOICES. Reasons are grouped: LISTING problems (fix the listing) and
+//     ACCOUNT problems (identity not confirmed, profile incomplete, unusable
+//     profile photo). "Update your listing" is the wrong instruction when the
+//     real fix is finishing verification, so the account group gets its own
+//     section, its own explanation, and its own button.
+//   - CONTRADICTION reasons are worded as a possible typo, never an accusation.
+//   - BACKWARD COMPATIBLE: v8's reasons:["free text"] and missing:"..." still
+//     work exactly as before, so the existing bookmarklet keeps sending.
 // ============================================================
-const FN_VERSION = "slde-v8";
+const FN_VERSION = "slde-v9";
 
 const crypto = require("crypto");
 const https = require("https");
 
-// --- BD read (member-ID -> email). Call shape lifted verbatim from
-//     landlord-optin.js (the ONLY proven BD call in this project). Do not
-//     re-derive: X-Api-Key header, /api/v2 base, message[] array response. ---
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 function bd(path) {
   return new Promise((resolve) => {
@@ -77,7 +87,6 @@ const corsHeaders = {
 const SENDER = process.env.LISTING_EMAIL_SENDER || "verify@renters.com";
 const REPLYTO = process.env.LISTING_EMAIL_REPLYTO || SENDER;
 const EDIT_URL = process.env.EDIT_LISTING_URL || "https://www.renters.com/account/home";
-// Blind copy of every send lands here as your "sent" record. Set LISTING_EMAIL_BCC to "" to turn off.
 const BCC = process.env.LISTING_EMAIL_BCC != null ? process.env.LISTING_EMAIL_BCC : "kenny@renters.com";
 
 function cleanName(raw) {
@@ -104,6 +113,78 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ab, bb);
 }
 
+// ============================================================
+//  REASON CATALOG (v9)
+//  group: "listing" = fix the listing itself
+//         "account" = fix the member's account; the listing may be fine
+//  html is TRUSTED markup (never escaped). text is the plain-text twin.
+//  Free-text from the operator is escaped separately and is never trusted.
+// ============================================================
+const REASONS = {
+  // ---------- PHOTOS ----------
+  photos_rooms: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>Photos of every room</strong> &mdash; the living area, each bedroom, the kitchen, and each bathroom",
+    text: "Photos of every room - the living area, each bedroom, the kitchen, and each bathroom" },
+  photos_exterior: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>Photos of the outside</strong> &mdash; the front of the property, and any yard or grounds",
+    text: "Photos of the outside - the front of the property, and any yard or grounds" },
+  photos_shared: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>Photos of any shared spaces</strong> &mdash; hallways, stairwells, laundry, common areas, and parking",
+    text: "Photos of any shared spaces - hallways, stairwells, laundry, common areas, and parking" },
+  photos_quality: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>Clearer photos</strong> &mdash; some are dark, blurry, or too small to make out. Daylight and a steady hand go a long way",
+    text: "Clearer photos - some are dark, blurry, or too small to make out. Daylight and a steady hand go a long way" },
+
+  // ---------- LISTING DETAIL ----------
+  rent_missing: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>The monthly rent</strong> &mdash; an exact amount. Renters skip listings that say contact for price",
+    text: "The monthly rent - an exact amount. Renters skip listings that say contact for price" },
+  availability_missing: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>The availability date</strong> &mdash; when someone could actually move in",
+    text: "The availability date - when someone could actually move in" },
+  lease_terms_missing: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>The lease terms</strong> &mdash; month-to-month, six months, a year?",
+    text: "The lease terms - month-to-month, six months, a year?" },
+  description_thin: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>A real description</strong> &mdash; a few sentences in your own words about the space and the neighborhood",
+    text: "A real description - a few sentences in your own words about the space and the neighborhood" },
+  beds_baths_sqft: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>Bedrooms, bathrooms, and square footage</strong> &mdash; these are the first things renters filter on",
+    text: "Bedrooms, bathrooms, and square footage - these are the first things renters filter on" },
+  pets_parking_utilities: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>Pets, parking, and utilities</strong> &mdash; what is included, and what is allowed",
+    text: "Pets, parking, and utilities - what is included, and what is allowed" },
+  address_missing: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>The property address</strong> &mdash; we only show the general area publicly, but we need the real address on file",
+    text: "The property address - we only show the general area publicly, but we need the real address on file" },
+
+  // ---------- CONTENT ----------
+  // Worded as a possible typo. Never an accusation.
+  contradiction: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>A couple of details do not line up</strong> &mdash; it may just be a typo, but it is worth a second look before renters see it",
+    text: "A couple of details do not line up - it may just be a typo, but it is worth a second look before renters see it" },
+  content_offtopic: { group: "listing",
+    html: "<strong style='color:#0d2d4e;'>A few lines in the description need a trim</strong> &mdash; keeping it to the property itself works best",
+    text: "A few lines in the description need a trim - keeping it to the property itself works best" },
+
+  // ---------- ACCOUNT (the listing may be fine; the account is not ready) ----------
+  identity_unconfirmed: { group: "account",
+    html: "<strong style='color:#0d2d4e;'>Confirm your identity</strong> &mdash; it takes a few minutes on your phone, and it is what earns the identity shield renters look for",
+    text: "Confirm your identity - it takes a few minutes on your phone, and it is what earns the identity shield renters look for" },
+  profile_incomplete: { group: "account",
+    html: "<strong style='color:#0d2d4e;'>Finish your profile</strong> &mdash; the About Me section, so renters know who they would be renting from",
+    text: "Finish your profile - the About Me section, so renters know who they would be renting from" },
+  profile_photo_missing: { group: "account",
+    html: "<strong style='color:#0d2d4e;'>Add a profile photo</strong> &mdash; a clear, front-facing photo of your face",
+    text: "Add a profile photo - a clear, front-facing photo of your face" },
+  profile_photo_unusable: { group: "account",
+    html: "<strong style='color:#0d2d4e;'>Swap your profile photo</strong> &mdash; we need a clear, upright, front-facing photo of your face. A logo, a property photo, or a sideways shot will not do the job",
+    text: "Swap your profile photo - we need a clear, upright, front-facing photo of your face. A logo, a property photo, or a sideways shot will not do the job" },
+};
+
+const SUBJECT = "Your Renters.com listing needs an update before it goes live";
+const ACCOUNT_URL = process.env.ACCOUNT_HOME_URL || "https://www.renters.com/account/home";
+
 const STANDARD_ITEMS = [
   "<strong style='color:#0d2d4e;'>Every room inside</strong> &mdash; the living area and each bedroom",
   "<strong style='color:#0d2d4e;'>The kitchen</strong>",
@@ -127,35 +208,88 @@ function checklistRows(items) {
   }).join("");
 }
 
-function buildEmail({ name, listingTitle, listingUrl, missing, reasons }) {
+function buildEmail({ name, listingTitle, listingUrl, missing, reasons, reasonCodes }) {
   const greet = esc(cleanName(name));
   const url = listingUrl || EDIT_URL;
 
-  // Listing title deliberately not shown in the copy — always "your listing".
   const titleHtml = " your listing";
   const titleText = " your listing";
 
-  const picked = [];
+  // --- gather reasons -------------------------------------------------
+  // Catalog codes carry TRUSTED html. Free text from v8 callers is ESCAPED.
+  const listingItems = [];   // {html, text}
+  const accountItems = [];
+
+  (Array.isArray(reasonCodes) ? reasonCodes : []).forEach(function (code) {
+    const r = REASONS[String(code == null ? "" : code).trim()];
+    if (!r) return;
+    (r.group === "account" ? accountItems : listingItems).push({ html: r.html, text: r.text });
+  });
+
+  // v8 compatibility: free-text reasons + the "anything else" note. Always
+  // escaped, always treated as listing problems.
   (Array.isArray(reasons) ? reasons : []).forEach(function (r) {
     r = String(r == null ? "" : r).trim();
-    if (r) picked.push(r);
+    if (r) listingItems.push({ html: esc(r), text: r });
   });
-  if (missing && String(missing).trim()) picked.push(String(missing).trim());
+  if (missing && String(missing).trim()) {
+    const m = String(missing).trim();
+    listingItems.push({ html: esc(m), text: m });
+  }
 
-  var midHtml, midText;
-  if (picked.length) {
-    midHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>Here&rsquo;s what we still need before it can go live:</p>"
-      + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(picked.map(esc)) + "</table>";
-    midText = "Here's what we still need before it can go live:\n"
-      + picked.map(function (i) { return "- " + i; }).join("\n") + "\n";
-  } else {
+  const hasListing = listingItems.length > 0;
+  const hasAccount = accountItems.length > 0;
+  const accountOnly = hasAccount && !hasListing;
+
+  function section(title, items) {
+    return "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>" + title + "</p>"
+      + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>"
+      + checklistRows(items.map(function (i) { return i.html; })) + "</table>";
+  }
+  function sectionText(title, items) {
+    return title + "\n" + items.map(function (i) { return "- " + i.text; }).join("\n") + "\n";
+  }
+
+  var midHtml = "", midText = "";
+
+  if (!hasListing && !hasAccount) {
+    // Nothing ticked: fall back to the full photo standard, same as v8.
     midHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>To keep listings trustworthy for renters, every live listing needs clear, well-lit photos of the whole property:</p>"
       + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(STANDARD_ITEMS) + "</table>";
     midText = "To keep listings trustworthy for renters, every live listing needs clear, well-lit photos of the whole property:\n"
       + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n";
+  } else {
+    if (hasListing) {
+      midHtml += section("Here&rsquo;s what the listing still needs:", listingItems);
+      midText += sectionText("Here's what the listing still needs:", listingItems);
+    }
+    if (hasAccount) {
+      midHtml += "<div style='background:#eaf4fb;border-left:3px solid #2980b9;border-radius:0 8px 8px 0;padding:14px 16px;margin:0 0 20px;'>"
+        + "<p style='font-size:14px;color:#1a5276;line-height:1.6;margin:0 0 10px;'><strong>"
+        + (hasListing ? "And two things on your account:" : "This one is about your account, not the listing itself:")
+        + "</strong></p>"
+        + "<table style='border-collapse:collapse;width:100%;margin:0;'>"
+        + checklistRows(accountItems.map(function (i) { return i.html; })) + "</table>"
+        + "<p style='font-size:13px;color:#1a5276;line-height:1.6;margin:6px 0 0;'>Every landlord on Renters.com clears this same bar. It is the reason renters trust the listings here.</p>"
+        + "</div>";
+      midText += "\n" + (hasListing ? "And on your account:" : "This one is about your account, not the listing itself:") + "\n"
+        + accountItems.map(function (i) { return "- " + i.text; }).join("\n") + "\n"
+        + "Every landlord on Renters.com clears this same bar. It is the reason renters trust the listings here.\n";
+    }
   }
 
-  const subject = "Your Renters.com listing needs updated photos to go live";
+  const subject = SUBJECT;
+
+  // When the ONLY problems are account-side, "Edit your listing" is the wrong
+  // instruction: the fix is not in the listing form. Point at the dashboard.
+  const ctaUrl   = accountOnly ? ACCOUNT_URL : url;
+  const ctaLabel = accountOnly ? "Go to your dashboard" : "Edit your listing";
+  const closingHtml = accountOnly
+    ? "Take care of that and your listing goes live right after. We&rsquo;ll review it as soon as you&rsquo;re done."
+    : "Update those and we&rsquo;ll review it again right away. Nothing else for you to do after that.";
+  const closingText = accountOnly
+    ? "Take care of that and your listing goes live right after. We'll review it as soon as you're done."
+    : "Update those and we'll review it again right away. Nothing else for you to do after that.";
 
   const html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
     + "<body style='margin:0;padding:0;background:#eef2f5;font-family:Open Sans,Arial,sans-serif;'>"
@@ -164,21 +298,21 @@ function buildEmail({ name, listingTitle, listingUrl, missing, reasons }) {
     + "<div style='font-size:22px;font-weight:800;color:#ffffff;'>RENTERS<span style='color:#8dc63f;'>.</span></div></div>"
     + "<div style='background:#ffffff;padding:32px 30px;border-radius:0 0 14px 14px;'>"
     + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 14px;'>A quick fix to get your listing live</h1>"
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + greet + ", thanks for listing your place on Renters.com. We&rsquo;ve set" + titleHtml + " back to draft because the photos don&rsquo;t yet meet our community standard. It&rsquo;s a quick fix, not a rejection.</p>"
+    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + greet + ", thanks for listing your place on Renters.com. We review every new listing before it goes live, and" + titleHtml + " needs one or two things first. It&rsquo;s a quick fix, not a rejection.</p>"
     + midHtml
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>Add those and set your listing back to live, and it&rsquo;ll be visible again.</p>"
+    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>" + closingHtml + "</p>"
     + "<div style='text-align:center;margin-bottom:24px;'>"
-    + "<a href='" + esc(url) + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>Edit your listing &rarr;</a></div>"
+    + "<a href='" + esc(ctaUrl) + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>" + ctaLabel + " &rarr;</a></div>"
     + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0;'>&mdash; The Renters.com team</p>"
     + "</div>"
     + "<p style='font-size:12px;color:#9aa7b3;text-align:center;margin:18px 0 0;'>Renters.com. Finding a home should feel safe.</p>"
     + "</div></body></html>";
 
   const text = "Hi " + cleanName(name) + ",\n\n"
-    + "Thanks for listing your place on Renters.com. We've set" + titleText + " back to draft because the photos don't yet meet our community standard. It's a quick fix, not a rejection.\n\n"
+    + "Thanks for listing your place on Renters.com. We review every new listing before it goes live, and" + titleText + " needs one or two things first. It's a quick fix, not a rejection.\n\n"
     + midText + "\n"
-    + "Add those and set your listing back to live, and it'll be visible again.\n\n"
-    + "Edit your listing: " + url + "\n\n"
+    + closingText + "\n\n"
+    + ctaLabel + ": " + ctaUrl + "\n\n"
     + "- The Renters.com team\n\n"
     + "Renters.com. Finding a home should feel safe.";
 
@@ -201,6 +335,10 @@ exports.handler = async function (event) {
         sesKeyConfigured: !!process.env.SES_ACCESS_KEY_ID && !!process.env.SES_SECRET_ACCESS_KEY,
         sender: SENDER,
         bcc: BCC && looksLikeEmail(BCC) ? BCC.trim() : null,
+        subject: SUBJECT,
+        reasonCodes: Object.keys(REASONS).map(function (k) {
+          return { code: k, group: REASONS[k].group, label: REASONS[k].text };
+        }),
       }),
     };
   }
@@ -221,7 +359,6 @@ exports.handler = async function (event) {
 
   let email = String(body.email || "").trim();
   let resolvedName = null;
-  // NEW (slde-v8): member-ID only. Resolve the email (and name) from BD.
   if (!looksLikeEmail(email)) {
     const mid = String(body.memberId || "").trim();
     if (/^[0-9]+$/.test(mid)) {
@@ -244,6 +381,7 @@ exports.handler = async function (event) {
     listingUrl: body.listingUrl,
     missing: body.missing,
     reasons: body.reasons,
+    reasonCodes: body.reasonCodes,
   });
 
   const destination = { ToAddresses: [email] };
@@ -272,4 +410,4 @@ exports.handler = async function (event) {
   }
 };
 
-module.exports._internal = { buildEmail, cleanName, esc, looksLikeEmail, FN_VERSION };
+module.exports._internal = { buildEmail, cleanName, esc, looksLikeEmail, FN_VERSION, REASONS, SUBJECT };
