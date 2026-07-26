@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v7   (2026-07-17)
+//  FN_VERSION: slde-v8   (2026-07-26, member-ID -> email lookup)
 //
 //  Emails a LANDLORD when you set their rental listing back to draft because
 //  the photos don't meet the Renters.com community photo standard.
@@ -8,9 +8,56 @@
 //  - always reads "your listing"; sender verify@renters.com
 //  - admin-key gated, input-hardened
 // ============================================================
-const FN_VERSION = "slde-v7";
+const FN_VERSION = "slde-v8";
 
 const crypto = require("crypto");
+const https = require("https");
+
+// --- BD read (member-ID -> email). Call shape lifted verbatim from
+//     landlord-optin.js (the ONLY proven BD call in this project). Do not
+//     re-derive: X-Api-Key header, /api/v2 base, message[] array response. ---
+const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
+function bd(path) {
+  return new Promise((resolve) => {
+    const headers = { "X-Api-Key": process.env.BD_API_KEY, "Accept": "application/json" };
+    let u;
+    try { u = new URL(BD_BASE + path); }
+    catch (e) { return resolve({ ok: false, data: null }); }
+    const options = { hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search, method: "GET", headers };
+    const req = https.request(options, (res) => {
+      if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        console.log("[slde] BD redirect " + res.statusCode + " -> auth likely not accepted");
+        return resolve({ ok: false, data: null });
+      }
+      let raw = "";
+      res.on("data", (c) => (raw += c));
+      res.on("end", () => {
+        let data = null;
+        try { data = JSON.parse(raw); } catch (e) {}
+        resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, data });
+      });
+    });
+    req.on("error", () => resolve({ ok: false, data: null }));
+    req.end();
+  });
+}
+async function emailForMember(memberId) {
+  const { ok, data } = await bd("/user/get/" + encodeURIComponent(memberId));
+  if (!ok || !data || data.status !== "success") return null;
+  const arr = Array.isArray(data.message) ? data.message : [data.message];
+  const m = arr[0] || null;
+  return m && m.email ? String(m.email).trim() : null;
+}
+async function nameForMember(memberId) {
+  const { ok, data } = await bd("/user/get/" + encodeURIComponent(memberId));
+  if (!ok || !data || data.status !== "success") return null;
+  const arr = Array.isArray(data.message) ? data.message : [data.message];
+  const m = arr[0] || null;
+  if (!m) return null;
+  const fn = (m.first_name || "").trim();
+  return fn || (m.full_name || "").trim() || null;
+}
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 const ses = new SESClient({
   region: process.env.SES_REGION || "us-east-2",
@@ -150,6 +197,7 @@ exports.handler = async function (event) {
         _v: FN_VERSION,
         region: process.env.SES_REGION || "us-east-2",
         adminKeyConfigured: !!process.env.LISTING_EMAIL_ADMIN_KEY,
+        bdKeyConfigured: !!process.env.BD_API_KEY,
         sesKeyConfigured: !!process.env.SES_ACCESS_KEY_ID && !!process.env.SES_SECRET_ACCESS_KEY,
         sender: SENDER,
         bcc: BCC && looksLikeEmail(BCC) ? BCC.trim() : null,
@@ -171,13 +219,27 @@ exports.handler = async function (event) {
     return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
   }
 
-  const email = String(body.email || "").trim();
+  let email = String(body.email || "").trim();
+  let resolvedName = null;
+  // NEW (slde-v8): member-ID only. Resolve the email (and name) from BD.
   if (!looksLikeEmail(email)) {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Missing or invalid 'email'", got: email }) };
+    const mid = String(body.memberId || "").trim();
+    if (/^[0-9]+$/.test(mid)) {
+      if (!process.env.BD_API_KEY) {
+        return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Member-ID lookup needs BD_API_KEY set on the function" }) };
+      }
+      try {
+        const found = await emailForMember(mid);
+        if (found && looksLikeEmail(found)) { email = found; resolvedName = await nameForMember(mid); }
+      } catch (e) { /* fall through to the error below */ }
+    }
+  }
+  if (!looksLikeEmail(email)) {
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Provide a valid email, or a member ID whose account has an email on file", gotMemberId: String(body.memberId || "") }) };
   }
 
   const { subject, html, text } = buildEmail({
-    name: body.name,
+    name: body.name || resolvedName,
     listingTitle: body.listingTitle,
     listingUrl: body.listingUrl,
     missing: body.missing,
