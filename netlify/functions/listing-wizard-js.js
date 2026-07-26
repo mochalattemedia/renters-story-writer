@@ -1,4 +1,4 @@
-// lw-v50  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v52  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -1095,12 +1095,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v50";
+const LW_VERSION = "lw-v52";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v50";
+  var LW_VERSION = "lw-v52";
   var DEBUG = false;
 
   // =============================================================
@@ -1256,13 +1256,36 @@ const WIZARD = String.raw`(function () {
   // ---------------------------------------------------------------
   // FIELD MAP - names captured from the live BD details POST.
   //
-  // *** LOCKED, DO NOT "FIX" ***
-  // BD's bed/bath variable names are reversed relative to their labels.
-  // Verified by distinct-value test: setting the field LABELED "Bedrooms:"
-  // (variable property_baths) to "more than 4" made the LIVE listing show
-  // "more than 4" BEDROOMS. Label-to-display is correct; the variable name
-  // is wrong. Writing beds -> property_baths is CORRECT.
-  // Flipping this to match the variable names flips every listing.
+  // *** THE BED/BATH REVERSAL IS OVER. BD FIXED THEIR VARIABLE NAMES. ***
+  // HISTORY: BD's bed/bath variable names USED TO BE reversed relative to
+  // their labels, so lw-v1..v51 hardcoded beds -> property_baths to
+  // compensate. That was correct at the time and was verified by a
+  // distinct-value test.
+  //
+  // BD HAS SINCE CORRECTED THE FORM (confirmed in Form Manager, Jul 26):
+  //   Field labelled "Bedrooms:"  -> property_beds   (0,1,2,3,4,more than 4)
+  //   Field labelled "Bathrooms:" -> property_baths  (1,1.5 ... 4,more than 4)
+  // so the compensation now BREAKS a form that is already right.
+  //
+  // PROVED BIDIRECTIONALLY FROM THE LIVE DOM, not inferred: optionsFor()
+  // clones its <option> list straight off the mapped BD select, so the
+  // options ARE the field's identity. On the live wizard the Bedrooms
+  // dropdown offered 1/1.5/2/2.5/3/3.5/4/more-than-4 (BD's BATHROOMS list)
+  // and the Bathrooms dropdown offered 0/1/2/3/4/more-than-4 (BD's BEDROOMS
+  // list). Both crossed. Two screenshots, both directions.
+  //
+  // CONSEQUENCE WHILE IT WAS WRONG: every listing saved through the wizard
+  // after BD's change wrote beds into property_baths and baths into
+  // property_beds, i.e. swapped on the live listing. Listings created in
+  // that window need checking.
+  //
+  // THE FIX IS NOT A NEW HARDCODE. Both fields are now resolved BY LABEL at
+  // mount (resolveBedBathFields), exactly as the rent field already is. If
+  // BD ever renames or re-reverses these again, the wizard follows the
+  // label and nothing here needs editing. This is the file's own standing
+  // rule, finally applied to the two fields that most needed it:
+  //   MAP BY LABEL, NEVER BY VARIABLE NAME.
+  // The values below are only the STARTING GUESS, overwritten at mount.
   // ---------------------------------------------------------------
   // *** RENT IS post_promo, NOT property_price. *** Confirmed from the live
   // form dump: the form-group LABELED "* Rent:" contains post_promo. The
@@ -1278,8 +1301,8 @@ const WIZARD = String.raw`(function () {
   var F = {
     title:      "group_name",
     price:      "post_promo",
-    beds:       "property_baths",        // <-- BEDROOMS. Correct. See above.
-    baths:      "property_beds",         // <-- BATHROOMS. Correct. See above.
+    beds:       "property_beds",         // starting guess; resolved by label at mount
+    baths:      "property_baths",        // starting guess; resolved by label at mount
     sqft:       "property_sqr_foot",
     year:       "year_built",
     ptype:      "property_type",
@@ -1640,6 +1663,31 @@ const WIZARD = String.raw`(function () {
       if (exists(CANDIDATE_RENT[m])) return CANDIDATE_RENT[m];
     }
     return "";
+  }
+
+  // RESOLVE BEDROOMS AND BATHROOMS BY LABEL. Same pattern as the rent field.
+  // Returns {beds, baths} using whatever BD currently calls them. Only
+  // accepts a pairing when BOTH labels are found and they are DIFFERENT
+  // fields, so a partial match can never collapse both onto one name.
+  var CANDIDATE_BB = ["property_beds", "property_baths"];
+
+  function resolveBedBathFields() {
+    if (!FORM) return null;
+    var found = { beds: "", baths: "" };
+    for (var i = 0; i < CANDIDATE_BB.length; i++) {
+      var nodes = el(CANDIDATE_BB[i]);
+      if (!nodes) continue;
+      for (var j = 0; j < nodes.length; j++) {
+        if (nodes[j].tagName !== "SELECT") continue;
+        var lt = labelTextFor(nodes[j]);
+        // "bedrooms" and "bathrooms" both contain "room", and "bathrooms"
+        // contains neither "bed" nor a clean prefix, so test the whole word.
+        if (lt.indexOf("bedroom") !== -1 && !found.beds) found.beds = CANDIDATE_BB[i];
+        else if (lt.indexOf("bathroom") !== -1 && !found.baths) found.baths = CANDIDATE_BB[i];
+      }
+    }
+    if (found.beds && found.baths && found.beds !== found.baths) return found;
+    return null;   // FAIL SAFE: ambiguous or missing -> leave the map alone
   }
 
   function isRequiredOnForm(name) {
@@ -3705,6 +3753,22 @@ const WIZARD = String.raw`(function () {
     if (rentField && rentField !== F.price) {
       log("rent resolved by label:", F.price, "->", rentField);
       F.price = rentField;
+    }
+
+    // Beds/baths by label. If BD re-reverses these, this follows the label
+    // and no code changes. If it cannot resolve BOTH unambiguously it leaves
+    // the map untouched rather than guessing.
+    var bb = resolveBedBathFields();
+    if (bb) {
+      if (bb.beds !== F.beds || bb.baths !== F.baths) {
+        log("bed/bath resolved by label:", F.beds + "/" + F.baths, "->", bb.beds + "/" + bb.baths);
+      } else {
+        log("bed/bath confirmed by label:", bb.beds + "/" + bb.baths);
+      }
+      F.beds = bb.beds;
+      F.baths = bb.baths;
+    } else {
+      log("bed/bath could NOT be resolved by label; leaving the map as-is");
     }
 
     auditFields();
