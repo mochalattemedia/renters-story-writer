@@ -1,5 +1,5 @@
 /**
- * pm-normalize.js  ·  pn-v4
+ * pm-normalize.js  ·  pn-v5
  * Renters.com  ·  PM Feed Sync (Element Z)
  *
  * Reads a property manager's rental syndication XML feed and flattens it to
@@ -13,6 +13,10 @@
  * Deliberately self-contained. Does not import feed-probe.js.
  *
  * CHANGELOG
+ *   pn-v5  2026-07-25  Added ?selftest=1 . Runs embedded fixtures covering
+ *                      flat, community and malformed feeds, and reports
+ *                      pass/fail per assertion. Browser-checkable, no curl,
+ *                      no feed URL needed. Use after every deploy.
  *   pn-v4  2026-07-25  Version stamped on every response including errors.
  *                      Bare URL now returns a ready/usage payload instead of
  *                      a 400, so deployed version can be checked in a browser.
@@ -28,6 +32,8 @@
  *                      parsing, dual external keys, per-unit issue codes.
  *
  * ENDPOINTS
+ *   GET  (no params)      deploy check, reports live version
+ *   GET  ?selftest=1      runs embedded fixtures, reports pass/fail
  *   GET  ?url=<feedUrl>[&summary=1][&limit=N][&token=...]
  *   POST { url } | { xml }
  *
@@ -40,7 +46,7 @@
 const { XMLParser } = require('fast-xml-parser');
 const crypto = require('crypto');
 
-const NORM_VERSION = 'pn-v4';
+const NORM_VERSION = 'pn-v5';
 const PHOTO_CAP = 10;
 const FETCH_TIMEOUT_MS = 25000;
 
@@ -663,6 +669,122 @@ function normalizeFeed(xml) {
   };
 }
 
+
+/* ------------------------------------------------------------------ *
+ * self test
+ *
+ * Embedded fixtures so a deploy can be verified from a browser with no
+ * feed URL and no curl. Covers the three cases most likely to regress:
+ * flat parsing, floorplan inheritance, and malformed-feed rejection.
+ * ------------------------------------------------------------------ */
+
+const FIXTURE_FLAT = [
+  '<?xml version="1.0" encoding="UTF-8"?>',
+  '<hotPadsItems version="2.1">',
+  '<Company id="c1"><name>Test PM</name><city>Portland</city><state>OR</state></Company>',
+  '<Listing id="L1" type="RENTAL" companyId="c1" propertyType="HOUSE">',
+  '<street hide="false">1 Test St</street>',
+  '<city>Portland</city><state>OR</state><zip>97214</zip>',
+  '<lastUpdated>2026-07-25T10:00:00.000Z</lastUpdated>',
+  '<description><![CDATA[Great place & "spacious" rooms]]></description>',
+  '<ListingTag type="YEAR_BUILT"><tag>1995</tag></ListingTag>',
+  '<ListingTag type="HEATING _SYSTEM"><tag>ForcedAir</tag></ListingTag>',
+  '<ListingPhoto source="https://example.com/p1.jpg"><label>Front</label></ListingPhoto>',
+  '<price>1500</price><pricingFrequency>MONTH</pricingFrequency>',
+  '<deposit>1x monthly rent</deposit>',
+  '<numBedrooms>2</numBedrooms><numFullBaths>1</numFullBaths><numHalfBaths>1</numHalfBaths>',
+  '<squareFeet>900</squareFeet><dateAvailable>2026-09-01</dateAvailable>',
+  '</Listing></hotPadsItems>'
+].join('');
+
+const FIXTURE_COMMUNITY = [
+  '<?xml version="1.0" encoding="UTF-8"?>',
+  '<hotPadsItems version="2.1">',
+  '<Company id="pm77"><name>Cascade</name><city>Portland</city><state>OR</state></Company>',
+  '<Listing id="willow" type="RENTAL" companyId="pm77" propertyType="LARGE">',
+  '<street hide="true">900 SE Belmont</street>',
+  '<city>Portland</city><state>OR</state><zip>97214</zip>',
+  '<lastUpdated>2026-07-25T10:00:00.000Z</lastUpdated>',
+  '<ListingTag type="YEAR_BUILT"><tag>2013</tag></ListingTag>',
+  '<ListingPhoto source="https://example.com/c1.jpg"/>',
+  '<Model id="oak" type="floorplan">',
+  '<numBedrooms>1</numBedrooms><numFullBaths>1</numFullBaths><numHalfBaths>0</numHalfBaths>',
+  '<squareFeet>720</squareFeet><deposit>750</deposit>',
+  '</Model>',
+  '<Model id="A1" type="unit" parentModelId=" oak ">',
+  '<unitNumber>Apt 101</unitNumber><lowPrice>1450</lowPrice>',
+  '<dateAvailable>2026-09-01</dateAvailable>',
+  '</Model>',
+  '</Listing></hotPadsItems>'
+];
+
+function runSelfTest() {
+  const checks = [];
+  const ok = (name, pass, detail) => checks.push({ name, pass: !!pass, detail });
+
+  // --- flat
+  try {
+    const r = normalizeFeed(FIXTURE_FLAT);
+    const u = r.units[0];
+    ok('flat: one unit parsed', r.summary.units === 1, r.summary.units);
+    ok('flat: bedrooms = 2', u.beds === 2, u.beds);
+    ok('flat: full baths = 1', u.fullBaths === 1, u.fullBaths);
+    ok('flat: half baths = 1', u.halfBaths === 1, u.halfBaths);
+    ok('flat: bathsTotal = 1.5', u.bathsTotal === 1.5, u.bathsTotal);
+    ok('flat: rent = 1500', u.rent === 1500, u.rent);
+    ok('flat: deposit derived to 1500', u.deposit === 1500 && u.depositDerived, u.deposit);
+    ok('flat: yearBuilt from ListingTag', u.yearBuilt === 1995, u.yearBuilt);
+    ok('flat: spec tag typo normalized', u.heatingSystem === 'ForcedAir', u.heatingSystem);
+    ok('flat: CDATA + entities intact', /spacious/.test(u.description || ''), u.description);
+    ok('flat: leading-zero-safe zip is string', typeof u.zip === 'string', u.zip);
+    ok('flat: photo captured', u.photoCount === 1, u.photoCount);
+    ok('flat: half bath flagged', u.issues.indexOf('HAS_HALF_BATH') !== -1, u.issues.join(','));
+  } catch (e) {
+    ok('flat: parsed without throwing', false, String(e.message || e));
+  }
+
+  // --- community with floorplan inheritance
+  try {
+    const r = normalizeFeed(FIXTURE_COMMUNITY.join(''));
+    const u = r.units[0];
+    ok('community: one unit expanded', r.summary.units === 1, r.summary.units);
+    ok('community: inherited beds from floorplan', u.beds === 1, u.beds);
+    ok('community: inherited sqft from floorplan', u.sqft === 720, u.sqft);
+    ok('community: inherited deposit from floorplan', u.deposit === 750, u.deposit);
+    ok('community: own price used', u.rent === 1450, u.rent);
+    ok('community: unit number kept', u.unitNumber === 'Apt 101', u.unitNumber);
+    ok('community: whitespace parentModelId resolved', u.beds === 1, u.parentModelId);
+    ok('community: hidden street flagged', u.issues.indexOf('STREET_HIDDEN') !== -1, u.issues.join(','));
+    ok('community: external key composed', u.externalKey === 'pm77::willow::A1', u.externalKey);
+  } catch (e) {
+    ok('community: parsed without throwing', false, String(e.message || e));
+  }
+
+  // --- malformed rejection
+  const rejects = [
+    ['html error page', '<html><body>404 Not Found</body></html>'],
+    ['non-feed xml', '<error>nope</error>']
+  ];
+  for (const [name, xml] of rejects) {
+    let rejected = false;
+    try {
+      normalizeFeed(xml);
+    } catch (e) {
+      rejected = /UNRECOGNIZED_FEED_ROOT/.test(String(e.message || e));
+    }
+    ok('rejects ' + name, rejected, rejected ? 'rejected' : 'ACCEPTED - BAD');
+  }
+
+  const failed = checks.filter((c) => !c.pass);
+  return {
+    passed: checks.length - failed.length,
+    failed: failed.length,
+    total: checks.length,
+    result: failed.length === 0 ? 'ALL PASS' : 'FAILURES PRESENT',
+    checks
+  };
+}
+
 /* ------------------------------------------------------------------ *
  * fetch + handler
  * ------------------------------------------------------------------ */
@@ -706,6 +828,11 @@ exports.handler = async (event) => {
 
     const required = process.env.PM_FEED_TOKEN;
     if (required && q.token !== required) return json(401, { ok: false, error: 'bad token' });
+
+    if (q.selftest === '1') {
+      const t = runSelfTest();
+      return json(t.failed === 0 ? 200 : 500, { ok: t.failed === 0, selftest: t });
+    }
 
     const url = body.url || q.url;
     const xml = body.xml || null;
@@ -752,5 +879,6 @@ exports.handler = async (event) => {
 };
 
 exports.normalizeFeed = normalizeFeed;
+exports.runSelfTest = runSelfTest;
 exports.fetchFeed = fetchFeed;
 exports.NORM_VERSION = NORM_VERSION;
