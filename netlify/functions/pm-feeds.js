@@ -1,5 +1,5 @@
 /**
- * pm-feeds.js  ·  pf-v1
+ * pm-feeds.js  ·  pf-v2
  * Renters.com  ·  PM Feed Sync (Element Z)
  *
  * Feed registry. One record per property manager: their feed URL, the BD
@@ -8,6 +8,10 @@
  * This is what turns a feedId into something pm-sync and pm-write can use.
  *
  * CHANGELOG
+ *   pf-v2  2026-07-27  CORS preflight support. Browsers send an OPTIONS
+ *                      preflight for any POST carrying Content-Type, and
+ *                      the missing Allow-Headers response blocked every
+ *                      cross-origin registration attempt.
  *   pf-v1  2026-07-27  Initial build. CRUD over Netlify Blobs, feed
  *                      validation on register, status dashboard, and a
  *                      no-JS admin panel.
@@ -35,7 +39,7 @@
 
 'use strict';
 
-const FEEDS_VERSION = 'pf-v1';
+const FEEDS_VERSION = 'pf-v2';
 
 const NORMALIZE_URL =
   process.env.PM_NORMALIZE_URL ||
@@ -157,6 +161,58 @@ async function probeFeed(feedUrl) {
   } catch (err) {
     return { ok: false, error: String(err.message || err) };
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * registration
+ * ------------------------------------------------------------------ */
+
+async function registerFeed(input) {
+  const errs = [
+    validateFeedId(input.feedId),
+    validateFeedUrl(input.feedUrl),
+    validateMemberId(input.memberId)
+  ].filter(Boolean);
+  if (errs.length) return { code: 400, body: { ok: false, errors: errs } };
+
+  const probe = await probeFeed(input.feedUrl);
+  if (!probe.ok && input.force !== true) {
+    return {
+      code: 400,
+      body: {
+        ok: false,
+        error: 'FEED_UNREADABLE',
+        detail: probe.error,
+        note: 'The feed did not parse. Fix the URL, or add force=1 to register anyway.'
+      }
+    };
+  }
+
+  const existing = await getFeed(input.feedId);
+  const feed = {
+    feedId: String(input.feedId),
+    feedUrl: String(input.feedUrl).trim(),
+    memberId: String(input.memberId),
+    name: input.name || (probe.companies && probe.companies[0]) || null,
+    contact: input.contact || null,
+    schedule: input.schedule || 'daily',
+    active: input.active === false ? false : true,
+    createdAt: (existing && existing.createdAt) || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    lastProbe: probe
+  };
+  await putFeed(feed);
+
+  return {
+    code: 200,
+    body: {
+      ok: true,
+      action: existing ? 'updated' : 'registered',
+      feed,
+      probe,
+      next: '/.netlify/functions/pm-sync?feedId=' + feed.feedId + '&dryrun=1'
+    }
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -326,12 +382,19 @@ function panelHtml(rows) {
  * handler
  * ------------------------------------------------------------------ */
 
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key',
+  'Access-Control-Max-Age': '86400'
+};
+
 const json = (code, body) => ({
   statusCode: code,
   headers: {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-    'X-Function-Version': FEEDS_VERSION
+    'X-Function-Version': FEEDS_VERSION,
+    ...CORS
   },
   body: JSON.stringify({ version: FEEDS_VERSION, ...body }, null, 2)
 });
@@ -345,6 +408,12 @@ const html = (code, body) => ({
 exports.handler = async (event) => {
   const q = (event && event.queryStringParameters) || {};
   const method = (event && event.httpMethod) || 'GET';
+
+  // Browsers preflight any POST that carries Content-Type. Answer it
+  // before anything else or the real request is never sent.
+  if (method === 'OPTIONS') {
+    return { statusCode: 204, headers: CORS, body: '' };
+  }
 
   let body = {};
   if (event && event.body) {
@@ -371,46 +440,8 @@ exports.handler = async (event) => {
       const action = body.action || 'register';
 
       if (action === 'register') {
-        const errs = [
-          validateFeedId(body.feedId),
-          validateFeedUrl(body.feedUrl),
-          validateMemberId(body.memberId)
-        ].filter(Boolean);
-        if (errs.length) return json(400, { ok: false, errors: errs });
-
-        const probe = await probeFeed(body.feedUrl);
-        if (!probe.ok && body.force !== true) {
-          return json(400, {
-            ok: false,
-            error: 'FEED_UNREADABLE',
-            detail: probe.error,
-            note: 'The feed did not parse. Fix the URL, or pass "force": true to register anyway.'
-          });
-        }
-
-        const existing = await getFeed(body.feedId);
-        const feed = {
-          feedId: String(body.feedId),
-          feedUrl: String(body.feedUrl).trim(),
-          memberId: String(body.memberId),
-          name: body.name || (probe.companies && probe.companies[0]) || null,
-          contact: body.contact || null,
-          schedule: body.schedule || 'daily',
-          active: body.active === false ? false : true,
-          createdAt: (existing && existing.createdAt) || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          lastProbe: probe
-        };
-        await putFeed(feed);
-
-        return json(200, {
-          ok: true,
-          action: existing ? 'updated' : 'registered',
-          feed,
-          probe,
-          next:
-            '/.netlify/functions/pm-sync?feedId=' + feed.feedId + '&dryrun=1'
-        });
+        const result = await registerFeed(body);
+        return json(result.code, result.body);
       }
 
       if (action === 'activate' || action === 'deactivate') {
@@ -440,6 +471,23 @@ exports.handler = async (event) => {
     }
 
     /* ---- reads ---- */
+    // Registration over GET. A POST from a browser console trips CORS
+    // preflight on some origins, and curl is friction. This is the same
+    // code path, just reachable from an address bar.
+    if (q.register === '1') {
+      if (!authed) return json(401, { ok: false, error: 'bad token' });
+      const result = await registerFeed({
+        feedId: q.feedId,
+        feedUrl: q.feedUrl,
+        memberId: q.memberId,
+        name: q.name,
+        contact: q.contact,
+        schedule: q.schedule,
+        force: q.force === '1'
+      });
+      return json(result.code, result.body);
+    }
+
     if (q.feedId) {
       const feed = await getFeed(q.feedId);
       if (!feed) return json(404, { ok: false, error: 'NOT_FOUND', feedId: q.feedId });
