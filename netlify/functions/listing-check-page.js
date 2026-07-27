@@ -1,82 +1,51 @@
 // ============================================================
-//  listing-check-page.js  ·  lcp-v3
+//  listing-check-page.js  ·  lcp-v5
 //  Serves the Rental Listing Safety Check as a standalone page for
 //  iframe embedding on BD (like Lisa). Posts its height to the parent
 //  so the iframe can auto-resize.
 //
-//  v3 changelog:
-//   - One card, three optional inputs, one button: link, screenshot,
-//     or pasted text. Any one is enough.
-//   - Screenshots: tap to choose, drag and drop, or paste an image.
-//     Downscaled to 1400px JPEG in the browser before upload.
-//   - Paste anywhere on the page: an image attaches itself, a long
-//     block of text drops into the text box and opens it.
-//   - "Tap to paste" clipboard button for mobile.
-//   - Server can report it could not read a link; the card stays put
-//     and just shows the note.
+//  v5 changelog:
+//   - Screenshot only. Link field and paste box removed. One path,
+//     one button, nothing to decide.
+//   - Up to 4 screenshots, with the multi-screenshot hint stated up
+//     front so renters know to grab the whole listing.
+//   - Downscales to 1400px JPEG in the browser before upload.
+//   - Paste an image anywhere on the page and it attaches itself.
+//   - Height is posted immediately on every state change, and the
+//     parent is asked to scroll to the top of the frame on results.
 //
-//  Pairs with: listing-check.js (lc-v3)
+//  Pairs with: listing-check.js (lc-v5)
 // ============================================================
 
 const HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rental Listing Safety Check</title><style>
 html,body{margin:0;padding:0;background:transparent;}
 #rls-drop.drag{border-color:#8dc63f !important;background:#f2f9e8 !important;}
-#rls-drop:hover{border-color:#3a9e8f;}
-.rls-x{position:absolute;top:-7px;right:-7px;width:22px;height:22px;border-radius:50%;background:#0d2d4e;color:#fff;border:2px solid #fff;font-size:13px;line-height:18px;text-align:center;cursor:pointer;padding:0;font-family:inherit;font-weight:700;}
+.rls-x{position:absolute;top:-7px;right:-7px;width:23px;height:23px;border-radius:50%;background:#0d2d4e;color:#fff;border:2px solid #fff;font-size:13px;line-height:19px;text-align:center;cursor:pointer;padding:0;font-family:inherit;font-weight:700;}
+#rls-go:disabled{cursor:default;}
 </style></head><body>
-<!-- RENTERS.COM — RENTAL LISTING SAFETY CHECK · LINK + SCREENSHOT + PASTE -->
+<!-- RENTERS.COM — RENTAL LISTING SAFETY CHECK · SCREENSHOT ONLY -->
 <div style="max-width:1000px;margin:0 auto;padding:4px;font-family:'Open Sans',Arial,sans-serif;">
 
   <div style="background:#0d2d4e;border-radius:22px;padding:30px 34px 34px;">
 
     <p style="font-size:30px;font-weight:800;color:#ffffff;margin:0 0 4px;line-height:1;">Safety Check<span style="color:#8dc63f;">.</span></p>
-    <p style="font-size:15px;color:rgba(255,255,255,0.72);margin:0 0 20px;font-weight:300;line-height:1.6;">Send us a link, a screenshot, or the text of any rental listing and we&#39;ll flag common scam warning signs. Works for listings from anywhere.</p>
+    <p style="font-size:15px;color:rgba(255,255,255,0.72);margin:0 0 20px;font-weight:300;line-height:1.6;">Screenshot a rental listing or your messages with a &ldquo;landlord&rdquo; and we&#39;ll flag common scam warning signs. Works for listings from anywhere.</p>
 
     <div id="rls-input" style="background:#ffffff;border-radius:18px;padding:22px;">
 
-      <!-- LINK -->
-      <input id="rls-url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Paste the listing link..." style="width:100%;border:1px solid #e3e8ec;border-radius:14px;padding:14px 16px;font-size:15px;font-family:inherit;color:#0d2d4e;box-sizing:border-box;outline:none;">
-
-      <!-- OR -->
-      <div style="display:flex;align-items:center;gap:12px;margin:14px 0;">
-        <div style="flex:1;height:1px;background:#eef2f4;"></div>
-        <span style="font-size:12px;font-weight:700;letter-spacing:.06em;color:#b3bdc6;">OR</span>
-        <div style="flex:1;height:1px;background:#eef2f4;"></div>
-      </div>
-
-      <!-- SCREENSHOT -->
-      <div id="rls-drop" style="border:2px dashed #dfe6ea;border-radius:14px;padding:20px 16px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;">
-        <div style="font-size:26px;line-height:1;margin-bottom:6px;">&#128247;</div>
-        <p style="font-size:15px;font-weight:700;color:#0d2d4e;margin:0 0 3px;">Add a screenshot</p>
-        <p style="font-size:13px;color:#8a97a3;margin:0;line-height:1.5;">Tap to choose a photo, or drop one here. Screenshots of the listing or of your chat with the landlord both work.</p>
+      <div id="rls-drop" style="border:2px dashed #dfe6ea;border-radius:16px;padding:30px 18px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;">
+        <div style="font-size:34px;line-height:1;margin-bottom:8px;">&#128247;</div>
+        <p style="font-size:17px;font-weight:700;color:#0d2d4e;margin:0 0 4px;">Add a screenshot</p>
+        <p style="font-size:13px;color:#8a97a3;margin:0;line-height:1.55;">Tap to choose from your photos.<br>Add up to 4 if the listing or conversation is long.</p>
       </div>
       <input id="rls-file" type="file" accept="image/*" multiple style="display:none;">
-      <div id="rls-thumbs" style="display:none;flex-wrap:wrap;gap:10px;margin-top:12px;"></div>
 
-      <!-- TEXT -->
-      <p style="font-size:13px;color:#8a97a3;margin:14px 0 0;line-height:1.5;">Or <a id="rls-toggle" href="#" style="color:#3a9e8f;font-weight:700;text-decoration:none;">paste the listing text instead</a></p>
+      <div id="rls-thumbs" style="display:none;flex-wrap:wrap;gap:10px;margin-top:14px;"></div>
+      <p id="rls-count" style="display:none;font-size:12px;color:#8a97a3;margin:8px 0 0;"></p>
 
-      <div id="rls-textwrap" style="display:none;margin-top:12px;">
-        <textarea id="rls-text" placeholder="Paste the listing text, or the message someone sent you..." style="width:100%;min-height:130px;border:1px solid #e3e8ec;border-radius:14px;padding:14px 16px;font-size:15px;font-family:inherit;resize:vertical;color:#0d2d4e;box-sizing:border-box;outline:none;"></textarea>
-        <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-          <button id="rls-clip" style="background:#f4f7f6;color:#0d2d4e;border:1px solid #e3e8ec;border-radius:10px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">Tap to paste</button>
-          <select id="rls-source" style="flex:1 1 220px;min-width:200px;border:1px solid #e3e8ec;border-radius:10px;padding:10px 12px;font-size:13px;font-family:inherit;color:#0d2d4e;background:#fff;box-sizing:border-box;outline:none;text-overflow:ellipsis;">
-            <option value="unknown">Where did you find it?</option>
-            <option value="craigslist">Craigslist</option>
-            <option value="facebook">Facebook Marketplace or group</option>
-            <option value="zillow">Zillow / Apartments.com / major site</option>
-            <option value="other-site">Another listing website</option>
-            <option value="message">A message someone sent me</option>
-          </select>
-        </div>
-      </div>
+      <p id="rls-err" style="display:none;color:#c0392b;font-size:13px;margin:12px 0 0;line-height:1.5;"></p>
 
-      <!-- NOTE + ERROR -->
-      <p id="rls-note" style="display:none;background:#fef9e7;border:1px solid #fcecc0;border-radius:12px;padding:12px 14px;font-size:13px;color:#7d5a10;line-height:1.55;margin:14px 0 0;"></p>
-      <p id="rls-err" style="display:none;color:#c0392b;font-size:13px;margin:12px 0 0;"></p>
-
-      <!-- GO -->
-      <button id="rls-go" style="margin-top:16px;width:100%;background:#8dc63f;color:#0d2d4e;border:none;border-radius:12px;padding:15px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;">Check this listing</button>
+      <button id="rls-go" style="margin-top:18px;width:100%;background:#dfe6ea;color:#96a3ad;border:none;border-radius:12px;padding:15px;font-size:16px;font-weight:700;cursor:default;font-family:inherit;transition:background .15s,color .15s;">Check this listing</button>
 
     </div>
 
@@ -90,22 +59,53 @@ html,body{margin:0;padding:0;background:transparent;}
 <script>
 (function () {
   var FN = "https://renters-story-writer.netlify.app/.netlify/functions/listing-check";
-  var TIMEOUT_MS = 30000;
+  var TIMEOUT_MS = 40000;
   var MAX_IMAGES = 4;
   var MAX_DIM = 1400;
   var shots = [];
+  var busy = false;
 
   function el(id) { return document.getElementById(id); }
   function esc(s) { return (s == null ? "" : String(s)).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
-  function showErr(msg) { var e = el("rls-err"); e.textContent = msg; e.style.display = "block"; }
-  function clearErr() { var e = el("rls-err"); e.textContent = ""; e.style.display = "none"; }
-  function showNote(msg) { var n = el("rls-note"); n.textContent = msg; n.style.display = "block"; }
-  function clearNote() { var n = el("rls-note"); n.textContent = ""; n.style.display = "none"; }
+  function post(msg) { try { parent.postMessage(msg, "*"); } catch (e) {} }
+  function pushHeight() {
+    var b = document.body, e = document.documentElement;
+    var h = Math.max(b.scrollHeight, b.offsetHeight, e.scrollHeight, e.offsetHeight, e.clientHeight);
+    post({ listingCheckHeight: h });
+  }
 
-  function openText() {
-    el("rls-textwrap").style.display = "block";
-    el("rls-toggle").parentNode.style.display = "none";
+  function showErr(msg) { var e = el("rls-err"); e.textContent = msg; e.style.display = "block"; pushHeight(); }
+  function clearErr() { var e = el("rls-err"); e.textContent = ""; e.style.display = "none"; }
+
+  // ---------- button state ----------
+  function paintButton() {
+    var b = el("rls-go");
+    if (busy) return;
+    if (shots.length) {
+      b.style.background = "#8dc63f";
+      b.style.color = "#0d2d4e";
+      b.style.cursor = "pointer";
+      b.textContent = shots.length > 1 ? "Check these screenshots" : "Check this screenshot";
+    } else {
+      b.style.background = "#dfe6ea";
+      b.style.color = "#96a3ad";
+      b.style.cursor = "default";
+      b.textContent = "Check this listing";
+    }
+  }
+
+  function setBusy(on, label) {
+    busy = on;
+    var b = el("rls-go");
+    b.disabled = on;
+    if (on) {
+      b.textContent = label;
+      b.style.background = "#b9dc8a";
+      b.style.color = "#0d2d4e";
+    } else {
+      paintButton();
+    }
   }
 
   // ---------- screenshots ----------
@@ -138,15 +138,30 @@ html,body{margin:0;padding:0;background:transparent;}
 
   function drawThumbs() {
     var box = el("rls-thumbs");
-    if (!shots.length) { box.style.display = "none"; box.innerHTML = ""; return; }
+    var count = el("rls-count");
+
+    if (!shots.length) {
+      box.style.display = "none"; box.innerHTML = "";
+      count.style.display = "none";
+      paintButton(); pushHeight();
+      return;
+    }
+
     var html = "";
     for (var i = 0; i < shots.length; i++) {
       html += "<div style='position:relative;width:84px;height:84px;'>"
         + "<img src='" + shots[i].preview + "' alt='' style='width:84px;height:84px;object-fit:cover;border-radius:12px;border:1px solid #e3e8ec;display:block;'>"
         + "<button class='rls-x' data-i='" + i + "'>&times;</button></div>";
     }
+    if (shots.length < MAX_IMAGES) {
+      html += "<button id='rls-more' style='width:84px;height:84px;border:2px dashed #dfe6ea;border-radius:12px;background:#fff;color:#8a97a3;font-size:26px;line-height:1;cursor:pointer;font-family:inherit;'>+</button>";
+    }
     box.innerHTML = html;
     box.style.display = "flex";
+
+    count.textContent = shots.length + " of " + MAX_IMAGES + " added";
+    count.style.display = "block";
+
     var xs = box.querySelectorAll(".rls-x");
     for (var k = 0; k < xs.length; k++) {
       xs[k].addEventListener("click", function (ev) {
@@ -155,39 +170,53 @@ html,body{margin:0;padding:0;background:transparent;}
         drawThumbs();
       });
     }
+    var more = el("rls-more");
+    if (more) more.addEventListener("click", function (ev) { ev.stopPropagation(); el("rls-file").click(); });
+
+    paintButton();
+    pushHeight();
   }
 
   function addFiles(list) {
     if (!list || !list.length) return;
     clearErr();
+
     var arr = [];
     for (var i = 0; i < list.length; i++) arr.push(list[i]);
+
     var room = MAX_IMAGES - shots.length;
-    if (room <= 0) { showErr("You can add up to " + MAX_IMAGES + " screenshots."); return; }
-    arr = arr.slice(0, room);
+    if (room <= 0) { showErr("You can add up to " + MAX_IMAGES + " screenshots. Remove one to add another."); return; }
+    if (arr.length > room) {
+      showErr("Only the first " + room + " were added. " + MAX_IMAGES + " screenshots is the limit.");
+      arr = arr.slice(0, room);
+    }
+
     var pending = arr.length;
+    var failed = 0;
     arr.forEach(function (f) {
       shrink(f, function (res) {
-        if (res) shots.push(res);
+        if (res) shots.push(res); else failed += 1;
         pending -= 1;
-        if (pending <= 0) drawThumbs();
+        if (pending <= 0) {
+          drawThumbs();
+          if (failed) showErr("We couldn't read " + (failed === 1 ? "one of those files" : failed + " of those files") + ". Try a JPG or PNG screenshot.");
+        }
       });
     });
   }
 
   // ---------- results ----------
-  function levelBlock(level, summary, fetched) {
+  function levelBlock(level, summary) {
     var map = {
       low:     { bg:"#eafaf1", bd:"#d4efdf", cl:"#1e8449", ic:"&#9989;",   t:"Looks lower risk" },
       caution: { bg:"#fef9e7", bd:"#fcecc0", cl:"#b9770e", ic:"&#9888;",   t:"Use caution" },
       high:    { bg:"#fdecea", bd:"#f8ccc6", cl:"#c0392b", ic:"&#128681;", t:"High scam risk" }
     };
     var m = map[level] || map.caution;
-    var src = fetched ? "<p style='font-size:12px;color:#8a97a3;margin:6px 0 0;'>Read from " + esc(fetched) + "</p>" : "";
     return "<div style='background:" + m.bg + ";border:1px solid " + m.bd + ";border-radius:14px;padding:16px 18px;margin-bottom:14px;display:flex;align-items:center;gap:14px;'>"
       + "<div style='font-size:30px;line-height:1;color:" + m.cl + ";'>" + m.ic + "</div>"
       + "<div><p style='font-size:17px;font-weight:700;margin:0 0 2px;color:" + m.cl + ";'>" + m.t + "</p>"
-      + "<p style='font-size:14px;line-height:1.5;margin:0;color:#4a5a6a;'>" + esc(summary) + "</p>" + src + "</div></div>";
+      + "<p style='font-size:14px;line-height:1.5;margin:0;color:#4a5a6a;'>" + esc(summary) + "</p></div></div>";
   }
 
   function flagBlock(f) {
@@ -199,11 +228,7 @@ html,body{margin:0;padding:0;background:transparent;}
 
   function render(data) {
     var html = "<div style='background:#ffffff;border-radius:18px;padding:22px;'>";
-    html += levelBlock(data.riskLevel, data.summary, data.fetched);
-
-    if (data.linkNote) {
-      html += "<p style='background:#f4f7f6;border-radius:10px;padding:10px 13px;font-size:12px;color:#6b7a88;line-height:1.5;margin:0 0 14px;'>" + esc(data.linkNote) + "</p>";
-    }
+    html += levelBlock(data.riskLevel, data.summary);
 
     if (data.flags && data.flags.length) {
       html += "<p style='font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8a97a3;margin:18px 0 10px;'>Warning signs we noticed</p>";
@@ -225,60 +250,47 @@ html,body{margin:0;padding:0;background:transparent;}
     r.style.display = "block";
     el("rls-input").style.display = "none";
     el("rls-again").addEventListener("click", reset);
-    if (r.scrollIntoView) r.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    pushHeight();
+    post({ listingCheckScrollTop: true });
+    if (window.scrollTo) window.scrollTo(0, 0);
   }
 
   function reset() {
     el("rls-results").style.display = "none";
     el("rls-results").innerHTML = "";
     el("rls-input").style.display = "block";
-    el("rls-url").value = "";
-    el("rls-text").value = "";
-    el("rls-source").value = "unknown";
     el("rls-file").value = "";
     shots = [];
-    drawThumbs();
     clearErr();
-    clearNote();
+    drawThumbs();
+    pushHeight();
+    post({ listingCheckScrollTop: true });
+    if (window.scrollTo) window.scrollTo(0, 0);
   }
 
   // ---------- submit ----------
-  function setBusy(on, label) {
-    var b = el("rls-go");
-    b.disabled = on;
-    b.textContent = on ? label : "Check this listing";
-    b.style.opacity = on ? "0.65" : "1";
-  }
-
   function run() {
-    var url = el("rls-url").value.trim();
-    var text = el("rls-text").value.trim();
-
-    if (!url && !text && !shots.length) {
-      showErr("Add a link, a screenshot, or the listing text to get started.");
-      return;
-    }
-    if (url && url.indexOf(".") === -1) {
-      showErr("That link does not look complete. Check the web address.");
+    if (busy) return;
+    if (!shots.length) {
+      showErr("Add a screenshot of the listing first.");
+      el("rls-file").click();
       return;
     }
 
-    clearErr(); clearNote();
-    setBusy(true, shots.length ? "Reading your screenshots..." : (url ? "Reading the listing..." : "Checking..."));
+    clearErr();
+    setBusy(true, shots.length > 1 ? "Reading your screenshots..." : "Reading your screenshot...");
 
-    var payload = { source: el("rls-source").value };
-    if (url) payload.url = url;
-    if (text) payload.text = text;
-    if (shots.length) {
-      payload.images = shots.map(function (s) { return { media_type: s.media_type, data: s.data }; });
-    }
+    var payload = {
+      images: shots.map(function (s) { return { media_type: s.media_type, data: s.data }; })
+    };
 
     var done = false;
     var timer = setTimeout(function () {
       if (done) return;
       done = true;
       setBusy(false);
-      showNote("That took too long. Try again, or add a screenshot of the listing instead.");
+      showErr("That took too long. Try again, or remove a screenshot and check fewer at once.");
     }, TIMEOUT_MS);
 
     fetch(FN, {
@@ -291,7 +303,6 @@ html,body{margin:0;padding:0;background:transparent;}
         if (done) return;
         done = true; clearTimeout(timer);
         setBusy(false);
-        if (data && data.needsPaste) { showNote(data.message || "Add a screenshot of the listing, or paste the text."); openText(); return; }
         if (data && data.error) { showErr(data.error); return; }
         render(data);
       })
@@ -307,12 +318,6 @@ html,body{margin:0;padding:0;background:transparent;}
   function init() {
     el("rls-go").addEventListener("click", run);
 
-    el("rls-url").addEventListener("keydown", function (ev) {
-      if (ev.key === "Enter") { ev.preventDefault(); run(); }
-    });
-
-    el("rls-toggle").addEventListener("click", function (ev) { ev.preventDefault(); openText(); el("rls-text").focus(); });
-
     var drop = el("rls-drop"), file = el("rls-file");
     drop.addEventListener("click", function () { file.click(); });
     file.addEventListener("change", function () { addFiles(file.files); file.value = ""; });
@@ -327,55 +332,28 @@ html,body{margin:0;padding:0;background:transparent;}
       if (ev.dataTransfer && ev.dataTransfer.files) addFiles(ev.dataTransfer.files);
     });
 
-    // Clipboard button (mobile-friendly).
-    el("rls-clip").addEventListener("click", function () {
-      if (!navigator.clipboard || !navigator.clipboard.readText) {
-        showErr("Your browser will not let us read the clipboard. Long-press the box above and choose Paste.");
-        return;
-      }
-      navigator.clipboard.readText().then(function (t) {
-        if (!t) { showErr("Nothing to paste. Copy the listing first."); return; }
-        clearErr();
-        el("rls-text").value = t;
-      }).catch(function () {
-        showErr("Your browser will not let us read the clipboard. Long-press the box above and choose Paste.");
-      });
-    });
-
-    // Paste anywhere: an image attaches, a long block of text opens the text box.
+    // Paste an image anywhere on the page.
     document.addEventListener("paste", function (ev) {
       var dt = ev.clipboardData;
       if (!dt) return;
-
       var files = [];
       if (dt.files && dt.files.length) {
         for (var i = 0; i < dt.files.length; i++) {
           if (dt.files[i].type.indexOf("image/") === 0) files.push(dt.files[i]);
         }
       }
-      if (files.length) { ev.preventDefault(); addFiles(files); return; }
-
-      var t = "";
-      try { t = dt.getData("text/plain") || ""; } catch (e) { t = ""; }
-      if (!t) return;
-
-      var tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : "";
-      if (tag === "input" || tag === "textarea") return; // let the field handle it
-
-      if (t.trim().length > 60) {
-        ev.preventDefault();
-        openText();
-        el("rls-text").value = t.trim();
-        clearErr();
-      }
+      if (files.length) { ev.preventDefault(); addFiles(files); }
     });
+
+    paintButton();
+    pushHeight();
   }
 
   if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", init); }
   else { init(); }
 })();
 </script>
-<script>(function(){function ph(){var b=document.body,e=document.documentElement;var h=Math.max(b.scrollHeight,b.offsetHeight,e.scrollHeight,e.offsetHeight,e.clientHeight);try{parent.postMessage({listingCheckHeight:h},"*");}catch(err){}}window.addEventListener("load",ph);window.addEventListener("resize",ph);var mo=new MutationObserver(ph);mo.observe(document.body,{childList:true,subtree:true,attributes:true,characterData:true});setInterval(ph,500);})();</script>
+<script>(function(){function ph(){var b=document.body,e=document.documentElement;var h=Math.max(b.scrollHeight,b.offsetHeight,e.scrollHeight,e.offsetHeight,e.clientHeight);try{parent.postMessage({listingCheckHeight:h},"*");}catch(err){}}window.addEventListener("load",ph);window.addEventListener("resize",ph);var mo=new MutationObserver(ph);mo.observe(document.body,{childList:true,subtree:true,attributes:true,characterData:true});setInterval(ph,400);})();</script>
 </body></html>`;
 
 exports.handler = async () => ({
