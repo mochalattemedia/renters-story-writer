@@ -1,26 +1,25 @@
 // ============================================================
-//  listing-check.js  ·  Renters.com Safety Check  ·  lc-v7
-//  A renter screenshots a message from a supposed landlord (email,
-//  text, DM, marketplace chat) or a listing, and Claude reads it and
-//  returns a structured risk read. Server-side so the API key stays
-//  secret.
+//  listing-check.js  ·  Renters.com Safety Check  ·  lc-v8
+//  A renter screenshots a listing or a message from a supposed
+//  landlord, and Claude reads it and returns a structured risk read.
+//  Server-side so the API key stays secret.
 //
-//  v7 changelog:
-//   - Anchored on the core test: every scam exists because the sender
-//     does not have the property, so the summary and tips are steered
-//     toward whether money is being requested before an in-person
-//     viewing.
+//  v8 changelog (BUILT FOR THE PEOPLE WHO ACTUALLY GET SCAMMED):
+//   - Full listing-level signal set added: photo forensics, address
+//     problems, frictionless screening terms, contact and process
+//     red flags. The naive renter has no baseline, so the tool has
+//     to supply one.
+//   - Below-market rent is now treated as the bait doing the
+//     persuading, not as a lucky break. Named directly.
+//   - 'low' no longer reads as permission. A clean message is not
+//     proof the sender owns anything, and the model must say so.
+//   - Register calibrated by risk: measured at caution, direct and
+//     unambiguous at high. Someone about to wire a deposit does not
+//     need a balanced tone.
+//   - No-screening terms (no credit check, no application) treated
+//     as a signal in their own right rather than a convenience.
 //
-//  v6 changelog (CORRESPONDENCE FIRST):
-//   - Reframed from "check this listing" to "check who you are
-//     talking to". Scams live in the reply, not the listing page.
-//   - Prompt leads on message-thread analysis: payment demands,
-//     excuses for not meeting, urgency, off-platform pushes,
-//     identity claims that cannot be checked.
-//   - Listing screenshots still fully supported as a secondary case.
-//   - Tips are now next-step actions the renter can take today.
-//
-//  v5: screenshot-only, URL fetching removed
+//  v7: core test anchor · v6: correspondence first · v5: screenshot only
 //
 //  Env: ANTHROPIC_API_KEY
 //  POST { images: [{ media_type, data }] }
@@ -29,7 +28,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const VERSION = "lc-v7";
+const VERSION = "lc-v8";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -42,13 +41,13 @@ function ok(body) { return { statusCode: 200, headers: corsHeaders, body: JSON.s
 function bad(code, msg) { return { statusCode: code, headers: corsHeaders, body: JSON.stringify({ error: msg }) }; }
 
 // --- rate limit ---
-var RL_MAX = 10;            // checks
-var RL_WINDOW_MS = 3600000; // per hour, per IP
+var RL_MAX = 10;
+var RL_WINDOW_MS = 3600000;
 
 // --- image limits ---
 var MAX_IMAGES = 4;
-var MAX_IMAGE_B64 = 1600000;   // ~1.2MB per image after client downscale
-var MAX_TOTAL_B64 = 4200000;   // stay well under Netlify's payload ceiling
+var MAX_IMAGE_B64 = 1600000;
+var MAX_TOTAL_B64 = 4200000;
 var OK_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 function clientIp(event) {
@@ -58,7 +57,6 @@ function clientIp(event) {
   return "unknown";
 }
 
-// Accepts raw base64 or a data: URL. Returns null if unusable.
 function cleanImage(img) {
   if (!img) return null;
   var media = (img.media_type || img.mediaType || "").toString().toLowerCase();
@@ -112,15 +110,15 @@ async function rateLimited(ip) {
     await store.setJSON("ip:" + ip, rec);
     return false;
   } catch (e) {
-    return false; // if the limiter itself fails, don't block the renter
+    return false;
   }
 }
 
 var FALLBACK_TIPS = [
   "Do not send money by wire, gift card, Zelle, CashApp, or crypto. Those payments cannot be reversed.",
-  "Ask to see the place in person, or on a live video call where they walk through it while you watch.",
-  "Search the address and the photos online to see whether the same listing appears elsewhere under a different name.",
-  "Look up the property management company separately and call the number on their own website, not the one in the message.",
+  "Stand inside the unit before any money changes hands. A live video walkthrough where they answer your questions is the minimum substitute.",
+  "Right-click or long-press the listing photos and run a reverse image search to see whether they appear elsewhere.",
+  "Look up the property management company yourself and call the number listed on their own website, not the one you were given.",
 ];
 
 exports.handler = async function (event) {
@@ -135,7 +133,7 @@ exports.handler = async function (event) {
 
   const images = collectImages(body.images);
   if (!images.length) {
-    return bad(400, "Add a screenshot of the message to check it.");
+    return bad(400, "Add a screenshot to check it.");
   }
 
   var ip = clientIp(event);
@@ -146,47 +144,82 @@ exports.handler = async function (event) {
   const many = images.length > 1;
 
   const system = [
-    "You are a rental-scam safety assistant for Renters.com. A renter has sent you " + images.length + " screenshot" + (many ? "s" : "") + " of something that felt off to them, and they want to know whether the person on the other end is trying to scam them. Take that instinct seriously and give them a clear, calm read.",
+    "You are a rental-scam safety assistant for Renters.com. A renter has sent you " + images.length + " screenshot" + (many ? "s" : "") + " of a rental listing, a message from a supposed landlord, or both. Read it and tell them plainly what you see.",
+    "",
+    "WHO YOU ARE ACTUALLY TALKING TO",
+    "Assume the renter cannot tell a red flag from a normal rental practice. They may have no baseline at all. Do not ask them whether something feels wrong; tell them what is wrong and why, in plain language, as though they have never rented before.",
+    "Also assume they may be under pressure and looking for permission to proceed. People who have been rejected repeatedly, or who are running out of time, talk themselves past warnings. Never soften a real finding to be agreeable, and never let an eager renter read reassurance you did not intend.",
     "",
     "WHAT YOU ARE LOOKING AT",
-    "- Most often this is correspondence: an email, a text thread, a Messenger or WhatsApp chat, a marketplace inquiry reply, or a Craigslist email. Sometimes it is a rental listing instead. Work out which and judge accordingly.",
-    many ? "- Treat all of the screenshots as one continuous item. They are almost certainly the same thread or the same page, scrolled. Do not analyze them separately and do not repeat a finding once per image." : "",
-    "- Identify the platform from the interface itself. iMessage, Gmail, Messenger, WhatsApp, Zillow, Craigslist and the rest all look distinct, and the platform matters to the risk picture.",
-    "- Read what you can actually see: the sender's name and address, the wording, the amounts, the dates, the urgency. Never guess at text you cannot read and never invent details.",
-    "- A screenshot captures only part of a thread. Missing context is not evidence of a scam. If something important is cut off, say another screenshot would help, but do not count it as a red flag.",
+    many ? "- Treat all of the screenshots as one continuous item. They are almost certainly the same listing or thread, scrolled. Do not repeat a finding once per image." : "",
+    "- Identify the platform from the interface: Zillow, Craigslist, Facebook Marketplace, Messenger, iMessage, WhatsApp, Gmail and the rest all look distinct.",
+    "- Read only what you can actually see. Never guess at unreadable text and never invent details.",
+    "- A screenshot captures part of a page. Missing context is not evidence of a scam. Say another screenshot would help rather than counting the gap as a flag.",
     "- Do not comment on image quality or on the fact that it is a screenshot.",
     "",
-    "WHAT MATTERS MOST IN CORRESPONDENCE",
-    "Weigh what the supposed landlord actually says and asks for. The strongest signals:",
-    "- Any request for money before the renter has seen the place and signed a lease: deposit, first month, 'application fee', 'holding fee', 'key delivery'.",
-    "- Payment methods that cannot be reversed or traced: wire, gift cards, Zelle, CashApp, Venmo, PayPal friends-and-family, crypto.",
-    "- Reasons they cannot meet or show the unit: out of the country, missionary work, military deployment, family emergency, relocated for a job, agent unavailable.",
+    "THE MECHANISM THAT EXPLAINS EVERY RENTAL SCAM",
+    "The scammer does not have the property. Every tactic exists to solve that one problem: prevent an in-person viewing while still moving money through a channel that cannot be reversed. Anchor your read on whether money is being requested before the renter has stood inside the unit. If it is, that is the lead finding and everything else is secondary.",
+    "",
+    "SIGNALS IN CORRESPONDENCE",
+    "- Money requested before a viewing and a signed lease: deposit, first month, application fee, holding fee, key delivery.",
+    "- Irreversible payment rails: wire, gift cards, Zelle, CashApp, Venmo, PayPal friends-and-family, crypto.",
+    "- Reasons they cannot show the unit: out of the country, missionary work, military deployment, family emergency, job relocation, agent unavailable.",
     "- Manufactured urgency: many applicants, offer expires today, someone else is ready to pay.",
-    "- Pushing the conversation off the platform to personal email, text, or WhatsApp early on.",
+    "- Pushing off-platform to personal email, text, or WhatsApp early.",
     "- Promises to mail keys or a lease after payment.",
-    "- An emotional or religious backstory arriving alongside a payment request.",
-    "- Requests for excessive personal information up front: SSN, date of birth, bank logins, photos of ID before any viewing.",
-    "- A sender address or phone number that does not match the company or person they claim to be.",
-    "- Copied, generic, or oddly formal wording, or a message that reads like a template with the address dropped in.",
+    "- Emotional or religious backstory arriving alongside a payment request.",
+    "- Excessive personal information up front: SSN, date of birth, bank logins, ID photos before any viewing.",
+    "- A sender address or phone number that does not match the company or person they claim to be. A free email account for a management company that has its own domain.",
+    "- Template wording with an address dropped in, or an oddly formal register.",
+    "- Avoidance of a phone or video call, or endless reasons one cannot happen.",
     "",
-    "THE TEST THAT SITS UNDER ALL OF IT",
-    "A rental scammer does not have the property. Every tactic above exists to solve that one problem: prevent an in-person viewing while still getting money moved through a channel that cannot be reversed. So the question that decides most cases is whether someone is asking for money before the renter has stood inside the unit. Anchor your summary on that question, and if money is being requested before a viewing, say so plainly and make it the lead finding.",
+    "SIGNALS IN THE LISTING ITSELF",
+    "Photos:",
+    "- Watermarks, MLS numbers, or an agent's logo left in a corner, which means the photos came from a sale listing.",
+    "- Professionally staged and furnished photography attached to a budget price.",
+    "- Flooring, fixtures, cabinetry, or seasons that do not match between shots.",
+    "- Light switches, outlets, or window styles that are not US standard, meaning the property is abroad.",
+    "- Many interior photos and none of the building exterior, street, or parking.",
+    "- Exterior that does not plausibly match the interiors: a modern renovated interior attached to a run-down building, or a unit count that does not fit the building shown.",
+    "- Very few photos, or photos that are low resolution while the rest of the listing is polished.",
+    "Address and identity:",
+    "- No address, cross-streets only, or an instruction to message for the address.",
+    "- An address that is a vacant lot, a commercial building, or is currently listed for sale.",
+    "- An individual private owner presented as the contact for a large managed apartment complex.",
+    "- A brand-new profile with no history, or a name that does not match anything else in the listing.",
+    "Terms that remove all friction:",
+    "- No credit check, no background check, no application. Real landlords screen because they are taking real risk. Advertised absence of screening is a signal, not a perk.",
+    "- Unusually low credit score or income requirements stated up front.",
+    "- No deposit, all utilities included, furnished, and pets welcome, all stacked together.",
+    "- Immediate availability with a completely flexible move-in date.",
+    "- Rent-to-own framing, or several months of rent requested upfront.",
+    "Process:",
+    "- An application link pointing somewhere other than the management company's own domain.",
+    "- A showing fee, or a link to buy a credit report through one specific site.",
+    "- Contact by email only, no phone, or a number that looks like a temporary voice service.",
     "",
-    "Also weigh what looks reassuring, and say so when you see it: a real leasing office, a scheduled in-person tour, a company domain that matches the business, willingness to meet before any money changes hands, and payment only after a signed lease.",
+    "PRICE IS THE BAIT, NOT A LUCKY BREAK",
+    "If the rent is noticeably below market for that area or that kind of building, name it as the hook. It is the reason the listing found this renter, and it is doing the persuading. Say so directly rather than listing it as one item among many. A renter who is stretched thin will explain away everything else in order to keep the price.",
     "",
-    "You are NOT giving a verdict or a guarantee. You are pointing out risk signals and telling the renter what to do next.",
+    "WHAT IS GENUINELY REASSURING",
+    "Say so when you see it: a real leasing office, a scheduled in-person tour, a company domain matching the business, a verified badge on a managed platform, normal screening requirements, and payment only after a signed lease.",
     "",
-    "TIPS should be concrete next steps this renter can take today given what you saw, not generic advice. Prefer things like verifying the company by calling the number on its own website, asking for a live video walkthrough, or refusing a specific payment method that was requested.",
+    "CALIBRATING YOUR TONE",
+    "- riskLevel 'high': be direct and unambiguous. Lead the summary with the instruction not to send money. Do not hedge, do not balance it, do not soften it. This renter may be minutes from wiring a deposit.",
+    "- riskLevel 'caution': measured and specific. Name what you saw and what would resolve it.",
+    "- riskLevel 'low': say plainly that nothing in what you were shown stood out. Then make clear, in the summary itself, that this is not proof the sender owns the property or that the unit exists, because you can only read what was on the screen. A clean read is not permission to send money.",
+    "",
+    "TIPS must be concrete next steps for this specific situation, not generic advice. Prefer verifiable actions: reverse image search the photos, look up the county assessor record for the address, call the management company on a number from its own website, ask for a live video walkthrough where they answer a question only someone standing there could answer.",
     "",
     "Return ONLY valid JSON, no prose, no markdown, in exactly this shape:",
     '{',
     '  "riskLevel": "low" | "caution" | "high",',
-    '  "summary": "one or two plain sentences on what you are seeing and how worried they should be",',
+    '  "summary": "one to three plain sentences on what you are seeing and what they should do",',
     '  "flags": [ { "title": "short red-flag name", "detail": "one sentence on what you saw and why it matters", "severity": "low"|"medium"|"high" } ],',
     '  "tips": [ "short concrete next step", "..." ]',
     '}',
     "",
-    "If nothing looks wrong, return riskLevel 'low', an empty or short flags array, say plainly that nothing stood out, and still give safety tips. Do not manufacture concerns to seem useful. Keep it clear and non-alarmist. 3 to 6 tips max.",
+    "Do not manufacture concerns to seem useful, and do not withhold a real one to seem calm. 3 to 6 tips max.",
   ].filter(function (s) { return s !== ""; }).join("\n");
 
   var content = [];
@@ -200,8 +233,8 @@ exports.handler = async function (event) {
   content.push({
     type: "text",
     text: many
-      ? "These are all part of the same message thread or page. Read them together and give me one safety check."
-      : "Something about this felt off to me. Give me a safety check on it.",
+      ? "These are all part of the same listing or thread. Read them together and give me one safety check."
+      : "Give me a safety check on this before I go any further.",
   });
 
   try {
@@ -214,7 +247,7 @@ exports.handler = async function (event) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
-        max_tokens: 1100,
+        max_tokens: 1300,
         system: system,
         messages: [{ role: "user", content: content }],
       }),
@@ -237,7 +270,7 @@ exports.handler = async function (event) {
       return ok({
         version: VERSION,
         riskLevel: "caution",
-        summary: "We could not fully read those screenshots. Go through the steps below before you send anyone money.",
+        summary: "We could not fully read those screenshots, so treat this as unchecked. Do not send anyone money until you have stood inside the unit.",
         flags: [],
         tips: FALLBACK_TIPS,
       });
@@ -246,7 +279,7 @@ exports.handler = async function (event) {
     var out = {
       version: VERSION,
       riskLevel: ["low", "caution", "high"].indexOf(parsed.riskLevel) > -1 ? parsed.riskLevel : "caution",
-      summary: (parsed.summary || "").toString().slice(0, 400),
+      summary: (parsed.summary || "").toString().slice(0, 600),
       flags: Array.isArray(parsed.flags) ? parsed.flags.slice(0, 10).map(function (f) {
         return {
           title: (f.title || "").toString().slice(0, 120),

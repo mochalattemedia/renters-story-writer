@@ -1,24 +1,23 @@
 // ============================================================
-//  listing-check-page.js  ·  lcp-v8
+//  listing-check-page.js  ·  lcp-v9
 //  Serves the Renters.com Safety Check as a standalone page for
 //  iframe embedding on BD (like Lisa).
 //
-//  v8 changelog (FITS A SHORT FRAME):
-//   - Layout compacted so the input state fits inside roughly 520px
-//     of frame height. Smaller title, tighter padding, condensed
-//     drop zone, one-line disclaimer.
-//   - The page now scrolls internally. If the BD iframe is shorter
-//     than the content, nothing is unreachable any more: the frame
-//     scrolls on its own instead of clipping.
-//   - The core-test block moved below the button, so the drop zone
-//     and the button are always the first things visible.
-//   - Still posts its height to the parent, so if a resize listener
-//     is ever added to head code it will start working with no
-//     further change here.
+//  v9 changelog:
+//   - Trigger changed from suspicion to ritual. "Before you send
+//     anyone money, check them here." A renter who cannot tell what
+//     is off no longer has to self-diagnose to get help.
+//   - Added a short "what to screenshot" list so people capture the
+//     things that actually carry signal: price and terms, the photos,
+//     and whatever the landlord wrote.
+//   - Low-risk results now carry an explicit caveat: a clean read is
+//     not proof the sender owns anything. Prevents "nothing stood
+//     out" from being read as permission to send money.
+//   - High-risk results lead with a red do-not-send bar.
 //
-//  v7: core test in copy · v6: correspondence first · v5: screenshot only
+//  v8: compact layout, internal scrolling
 //
-//  Pairs with: listing-check.js (lc-v7)
+//  Pairs with: listing-check.js (lc-v8)
 // ============================================================
 
 const HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Renters.com Safety Check</title><style>
@@ -28,20 +27,20 @@ body{margin:0;padding:0;background:transparent;height:100%;overflow-y:auto;overf
 .rls-x{position:absolute;top:-6px;right:-6px;width:21px;height:21px;border-radius:50%;background:#0d2d4e;color:#fff;border:2px solid #fff;font-size:12px;line-height:17px;text-align:center;cursor:pointer;padding:0;font-family:inherit;font-weight:700;}
 #rls-go:disabled{cursor:default;}
 </style></head><body>
-<!-- RENTERS.COM — SAFETY CHECK · COMPACT · SCREENSHOT ONLY -->
+<!-- RENTERS.COM — SAFETY CHECK · RITUAL TRIGGER · SCREENSHOT ONLY -->
 <div style="max-width:1000px;margin:0 auto;padding:2px;font-family:'Open Sans',Arial,sans-serif;">
 
   <div style="background:#0d2d4e;border-radius:18px;padding:20px 20px 22px;">
 
     <p style="font-size:24px;font-weight:800;color:#ffffff;margin:0 0 3px;line-height:1.05;">Safety Check<span style="color:#8dc63f;">.</span></p>
-    <p style="font-size:14px;color:rgba(255,255,255,0.72);margin:0 0 14px;font-weight:300;line-height:1.45;">Got a message from a &ldquo;landlord&rdquo; that feels off? Screenshot it and we&#39;ll tell you what to watch for.</p>
+    <p style="font-size:14px;color:rgba(255,255,255,0.75);margin:0 0 14px;font-weight:300;line-height:1.45;">Before you send anyone money, run it past us. Free, a few seconds, no account.</p>
 
     <div id="rls-input" style="background:#ffffff;border-radius:14px;padding:16px;">
 
       <div id="rls-drop" style="border:2px dashed #dfe6ea;border-radius:12px;padding:18px 14px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;">
-        <div style="font-size:26px;line-height:1;margin-bottom:5px;">&#128172;</div>
-        <p style="font-size:16px;font-weight:700;color:#0d2d4e;margin:0 0 3px;line-height:1.25;">Screenshot what they sent you</p>
-        <p style="font-size:12px;color:#8a97a3;margin:0;line-height:1.45;">Email, text, Messenger, WhatsApp, or a listing. Tap to choose. Up to 4.</p>
+        <div style="font-size:26px;line-height:1;margin-bottom:5px;">&#128248;</div>
+        <p style="font-size:16px;font-weight:700;color:#0d2d4e;margin:0 0 3px;line-height:1.25;">Add a screenshot</p>
+        <p style="font-size:12px;color:#8a97a3;margin:0;line-height:1.45;">The listing, or whatever the landlord sent you. Tap to choose. Up to 4.</p>
       </div>
       <input id="rls-file" type="file" accept="image/*" multiple style="display:none;">
 
@@ -50,9 +49,14 @@ body{margin:0;padding:0;background:transparent;height:100%;overflow-y:auto;overf
 
       <p id="rls-err" style="display:none;color:#c0392b;font-size:12px;margin:10px 0 0;line-height:1.45;"></p>
 
-      <button id="rls-go" style="margin-top:12px;width:100%;background:#dfe6ea;color:#96a3ad;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:default;font-family:inherit;transition:background .15s,color .15s;">Check this message</button>
+      <button id="rls-go" style="margin-top:12px;width:100%;background:#dfe6ea;color:#96a3ad;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:default;font-family:inherit;transition:background .15s,color .15s;">Check this</button>
 
       <div style="background:#f4f7f6;border-radius:10px;padding:11px 13px;margin-top:12px;">
+        <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8a97a3;margin:0 0 5px;line-height:1.3;">Worth capturing</p>
+        <p style="font-size:12px;color:#0d2d4e;line-height:1.6;margin:0;">The price and the terms &middot; the photos &middot; anything the landlord wrote you</p>
+      </div>
+
+      <div style="background:#f4f7f6;border-radius:10px;padding:11px 13px;margin-top:8px;">
         <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8a97a3;margin:0 0 4px;line-height:1.3;">The one question that catches most scams</p>
         <p style="font-size:13px;color:#0d2d4e;line-height:1.45;margin:0;font-weight:700;">Is someone asking for money before you&#39;ve stood inside the unit?</p>
       </div>
@@ -106,7 +110,7 @@ body{margin:0;padding:0;background:transparent;height:100%;overflow-y:auto;overf
       b.style.background = "#dfe6ea";
       b.style.color = "#96a3ad";
       b.style.cursor = "default";
-      b.textContent = "Check this message";
+      b.textContent = "Check this";
     }
   }
 
@@ -243,7 +247,21 @@ body{margin:0;padding:0;background:transparent;height:100%;overflow-y:auto;overf
 
   function render(data) {
     var html = "<div style='background:#ffffff;border-radius:14px;padding:16px;'>";
+
+    if (data.riskLevel === "high") {
+      html += "<div style='background:#c0392b;border-radius:10px;padding:12px 14px;margin-bottom:12px;'>"
+        + "<p style='font-size:15px;font-weight:800;color:#fff;margin:0;line-height:1.35;'>Do not send this person money.</p>"
+        + "</div>";
+    }
+
     html += levelBlock(data.riskLevel, data.summary);
+
+    if (data.riskLevel === "low") {
+      html += "<div style='background:#f4f7f6;border-radius:10px;padding:11px 13px;margin-bottom:12px;'>"
+        + "<p style='font-size:12px;color:#4a5a6a;line-height:1.55;margin:0;'>"
+        + "This only means nothing in the screenshot looked wrong. It is not proof this person owns the property, or that the unit exists. Confirm both before any money changes hands."
+        + "</p></div>";
+    }
 
     if (data.flags && data.flags.length) {
       html += "<p style='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8a97a3;margin:14px 0 8px;'>Warning signs we noticed</p>";
