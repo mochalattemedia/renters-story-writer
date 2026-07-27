@@ -1,0 +1,169 @@
+This XML file does not appear to have any style information associated with it. The document tree is shown below.
+<!-- 
+  SAMPLE PM INVENTORY FEED - Renters.com Element Z test fixture
+  Not real inventory. Not a real company. Test data only.
+
+  Deliberately exercises the cases that break importers:
+    1. flat single family, whole baths
+    2. flat with a HALF BATH and a deposit written as a string
+    3. community with floorplans + unit-level availability (inheritance)
+    4. hidden street address
+    5. a unit missing rent (should be flagged unimportable, never sent)
+ -->
+<hotPadsItems version="2.1">
+<Company id="testpm001">
+<name>Test Property Group</name>
+<website>https://www.renters.com</website>
+<city>Portland</city>
+<state>OR</state>
+</Company>
+<!--  1. flat single family, clean record  -->
+<Listing id="TPG-1001" type="RENTAL" companyId="testpm001" propertyType="HOUSE">
+<name>Sample House A</name>
+<street hide="false">1420 SE Ash Street</street>
+<city>Portland</city>
+<state>OR</state>
+<zip>97214</zip>
+<country>US</country>
+<latitude>45.5220</latitude>
+<longitude>-122.6490</longitude>
+<lastUpdated>2026-07-27T08:00:00.000Z</lastUpdated>
+<contactName>Test Property Group</contactName>
+<contactEmail>leasing@example.com</contactEmail>
+<contactPhone>503-555-0100</contactPhone>
+<description>
+<![CDATA[ Three bedroom home with a fenced yard & detached garage. Washer and dryer included. Close to shops and transit. ]]>
+</description>
+<terms>One year lease</terms>
+<leaseTerm>OneYear</leaseTerm>
+<isFurnished>false</isFurnished>
+<ListingTag type="YEAR_BUILT">
+<tag>1998</tag>
+</ListingTag>
+<ListingTag type="LAUNDRY">
+<tag>IN_UNIT</tag>
+</ListingTag>
+<ListingTag type="PARKING_TYPE">
+<tag>Garage</tag>
+</ListingTag>
+<ListingTag type="HEATING _SYSTEM">
+<tag>ForcedAir</tag>
+</ListingTag>
+<ListingTag type="CATS_ALLOWED">
+<tag>true</tag>
+</ListingTag>
+<ListingTag type="DOGS_ALLOWED">
+<tag>false</tag>
+</ListingTag>
+<ListingTag type="RENT_INCLUDES">
+<tag>Water</tag>
+</ListingTag>
+<ListingPhoto source="https://www.renters.com/images/identity-confirmed.svg">
+<label>Front</label>
+</ListingPhoto>
+<price>2150</price>
+<pricingFrequency>MONTH</pricingFrequency>
+<deposit>2150</deposit>
+<applicationFee>50</applicationFee>
+<numBedrooms>3</numBedrooms>
+<numFullBaths>2</numFullBaths>
+<numHalfBaths>0</numHalfBaths>
+<squareFeet>1450</squareFeet>
+<dateAvailable>2026-09-01</dateAvailable>
+</Listing>
+<!--  2. HALF BATH plus deposit as a string, both spec violations seen live  -->
+<Listing id="TPG-1002" type="RENTAL" companyId="testpm001" propertyType="TOWNHOUSE">
+<name>Sample Townhome B</name>
+<street hide="false">88 NW Marshall Street</street>
+<unit>Unit 4</unit>
+<city>Portland</city>
+<state>OR</state>
+<zip>97209</zip>
+<latitude>45.5290</latitude>
+<longitude>-122.6820</longitude>
+<lastUpdated>2026-07-27T08:00:00.000Z</lastUpdated>
+<description>Two bedroom townhome with attached garage and a powder room on the main floor.</description>
+<leaseTerm>OneYear</leaseTerm>
+<isFurnished>false</isFurnished>
+<ListingTag type="YEAR_BUILT">
+<tag>2015</tag>
+</ListingTag>
+<ListingTag type="LAUNDRY">
+<tag>IN_UNIT</tag>
+</ListingTag>
+<ListingPhoto source="https://www.renters.com/images/identity-confirmed.svg"/>
+<price>2400</price>
+<pricingFrequency>MONTH</pricingFrequency>
+<deposit>1x monthly rent</deposit>
+<numBedrooms>2</numBedrooms>
+<numFullBaths>2</numFullBaths>
+<numHalfBaths>1</numHalfBaths>
+<squareFeet>1200</squareFeet>
+<dateAvailable>2026-08-15</dateAvailable>
+</Listing>
+<!--  3 + 4. community, floorplan inheritance, hidden street  -->
+<Listing id="TPG-2001" type="RENTAL" companyId="testpm001" propertyType="LARGE">
+<name>Sample Apartments</name>
+<street hide="true">2200 SE Powell Boulevard</street>
+<city>Portland</city>
+<state>OR</state>
+<zip>97202</zip>
+<latitude>45.5010</latitude>
+<longitude>-122.6420</longitude>
+<lastUpdated>2026-07-27T08:00:00.000Z</lastUpdated>
+<description>Community with courtyard, on site laundry and secure entry.</description>
+<numUnits>48</numUnits>
+<ListingTag type="YEAR_BUILT">
+<tag>2008</tag>
+</ListingTag>
+<ListingTag type="PROPERTY_AMENITY">
+<tag>Courtyard</tag>
+</ListingTag>
+<ListingPhoto source="https://www.renters.com/images/identity-confirmed.svg"/>
+<Model id="alder" type="floorplan" searchable="true" pricingType="FLAT">
+<name>The Alder</name>
+<numBedrooms>1</numBedrooms>
+<numFullBaths>1</numFullBaths>
+<numHalfBaths>0</numHalfBaths>
+<squareFeet>680</squareFeet>
+<deposit>800</deposit>
+<description>One bedroom with a west facing balcony.</description>
+<ModelTag type="AMENITY">
+<tag>Balcony</tag>
+</ModelTag>
+</Model>
+<Model id="birch" type="floorplan" searchable="true" pricingType="FLAT">
+<name>The Birch</name>
+<numBedrooms>2</numBedrooms>
+<numFullBaths>1</numFullBaths>
+<numHalfBaths>1</numHalfBaths>
+<squareFeet>950</squareFeet>
+<deposit>950</deposit>
+<description>Two bedroom with a half bath off the entry.</description>
+</Model>
+<Model id="A-201" type="unit" parentModelId="alder">
+<unitNumber>Apt 201</unitNumber>
+<unitFloorNumber>2</unitFloorNumber>
+<lowPrice>1595</lowPrice>
+<pricingFrequency>MONTH</pricingFrequency>
+<dateAvailable>2026-09-15</dateAvailable>
+</Model>
+<Model id="A-305" type="unit" parentModelId="alder">
+<unitNumber>Apt 305</unitNumber>
+<unitFloorNumber>3</unitFloorNumber>
+<lowPrice>1650</lowPrice>
+<dateAvailable>2026-10-01</dateAvailable>
+</Model>
+<Model id="B-110" type="unit" parentModelId="birch">
+<unitNumber>Apt 110</unitNumber>
+<unitFloorNumber>1</unitFloorNumber>
+<lowPrice>1975</lowPrice>
+<dateAvailable>2026-09-01</dateAvailable>
+</Model>
+<!--  5. no price anywhere. must be flagged, never written to BD  -->
+<Model id="B-115" type="unit" parentModelId="birch">
+<unitNumber>Apt 115</unitNumber>
+<dateAvailable>2026-11-01</dateAvailable>
+</Model>
+</Listing>
+</hotPadsItems>
