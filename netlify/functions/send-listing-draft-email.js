@@ -1,6 +1,37 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v9   (2026-07-26, reason CATALOG + generic subject)
+//  FN_VERSION: slde-v12  (2026-07-28, application/lease terms + preview scroll)
+//
+//  v12 CHANGES
+//   - NEW CODE application_terms_thin ("Application / lease terms incomplete").
+//     Distinct from lease_terms_missing: that one is the DURATION dropdown
+//     (month-to-month / six months / a year). This one is the free-text
+//     "Application process and lease terms" block, group_desc_2 on the form,
+//     which a landlord can leave thin or skip. 20 codes now.
+//   - Preview responses get a preview-ONLY script that scrolls the pane to the
+//     checklist. The wordmark, heading and intro are identical regardless of
+//     what is ticked, so a pane anchored at the top looked frozen. Added at
+//     the response, never inside buildEmail, so a real send cannot carry it.
+//
+//  v11 CHANGES
+//   - POST { key, preview:true, reasonCodes:[...], missing:"..." } returns the
+//     fully rendered email HTML and subject WITHOUT sending. The moderation
+//     bookmarklet renders this live as boxes are ticked, so the preview is the
+//     real artifact rather than a second copy of the wording that could drift.
+//     Sits after the admin-key gate, before recipient resolution: no BD lookup,
+//     and it is structurally incapable of sending.
+//
+//  v10 CHANGES
+//   - EVERY reason now carries TWO labels. `admin` is the short diagnostic
+//     phrasing for the moderation checkbox ("Missing kitchen"). html/text stay
+//     the landlord-facing sentence for the email ("A photo of the kitchen").
+//     v9 rendered the landlord sentence as the checkbox label, which read as
+//     an instruction rather than a diagnosis and made the panel long.
+//   - photos_rooms SPLIT into photos_rooms / photos_kitchen /
+//     photos_bathrooms, restoring the granularity the original bookmarklet
+//     had and v9 collapsed. 20 codes now, was 17.
+//   - GET ?version=1 returns `admin` alongside `label` so the bookmarklet
+//     builds its checkboxes from the short form.
 //
 //  v9 CHANGES
 //   - ONE GENERIC SUBJECT for every reason. v8's subject named photos, which
@@ -21,7 +52,7 @@
 //   - BACKWARD COMPATIBLE: v8's reasons:["free text"] and missing:"..." still
 //     work exactly as before, so the existing bookmarklet keeps sending.
 // ============================================================
-const FN_VERSION = "slde-v9";
+const FN_VERSION = "slde-v12";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -122,62 +153,71 @@ function safeEqual(a, b) {
 // ============================================================
 const REASONS = {
   // ---------- PHOTOS ----------
-  photos_rooms: { group: "listing",
-    html: "<strong style='color:#0d2d4e;'>Photos of every room</strong> &mdash; the living area, each bedroom, the kitchen, and each bathroom",
-    text: "Photos of every room - the living area, each bedroom, the kitchen, and each bathroom" },
-  photos_exterior: { group: "listing",
+  photos_rooms: { group: "listing", admin: "Missing rooms (living area, bedrooms)",
+    html: "<strong style='color:#0d2d4e;'>Photos of every room inside</strong> &mdash; the living area and each bedroom",
+    text: "Photos of every room inside - the living area and each bedroom" },
+  photos_kitchen: { group: "listing", admin: "Missing kitchen",
+    html: "<strong style='color:#0d2d4e;'>A photo of the kitchen</strong>",
+    text: "A photo of the kitchen" },
+  photos_bathrooms: { group: "listing", admin: "Missing bathrooms",
+    html: "<strong style='color:#0d2d4e;'>A photo of each bathroom</strong>",
+    text: "A photo of each bathroom" },
+  photos_exterior: { group: "listing", admin: "Missing exterior",
     html: "<strong style='color:#0d2d4e;'>Photos of the outside</strong> &mdash; the front of the property, and any yard or grounds",
     text: "Photos of the outside - the front of the property, and any yard or grounds" },
-  photos_shared: { group: "listing",
+  photos_shared: { group: "listing", admin: "Missing shared spaces",
     html: "<strong style='color:#0d2d4e;'>Photos of any shared spaces</strong> &mdash; hallways, stairwells, laundry, common areas, and parking",
     text: "Photos of any shared spaces - hallways, stairwells, laundry, common areas, and parking" },
-  photos_quality: { group: "listing",
+  photos_quality: { group: "listing", admin: "Poor quality (dark, blurry, low-res)",
     html: "<strong style='color:#0d2d4e;'>Clearer photos</strong> &mdash; some are dark, blurry, or too small to make out. Daylight and a steady hand go a long way",
     text: "Clearer photos - some are dark, blurry, or too small to make out. Daylight and a steady hand go a long way" },
 
   // ---------- LISTING DETAIL ----------
-  rent_missing: { group: "listing",
+  rent_missing: { group: "listing", admin: "No rent / contact for price",
     html: "<strong style='color:#0d2d4e;'>The monthly rent</strong> &mdash; an exact amount. Renters skip listings that say contact for price",
     text: "The monthly rent - an exact amount. Renters skip listings that say contact for price" },
-  availability_missing: { group: "listing",
+  availability_missing: { group: "listing", admin: "No availability date",
     html: "<strong style='color:#0d2d4e;'>The availability date</strong> &mdash; when someone could actually move in",
     text: "The availability date - when someone could actually move in" },
-  lease_terms_missing: { group: "listing",
+  lease_terms_missing: { group: "listing", admin: "No lease terms",
     html: "<strong style='color:#0d2d4e;'>The lease terms</strong> &mdash; month-to-month, six months, a year?",
     text: "The lease terms - month-to-month, six months, a year?" },
-  description_thin: { group: "listing",
+  application_terms_thin: { group: "listing", admin: "Application / lease terms incomplete",
+    html: "<strong style='color:#0d2d4e;'>Your application process and lease terms</strong> &mdash; how someone applies, what you screen for, and what the lease does and does not cover. Renters who know the process before they ask are far likelier to follow through",
+    text: "Your application process and lease terms - how someone applies, what you screen for, and what the lease does and does not cover. Renters who know the process before they ask are far likelier to follow through" },
+  description_thin: { group: "listing", admin: "Description too thin",
     html: "<strong style='color:#0d2d4e;'>A real description</strong> &mdash; a few sentences in your own words about the space and the neighborhood",
     text: "A real description - a few sentences in your own words about the space and the neighborhood" },
-  beds_baths_sqft: { group: "listing",
+  beds_baths_sqft: { group: "listing", admin: "Beds / baths / sqft incomplete",
     html: "<strong style='color:#0d2d4e;'>Bedrooms, bathrooms, and square footage</strong> &mdash; these are the first things renters filter on",
     text: "Bedrooms, bathrooms, and square footage - these are the first things renters filter on" },
-  pets_parking_utilities: { group: "listing",
+  pets_parking_utilities: { group: "listing", admin: "Pets / parking / utilities not stated",
     html: "<strong style='color:#0d2d4e;'>Pets, parking, and utilities</strong> &mdash; what is included, and what is allowed",
     text: "Pets, parking, and utilities - what is included, and what is allowed" },
-  address_missing: { group: "listing",
+  address_missing: { group: "listing", admin: "Address missing or wrong",
     html: "<strong style='color:#0d2d4e;'>The property address</strong> &mdash; we only show the general area publicly, but we need the real address on file",
     text: "The property address - we only show the general area publicly, but we need the real address on file" },
 
   // ---------- CONTENT ----------
   // Worded as a possible typo. Never an accusation.
-  contradiction: { group: "listing",
+  contradiction: { group: "listing", admin: "Numbers contradict each other",
     html: "<strong style='color:#0d2d4e;'>A couple of details do not line up</strong> &mdash; it may just be a typo, but it is worth a second look before renters see it",
     text: "A couple of details do not line up - it may just be a typo, but it is worth a second look before renters see it" },
-  content_offtopic: { group: "listing",
+  content_offtopic: { group: "listing", admin: "Description off-topic",
     html: "<strong style='color:#0d2d4e;'>A few lines in the description need a trim</strong> &mdash; keeping it to the property itself works best",
     text: "A few lines in the description need a trim - keeping it to the property itself works best" },
 
   // ---------- ACCOUNT (the listing may be fine; the account is not ready) ----------
-  identity_unconfirmed: { group: "account",
+  identity_unconfirmed: { group: "account", admin: "Identity not confirmed",
     html: "<strong style='color:#0d2d4e;'>Confirm your identity</strong> &mdash; it takes a few minutes on your phone, and it is what earns the identity shield renters look for",
     text: "Confirm your identity - it takes a few minutes on your phone, and it is what earns the identity shield renters look for" },
-  profile_incomplete: { group: "account",
+  profile_incomplete: { group: "account", admin: "Profile incomplete",
     html: "<strong style='color:#0d2d4e;'>Finish your profile</strong> &mdash; the About Me section, so renters know who they would be renting from",
     text: "Finish your profile - the About Me section, so renters know who they would be renting from" },
-  profile_photo_missing: { group: "account",
+  profile_photo_missing: { group: "account", admin: "No profile photo",
     html: "<strong style='color:#0d2d4e;'>Add a profile photo</strong> &mdash; a clear, front-facing photo of your face",
     text: "Add a profile photo - a clear, front-facing photo of your face" },
-  profile_photo_unusable: { group: "account",
+  profile_photo_unusable: { group: "account", admin: "Profile photo unusable",
     html: "<strong style='color:#0d2d4e;'>Swap your profile photo</strong> &mdash; we need a clear, upright, front-facing photo of your face. A logo, a property photo, or a sideways shot will not do the job",
     text: "Swap your profile photo - we need a clear, upright, front-facing photo of your face. A logo, a property photo, or a sideways shot will not do the job" },
 };
@@ -336,8 +376,13 @@ exports.handler = async function (event) {
         sender: SENDER,
         bcc: BCC && looksLikeEmail(BCC) ? BCC.trim() : null,
         subject: SUBJECT,
+        // v10: `admin` is the SHORT diagnostic label for the moderation
+        // checkbox ("Missing kitchen"). `label` is the landlord-facing
+        // sentence that goes in the email. The bookmarklet renders `admin`;
+        // the email body uses html/text. Two audiences, two registers, one
+        // source of truth.
         reasonCodes: Object.keys(REASONS).map(function (k) {
-          return { code: k, group: REASONS[k].group, label: REASONS[k].text };
+          return { code: k, group: REASONS[k].group, admin: REASONS[k].admin || REASONS[k].text, label: REASONS[k].text };
         }),
       }),
     };
@@ -355,6 +400,32 @@ exports.handler = async function (event) {
   if (!adminKey || !safeEqual(body.key, adminKey)) {
     console.warn("[slde] rejected: bad or missing admin key");
     return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
+  }
+
+  // v11: preview short-circuit. Runs the SAME buildEmail as a real send and
+  // returns the rendered HTML instead of handing it to SES. The moderation
+  // panel renders this, so what you see is what the landlord receives. It sits
+  // AFTER the admin-key gate but BEFORE recipient resolution, so it costs no
+  // BD lookup and can never send anything.
+  if (body.preview) {
+    const p = buildEmail({
+      name: body.name || "there",
+      listingTitle: body.listingTitle,
+      listingUrl: body.listingUrl,
+      missing: body.missing,
+      reasons: body.reasons,
+      reasonCodes: body.reasonCodes,
+    });
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      // v12: the wordmark/heading/intro at the top of the email never change,
+      // so a preview pane anchored at the top looks frozen while ticking boxes.
+      // Inject a preview-ONLY script that scrolls to the first checklist row.
+      // Never present in a real send: it is added here, not in buildEmail.
+      body: JSON.stringify({ success: true, _v: FN_VERSION, preview: true, subject: p.subject,
+        html: p.html.replace("</body>", "<script>try{var t=document.querySelector('table');if(t){t.scrollIntoView({block:'center'});}}catch(e){}<" + "/script></body>") }),
+    };
   }
 
   let email = String(body.email || "").trim();
