@@ -1,4 +1,4 @@
-// lw-v52  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v53  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -1095,12 +1095,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v52";
+const LW_VERSION = "lw-v53";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v52";
+  var LW_VERSION = "lw-v53";
   var DEBUG = false;
 
   // =============================================================
@@ -1423,6 +1423,28 @@ const WIZARD = String.raw`(function () {
     return true;
   }
 
+  // lw-v53: READ-ONLY fallback for the twin-input fields. Rent, deposit and
+  // total-move-in each have TWO inputs sharing one name: a hidden "fixed-"
+  // twin carrying the RAW number, and the visible formatted box. one() returns
+  // the VISIBLE one, which is correct for WRITING and must not change. But on
+  // an EDIT the visible box can still be empty when the wizard mounts while
+  // the hidden twin already holds the value, so the wizard seeded blank and
+  // made the member retype the rent on every visit.
+  // This only ever fills in a value that was already on the form. It never
+  // overwrites anything the member typed, and it does not touch the write path.
+  function twinValue(name) {
+    var nodes = el(name);
+    if (!nodes) return "";
+    for (var i = 0; i < nodes.length; i++) {
+      var t = (nodes[i].type || "").toLowerCase();
+      if (t === "hidden") {
+        var v = String(nodes[i].value == null ? "" : nodes[i].value).trim();
+        if (v) return v;
+      }
+    }
+    return "";
+  }
+
   function getField(name) {
     var nodes = el(name);
     if (!nodes) return "";
@@ -1436,7 +1458,13 @@ const WIZARD = String.raw`(function () {
       var o = first.options[first.selectedIndex];
       return o ? o.value : "";
     }
-    return first.value || "";
+    var val = first.value || "";
+    // lw-v53: visible box empty but the hidden twin has it? Use the twin.
+    if (!String(val).trim()) {
+      var tw = twinValue(name);
+      if (tw) return tw;
+    }
+    return val;
   }
 
   function getFieldLabel(name) {
@@ -2260,9 +2288,9 @@ const WIZARD = String.raw`(function () {
     // less, is a trap dressed as a choice. There is one publish path now.
     h += "<p class='lw-eyebrow'>Photos</p>";
     h += "<div id='lw-revphotos'></div>";
-    h += "<div class='lw-note'>Going live publishes this to renters straight away, photos included. " +
-         "Save as a draft instead if anything is missing, then publish from the listing once it is ready.</div>";
-    h += "<button type='button' class='lw-btn lw-go' data-act='publish'>Publish listing</button>";
+    h += "<div class='lw-note'>Submitting sends this to us for review, photos included. We check every new listing against our standards and set it live, usually within a day. If something is missing we will email you and it stays in draft until it is fixed. " +
+         "Save as a draft instead if anything is missing, then submit from the listing once it is ready.</div>";
+    h += "<button type='button' class='lw-btn lw-go' data-act='publish'>Submit listing</button>";
     h += "<div id='lw-savelog'></div>";
     h += "<div class='lw-row'><button type='button' class='lw-btn lw-ghost' data-act='back'>Back</button>" +
          "<button type='button' class='lw-btn lw-ghost' data-act='draft-inpage'>Save as draft</button></div>";
@@ -3044,9 +3072,13 @@ const WIZARD = String.raw`(function () {
     var total = photos + ((existingPhotoCount && existingPhotoCount > 0) ? existingPhotoCount : 0);
     var withPhotos = total ? (" with " + total + (total === 1 ? " photo" : " photos")) : "";
     if (live) {
+      // lw-v53: BD Post Approval is "Admin Moderates All Posts" (Open Thread
+      // #33), so NOTHING goes live on submit. Saying "it is live and renters
+      // can find it now" is false at the exact moment a landlord looks for
+      // confirmation of what just happened.
       return photos
-        ? ("It is live" + withPhotos + ", and renters can find it now.")
-        : "It is live and renters can find it now.";
+        ? ("It is submitted" + withPhotos + " and goes live once we have reviewed it, usually within a day.")
+        : "It is submitted and goes live once we have reviewed it, usually within a day.";
     }
     return photos
       ? ("It is saved" + withPhotos + ", but nobody can see it until you publish it.")
@@ -3062,7 +3094,7 @@ const WIZARD = String.raw`(function () {
 
     var h = "<div class='lw-done'>" +
       "<div class='lw-tick'>&#10003;</div>" +
-      "<h2 class='lw-h'>" + (live ? "Listing published" : "Saved as a draft") + "</h2>" +
+      "<h2 class='lw-h'>" + (live ? "Listing submitted" : "Saved as a draft") + "</h2>" +
       "<p class='lw-donesub'>" + esc(doneSentence(live, photos)) + "</p>";
 
     if (opts.photoWarning) {
