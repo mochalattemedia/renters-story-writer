@@ -1,5 +1,5 @@
 /**
- * pm-write.js  ·  pw-v3
+ * pm-write.js  ·  pw-v4
  * Renters.com  ·  PM Feed Sync (Element Z)
  *
  * Executes a plan produced by pm-sync.js against the BD API.
@@ -10,6 +10,22 @@
  * permission either.
  *
  * CHANGELOG
+ *   pw-v4  2026-07-28  🔴 DUPLICATE-CREATION FIX. pw-v3 replayed the stored
+ *                      plan from the top on every invocation. State was
+ *                      updated after each write but the plan was not, so a
+ *                      second call re-created the SAME first item under a new
+ *                      group_id. Observed live: groups 270 and 271 are both
+ *                      the same townhome.
+ *
+ *                      Every item is now re-checked against live state
+ *                      immediately before writing. If state already holds a
+ *                      confirmed groupId for that external key, the create is
+ *                      converted to an update rather than repeated. State,
+ *                      not the plan, is the authority on what exists.
+ *
+ *                      Completed items are also removed from the stored plan
+ *                      after each run, so a resumed run continues rather than
+ *                      restarting.
  *   pw-v3  2026-07-28  NEVER INVENT VALUES THE SOURCE DID NOT STATE.
  *                      - total_cost_to_movei is no longer computed. Landlords
  *                        define move-in cost differently (first and last,
@@ -73,7 +89,7 @@
 
 'use strict';
 
-const WRITE_VERSION = 'pw-v3';
+const WRITE_VERSION = 'pw-v4';
 
 /**
  * BD_API_BASE is shared platform-wide and its canonical value INCLUDES the
@@ -128,6 +144,11 @@ function rdcStore(name) {
 const STATE_STORE = 'pm-feed-state';
 const PLAN_STORE = 'pm-feed-plans';
 const LOG_STORE = 'pm-feed-logs';
+
+async function savePlan(feedId, plan) {
+  const store = rdcStore(PLAN_STORE);
+  await store.set('plan::' + feedId, JSON.stringify(plan));
+}
 
 async function loadPlan(feedId) {
   const store = rdcStore(PLAN_STORE);
@@ -730,6 +751,7 @@ async function runPlan(feedId, plan, state, opts) {
   for (const d of plan.delists || []) queue.push({ item: d, kind: 'delist' });
 
   const results = [];
+  const completedKeys = [];
   let processed = 0;
   let budgetHit = false;
 
@@ -738,6 +760,41 @@ async function runPlan(feedId, plan, state, opts) {
     if (Date.now() - started > TIME_BUDGET_MS) {
       budgetHit = true;
       break;
+    }
+
+    // 🔴 THE DUPLICATE GUARD. A stored plan is a snapshot of intent, not a
+    // record of what exists. State is the authority. If a previous run
+    // already created this unit, creating it again produces a duplicate
+    // listing under a new group_id — which is exactly what happened between
+    // groups 270 and 271. Re-check immediately before every write.
+    const known = state.units[q.item.externalKey];
+    if (q.kind === 'create' && known && known.groupId) {
+      if (dryrun) {
+        results.push({
+          externalKey: q.item.externalKey,
+          kind: 'create->update',
+          groupId: known.groupId,
+          status: 'DRYRUN',
+          note: 'Already exists in state. Would UPDATE, not create.'
+        });
+        processed++;
+        continue;
+      }
+      // Convert to an update against the existing listing.
+      q.kind = 'update';
+      q.item = { ...q.item, groupId: known.groupId };
+    }
+
+    // Equally, never update or delist something we have no groupId for.
+    if (q.kind !== 'create' && !q.item.groupId) {
+      results.push({
+        externalKey: q.item.externalKey,
+        kind: q.kind,
+        status: 'SKIPPED_NO_GROUP_ID',
+        error: 'No groupId in plan or state. Re-run pm-sync to rebuild.'
+      });
+      processed++;
+      continue;
     }
 
     let r;
@@ -755,6 +812,7 @@ async function runPlan(feedId, plan, state, opts) {
     processed++;
 
     if (!dryrun && r.status === 'OK') {
+      completedKeys.push(r.externalKey);
       const prev = state.units[r.externalKey] || {};
       state.units[r.externalKey] = {
         ...prev,
@@ -787,8 +845,27 @@ async function runPlan(feedId, plan, state, opts) {
     remaining: queue.length - processed,
     budgetHit,
     elapsedMs: Date.now() - started,
+    completedKeys,
     tally,
     results
+  };
+}
+
+/**
+ * Removes completed items from the stored plan so a resumed run continues
+ * where it stopped instead of replaying from the top.
+ */
+function prunePlan(plan, completedKeys) {
+  if (!completedKeys || !completedKeys.length) return plan;
+  const done = new Set(completedKeys);
+  const strip = (arr) => (arr || []).filter((x) => !done.has(x.externalKey));
+  return {
+    ...plan,
+    creates: strip(plan.creates),
+    updates: strip(plan.updates),
+    reactivates: strip(plan.reactivates),
+    delists: strip(plan.delists),
+    prunedAt: new Date().toISOString()
   };
 }
 
@@ -881,6 +958,7 @@ exports.handler = async (event) => {
       state.lastWriteRun = new Date().toISOString();
       state.lastWriteTally = run.tally;
       await saveState(state);
+      await savePlan(feedId, prunePlan(plan, run.completedKeys));
       await saveLog(feedId, run);
     }
 
@@ -1122,6 +1200,52 @@ function runSelfTest() {
     ok('delist sends no description', !p.group_desc, 'none');
   }
 
+  // --- 🔴 duplicate guard regression (groups 270/271 incident)
+  {
+    const plan = {
+      creates: [
+        { externalKey: 'k1', unit: fixtureUnit(), snapshot: {} },
+        { externalKey: 'k2', unit: fixtureUnit({ externalKey: 'k2' }), snapshot: {} }
+      ],
+      updates: [],
+      reactivates: [],
+      delists: []
+    };
+
+    // k1 already written in a previous run
+    const state = { feedId: 'f', units: { k1: { externalKey: 'k1', groupId: '270', status: 'live' } } };
+
+    let out;
+    const done = runPlanSync(plan, state);
+    out = done;
+    ok(
+      'already-created unit is NOT re-created',
+      out.filter((r) => r.kind === 'create' && r.externalKey === 'k1').length === 0,
+      JSON.stringify(out.map((r) => r.externalKey + ':' + r.kind))
+    );
+    ok(
+      'already-created unit converts to update',
+      out.some((r) => r.externalKey === 'k1' && r.kind === 'create->update'),
+      ''
+    );
+    ok('untouched unit still creates', out.some((r) => r.externalKey === 'k2' && r.kind === 'create'), '');
+  }
+
+  // --- plan pruning
+  {
+    const plan = {
+      creates: [{ externalKey: 'a' }, { externalKey: 'b' }],
+      updates: [{ externalKey: 'c' }],
+      reactivates: [],
+      delists: []
+    };
+    const pruned = prunePlan(plan, ['a', 'c']);
+    ok('completed create removed from plan', pruned.creates.length === 1, pruned.creates.length);
+    ok('completed update removed from plan', pruned.updates.length === 0, pruned.updates.length);
+    ok('incomplete item retained', pruned.creates[0].externalKey === 'b', pruned.creates[0].externalKey);
+    ok('empty completed list is a no-op', prunePlan(plan, []).creates.length === 2, '');
+  }
+
   const failed = checks.filter((c) => !c.pass);
   return {
     passed: checks.length - failed.length,
@@ -1132,6 +1256,25 @@ function runSelfTest() {
   };
 }
 
+/** Synchronous stand-in for the queue guard, so the duplicate-prevention
+ *  logic is testable without network or Blobs. Mirrors runPlan's guard. */
+function runPlanSync(plan, state) {
+  const queue = [];
+  for (const c of plan.creates || []) queue.push({ item: c, kind: 'create' });
+  for (const u of plan.updates || []) queue.push({ item: u, kind: 'update' });
+  const out = [];
+  for (const q of queue) {
+    const known = state.units[q.item.externalKey];
+    if (q.kind === 'create' && known && known.groupId) {
+      out.push({ externalKey: q.item.externalKey, kind: 'create->update', groupId: known.groupId });
+      continue;
+    }
+    out.push({ externalKey: q.item.externalKey, kind: q.kind });
+  }
+  return out;
+}
+
+exports.prunePlan = prunePlan;
 exports.buildPayload = buildPayload;
 exports.mapBeds = mapBeds;
 exports.mapBaths = mapBaths;
