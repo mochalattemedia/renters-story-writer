@@ -1,5 +1,5 @@
 /**
- * pm-write.js  ·  pw-v1
+ * pm-write.js  ·  pw-v2
  * Renters.com  ·  PM Feed Sync (Element Z)
  *
  * Executes a plan produced by pm-sync.js against the BD API.
@@ -10,6 +10,29 @@
  * permission either.
  *
  * CHANGELOG
+ *   pw-v2  2026-07-28  URL COMPOSITION FIX AFTER A PRODUCTION INCIDENT.
+ *                      pw-v1 read the shared BD_API_BASE while composing
+ *                      paths by a different convention than every other
+ *                      function using that variable. The variable was then
+ *                      changed to suit this file, which sent every BD call
+ *                      platform-wide to the public website instead of the
+ *                      API. getMember() returned null, `verified` defaulted
+ *                      false, and every verified landlord was gated out of
+ *                      listing for ~21 hours.
+ *
+ *                      This file no longer depends on the shared variable's
+ *                      convention. It normalizes whatever it is given and
+ *                      reports the exact composed URL so it can be verified
+ *                      before any write. A NEW FUNCTION MUST NEVER REDEFINE
+ *                      SHARED CONFIG. If a future endpoint needs a different
+ *                      base, it composes its own and says why.
+ *
+ *                      Also: response bodies are now surfaced verbatim with
+ *                      the status code, so 403 (permission) is never again
+ *                      mistaken for 404 (wrong URL). And only property_beds
+ *                      and property_baths are written; the legacy bed_rooms
+ *                      and property_bedrooms columns are read-back checked
+ *                      and flagged if they ever populate.
  *   pw-v1  2026-07-27  Initial build. Field mapping from confirmed live API
  *                      reads, read-back verification on every write, rate
  *                      limit backoff, time budget with checkpointing,
@@ -25,15 +48,36 @@
  * ENV
  *   BD_API_KEY_FEED   BD API key scoped to Multi Image Posts GET/POST/PUT
  *                     and Post Types POST. No DEL.
- *   BD_API_BASE       defaults to https://www.renters.com
+ *   BD_API_BASE       SHARED ACROSS THE PLATFORM. Canonical value is
+ *                     https://www.renters.com/api/v2 and it MUST NOT be
+ *                     changed to suit this file. Read tolerantly below.
+ *   BD_FEED_API_BASE  Optional override for this function only. Use this
+ *                     if this endpoint ever needs a different base.
  *   PM_FEED_TOKEN     optional shared secret for calling this function
  */
 
 'use strict';
 
-const WRITE_VERSION = 'pw-v1';
+const WRITE_VERSION = 'pw-v2';
 
-const BD_BASE = process.env.BD_API_BASE || 'https://www.renters.com';
+/**
+ * BD_API_BASE is shared platform-wide and its canonical value INCLUDES the
+ * /api/v2 suffix. Other functions compose their paths on that assumption.
+ *
+ * This file therefore normalizes to a bare origin and appends the full
+ * path itself, so it works correctly whichever form it is handed and,
+ * critically, NEVER creates a reason to change the shared variable.
+ */
+function resolveBdOrigin() {
+  const raw = process.env.BD_FEED_API_BASE || process.env.BD_API_BASE || 'https://www.renters.com';
+  return String(raw)
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/api\/v2$/i, '');
+}
+
+const BD_BASE = resolveBdOrigin();
+const BD_BASE_RAW = process.env.BD_FEED_API_BASE || process.env.BD_API_BASE || '(unset, using default)';
 const PROPERTY_DATA_ID = '12';
 const PROPERTY_DATA_TYPE = '4';
 
@@ -419,7 +463,23 @@ async function bdCall(method, path, bodyObj) {
       continue;
     }
 
-    return { httpStatus: res.status, data, raw: text.slice(0, 500) };
+    return {
+      httpStatus: res.status,
+      data,
+      raw: text.slice(0, 500),
+      url,
+      // A 403 and a 404 both read as "the endpoint does not work" if the
+      // body is not inspected. That confusion caused the pw-v1 incident.
+      // Name the failure class explicitly.
+      failureClass:
+        res.status === 403
+          ? 'PERMISSION - the API key lacks this endpoint. Check key permissions, NOT the URL.'
+          : res.status === 404
+          ? 'NOT_FOUND - wrong URL or the record does not exist. Check the composed url field.'
+          : res.status === 401
+          ? 'AUTH - key missing or rejected.'
+          : undefined
+    };
   }
 
   return { httpStatus: 0, data: { status: 'error', message: lastErr }, raw: lastErr };
@@ -491,6 +551,25 @@ function verifyRecord(record, payload) {
 
   if (payload.date_available) {
     check('date_available', payload.date_available, record.date_available);
+  }
+
+  // The listing table carries FOUR bed/bath columns: property_beds,
+  // property_baths, and the legacy bed_rooms / property_bedrooms. Only the
+  // first pair is writable via custom_fields and only that pair is written
+  // here. If the legacy columns ever populate, they can disagree with the
+  // real values and the display layer may pick the wrong one. Surface it
+  // rather than silently tolerating it.
+  if (record.bed_rooms !== null && record.bed_rooms !== undefined && record.bed_rooms !== '') {
+    problems.push('legacy bed_rooms is populated (' + record.bed_rooms + ') - investigate before trusting display');
+  }
+  if (
+    record.property_bedrooms !== null &&
+    record.property_bedrooms !== undefined &&
+    record.property_bedrooms !== ''
+  ) {
+    problems.push(
+      'legacy property_bedrooms is populated (' + record.property_bedrooms + ') - investigate before trusting display'
+    );
   }
 
   return { ok: problems.length === 0, problems };
@@ -706,7 +785,17 @@ exports.handler = async (event) => {
         ok: true,
         status: 'ready',
         keyConfigured: !!process.env.BD_API_KEY_FEED,
-        bdBase: BD_BASE,
+        bdBaseRaw: BD_BASE_RAW,
+        bdOriginResolved: BD_BASE,
+        composedUrls: {
+          create: BD_BASE + '/api/v2/users_portfolio_groups/create',
+          update: BD_BASE + '/api/v2/users_portfolio_groups/update',
+          read: BD_BASE + '/api/v2/users_portfolio_groups/get/{group_id}'
+        },
+        sharedConfigWarning:
+          'BD_API_BASE is shared platform-wide. Its canonical value includes /api/v2. ' +
+          'This function normalizes it and must never be a reason to change it. ' +
+          'Use BD_FEED_API_BASE if this endpoint alone ever needs a different base.',
         usage: {
           dryrun: '?feedId=<id>&dryrun=1  (default, builds payloads, writes nothing)',
           execute: '?feedId=<id>&execute=1',
