@@ -130,9 +130,15 @@
       <dateAvailable>2026-09-15</dateAvailable>
     </Model>
 
-    <!-- A-305 (Apt 305) intentionally REMOVED to test the delist path.
-         Absence from a feed means the unit rented. pm-sync should plan a
-         delist against its existing group_id, never a delete. -->
+    <!-- A-305 RESTORED to test the reactivate path. A unit returning to a
+         feed must reuse its existing group_id (273) and flip back to live,
+         never create a second listing. That is why photos survive. -->
+    <Model id="A-305" type="unit" parentModelId="alder">
+      <unitNumber>Apt 305</unitNumber>
+      <unitFloorNumber>3</unitFloorNumber>
+      <lowPrice>1650</lowPrice>
+      <dateAvailable>2026-10-01</dateAvailable>
+    </Model>
 
     <Model id="B-110" type="unit" parentModelId="birch">
       <unitNumber>Apt 110</unitNumber>
