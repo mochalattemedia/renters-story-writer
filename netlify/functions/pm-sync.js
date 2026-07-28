@@ -1,5 +1,5 @@
 /**
- * pm-sync.js  ·  ps-v1
+ * pm-sync.js  ·  ps-v2
  * Renters.com  ·  PM Feed Sync (Element Z)
  *
  * Diff engine. Compares a normalized feed against stored sync state and
@@ -10,6 +10,18 @@
  * approved before anything touches live inventory.
  *
  * CHANGELOG
+ *   ps-v2  2026-07-28  lastUpdated no longer suppresses a real change.
+ *                      ps-v1 treated an unchanged feed timestamp as proof
+ *                      nothing had changed and skipped field comparison
+ *                      entirely. Observed live: a listing's photo URL was
+ *                      replaced while the feed timestamp stayed put, and the
+ *                      change was silently ignored.
+ *
+ *                      lastUpdated is the PM's CLAIM that nothing moved, not
+ *                      evidence. Plenty of systems fail to bump it on a price
+ *                      or photo edit. The field snapshot is now always
+ *                      compared; the timestamp is only a fast path when the
+ *                      snapshot agrees, and a disagreement is reported.
  *   ps-v1  2026-07-25  Initial build. Upsert keying, lastUpdated change
  *                      detection, absence-means-rented delist, reactivate,
  *                      circuit breaker, Blobs state store, dry-run default.
@@ -30,7 +42,7 @@
 
 'use strict';
 
-const SYNC_VERSION = 'ps-v1';
+const SYNC_VERSION = 'ps-v2';
 
 /* Circuit breaker. If a run would delist more than this share of a PM's
  * live units, something is wrong with the feed, not the inventory. */
@@ -156,12 +168,16 @@ function diffSnapshots(oldSnap, newSnap) {
 }
 
 /**
- * lastUpdated is the cheap path: if the feed says a unit has not moved and
- * we have already synced it live, skip without deep comparison. But never
- * trust it alone on a unit we have never written, and never let it suppress
- * a reactivation.
+ * 🔴 lastUpdated is the PM's CLAIM that nothing changed. It is not evidence.
+ * Many systems fail to bump it when a price or a photo is edited, and ps-v1
+ * trusted it enough to skip field comparison entirely — which silently held
+ * stale data on a listing whose photo had been replaced.
+ *
+ * The snapshot is now always compared. This helper only reports whether the
+ * timestamp AGREES with that comparison, so a mismatch can be surfaced
+ * rather than acted on.
  */
-function unchangedByTimestamp(prev, unit) {
+function timestampSaysUnchanged(prev, unit) {
   if (!prev || !prev.groupId) return false;
   if (prev.status !== 'live') return false;
   if (!unit.lastUpdated || !prev.lastUpdated) return false;
@@ -227,14 +243,16 @@ function buildPlan(feedId, normalized, state, opts) {
       continue;
     }
 
-    if (unchangedByTimestamp(prev, unit)) {
-      unchanged.push({ externalKey: unit.externalKey, reason: 'LASTUPDATED_MATCH' });
-      continue;
-    }
-
+    // Always compare fields. The timestamp is corroboration, never a
+    // substitute for looking.
     const changed = diffSnapshots(prev.snapshot, snap);
+    const tsQuiet = timestampSaysUnchanged(prev, unit);
+
     if (!changed.length) {
-      unchanged.push({ externalKey: unit.externalKey, reason: 'NO_FIELD_CHANGE' });
+      unchanged.push({
+        externalKey: unit.externalKey,
+        reason: tsQuiet ? 'NO_FIELD_CHANGE' : 'NO_FIELD_CHANGE_TIMESTAMP_MOVED'
+      });
       continue;
     }
 
@@ -243,7 +261,12 @@ function buildPlan(feedId, normalized, state, opts) {
       groupId: prev.groupId,
       unit,
       snapshot: snap,
-      changed
+      changed,
+      // Surfaces feeds whose software does not bump lastUpdated on edit.
+      // Worth knowing per PM, because it tells you how much to trust it.
+      staleTimestamp: tsQuiet
+        ? 'fields changed but feed lastUpdated did not move'
+        : undefined
     });
   }
 
@@ -323,6 +346,7 @@ function buildPlan(feedId, normalized, state, opts) {
     forced: forced && breaker.tripped,
     breaker,
     feedSummary: normalized.summary,
+    staleTimestampCount: updates.filter((u) => u.staleTimestamp).length,
     counts: {
       feedUnits: units.length,
       create: aborted ? 0 : creates.length,
@@ -691,13 +715,37 @@ function runSelfTest() {
     ok('update carries groupId', p.updates[0].groupId === 'g-a', p.updates[0].groupId);
   }
 
-  // 4. lastUpdated unchanged short-circuits
+  // 4. 🔴 a real change with an unmoved timestamp must NOT be skipped
   {
     const u = fakeUnit('a');
     const st = fakeState('f4', [liveEntry('a', u)]);
     const sneaky = fakeUnit('a', { rent: 9999 }); // same lastUpdated
     const p = buildPlan('f4', fakeFeed([sneaky]), st, {});
-    ok('lastUpdated match skips deep compare', p.counts.unchanged === 1, p.counts.unchanged);
+    ok('rent change caught despite unmoved timestamp', p.counts.update === 1, p.counts.update);
+    ok('stale timestamp reported', p.staleTimestampCount === 1, p.staleTimestampCount);
+    ok(
+      'stale timestamp noted on the item',
+      !!(p.updates[0] || {}).staleTimestamp,
+      (p.updates[0] || {}).staleTimestamp
+    );
+  }
+
+  // 4b. photo change with unmoved timestamp — the live case
+  {
+    const u = fakeUnit('a');
+    const st = fakeState('f4b', [liveEntry('a', u)]);
+    const newPhoto = fakeUnit('a', { photosForImport: [{ url: 'https://x/NEW.webp' }] });
+    const p = buildPlan('f4b', fakeFeed([newPhoto]), st, {});
+    ok('photo swap caught despite unmoved timestamp', p.counts.update === 1, p.counts.update);
+  }
+
+  // 4c. genuinely unchanged stays unchanged
+  {
+    const u = fakeUnit('a');
+    const st = fakeState('f4c', [liveEntry('a', u)]);
+    const p = buildPlan('f4c', fakeFeed([fakeUnit('a')]), st, {});
+    ok('identical unit still counted unchanged', p.counts.unchanged === 1, p.counts.unchanged);
+    ok('identical unit produces no write', p.counts.writes === 0, p.counts.writes);
   }
 
   // 5. absence delists, does not delete
