@@ -1,5 +1,5 @@
 /**
- * pm-write.js  ·  pw-v2
+ * pm-write.js  ·  pw-v3
  * Renters.com  ·  PM Feed Sync (Element Z)
  *
  * Executes a plan produced by pm-sync.js against the BD API.
@@ -10,6 +10,21 @@
  * permission either.
  *
  * CHANGELOG
+ *   pw-v3  2026-07-28  NEVER INVENT VALUES THE SOURCE DID NOT STATE.
+ *                      - total_cost_to_movei is no longer computed. Landlords
+ *                        define move-in cost differently (first and last,
+ *                        pet deposit, admin fees). Summing rent + deposit
+ *                        would quote a renter a number the PM never gave.
+ *                        Mapped only if a source supplies it, else omitted.
+ *                      - Unknown furnished status and lease duration are now
+ *                        OMITTED rather than defaulted. Silence is not a
+ *                        statement that a unit is unfurnished.
+ *                      - group_name is property + unit where a unit number
+ *                        exists, street address otherwise. This becomes
+ *                        group_filename and therefore the PUBLIC URL, so it
+ *                        must be unique per unit. Street-only collided for
+ *                        every unit in a community.
+ *                      Unit number stays inside post_location by design.
  *   pw-v2  2026-07-28  URL COMPOSITION FIX AFTER A PRODUCTION INCIDENT.
  *                      pw-v1 read the shared BD_API_BASE while composing
  *                      paths by a different convention than every other
@@ -58,7 +73,7 @@
 
 'use strict';
 
-const WRITE_VERSION = 'pw-v2';
+const WRITE_VERSION = 'pw-v3';
 
 /**
  * BD_API_BASE is shared platform-wide and its canonical value INCLUDES the
@@ -207,16 +222,21 @@ function mapSubType(unit) {
   return 'no_sub_type';
 }
 
+/** Returns null when the source says nothing. Do not guess. */
 function mapDuration(unit) {
-  const t = (unit.leaseTerm || '').toString().toUpperCase();
+  if (!unit.leaseTerm) return null;
+  const t = String(unit.leaseTerm).toUpperCase();
   if (t.indexOf('MONTHTOMONTH') !== -1 || t.indexOf('MONTH_TO_MONTH') !== -1) return 'mid';
   if (t.indexOf('SHORT') !== -1 || t.indexOf('DAILY') !== -1 || t.indexOf('WEEKLY') !== -1)
     return 'short';
   return 'long_';
 }
 
+/** Returns null when the source says nothing. Do not guess. */
 function mapFurnished(unit) {
-  return unit.isFurnished === true ? 'furnished_' : 'unfurnished_';
+  if (unit.isFurnished === true) return 'furnished_';
+  if (unit.isFurnished === false) return 'unfurnished_';
+  return null;
 }
 
 /**
@@ -283,14 +303,26 @@ function buildLocation(unit) {
   return full || null;
 }
 
+/**
+ * group_name becomes group_filename, which is the PUBLIC URL. It must
+ * therefore be unique per unit — a street-only title collides for every
+ * unit in a community, and a filename cannot be changed cleanly once a
+ * listing exists and has been indexed.
+ *
+ * Property name + unit where a unit number exists, street address where
+ * it does not.
+ */
 function buildTitle(unit) {
-  if (unit.streetHidden) {
-    const bits = [unit.propertyName, unit.unitNumber].filter(Boolean).join(' ');
+  const label = unit.propertyName || unit.modelName || (unit.streetHidden ? null : unit.street);
+
+  if (unit.unitNumber) {
+    const bits = [label, unit.unitNumber].filter(Boolean).join(' ');
     if (bits) return bits;
-    return [unit.city, unit.state].filter(Boolean).join(', ');
   }
-  const street = [unit.street, unit.unitNumber].filter(Boolean).join(' ');
-  return street || [unit.city, unit.state].filter(Boolean).join(', ');
+
+  if (!unit.streetHidden && unit.street) return unit.street;
+  if (label) return label;
+  return [unit.city, unit.state].filter(Boolean).join(', ');
 }
 
 function buildDescription(unit) {
@@ -363,11 +395,12 @@ function buildPayload(unit, opts) {
   const dep = money(unit.deposit);
   if (dep) p.deposit_amount = dep;
 
-  if (unit.rent !== null && unit.deposit !== null && unit.rent !== undefined) {
-    const total = Number(unit.rent) + Number(unit.deposit) + Number(unit.applicationFee || 0);
-    const t = money(total);
-    if (t) p.total_cost_to_movei = t;
-  }
+  // NEVER COMPUTED. Landlords define move-in cost differently — first and
+  // last, pet deposit, admin fees — so summing rent + deposit would quote a
+  // renter a figure the property manager never stated. Only written when a
+  // source explicitly supplies it. Otherwise the field does not render.
+  const supplied = money(unit.totalMoveInCost);
+  if (supplied) p.total_cost_to_movei = supplied;
 
   const beds = mapBeds(unit.beds);
   if (beds !== null) p.property_beds = beds;
@@ -380,8 +413,14 @@ function buildPayload(unit, opts) {
 
   p.property_type = mapPropertyType(unit.propertyTypeRaw);
   p.sub_property_type = mapSubType(unit);
-  p.property_duration = mapDuration(unit);
-  p.status = mapFurnished(unit);
+
+  // Omitted when the source is silent. Writing "unfurnished" because a feed
+  // said nothing presents an assumption as the PM's own statement.
+  const duration = mapDuration(unit);
+  if (duration) p.property_duration = duration;
+
+  const furnished = mapFurnished(unit);
+  if (furnished) p.status = furnished;
 
   if (unit.dateAvailable) p.date_available = unit.dateAvailable;
   p.external_unit_id = unit.externalKey;
@@ -921,13 +960,57 @@ function runSelfTest() {
     ok('rent comma formatted', p.post_promo === '1,900.00', p.post_promo);
     ok('property_price plain', p.property_price === '1900.00', p.property_price);
     ok('deposit formatted', p.deposit_amount === '1,900.00', p.deposit_amount);
-    ok('move-in total summed', p.total_cost_to_movei === '3,849.00', p.total_cost_to_movei);
+    ok('move-in total NEVER computed', p.total_cost_to_movei === undefined, p.total_cost_to_movei);
     ok('location single string', p.post_location === '900 SE Belmont Apt 101 Portland, OR 97214', p.post_location);
     ok('lat passed through', p.lat === '45.5163', p.lat);
     ok('date_available ISO', p.date_available === '2026-09-01', p.date_available);
     ok('photos comma joined', p.post_image.indexOf(',') !== -1, p.post_image);
     ok('auto_image_import on', p.auto_image_import === '1', p.auto_image_import);
     ok('description escaped', p.group_desc.indexOf('&amp;') !== -1, p.group_desc.slice(0, 60));
+  }
+
+  // --- never invent values the source did not state
+  {
+    const supplied = buildPayload(fixtureUnit({ totalMoveInCost: 4300 }), { memberId: 1 });
+    ok('move-in total mapped when supplied', supplied.total_cost_to_movei === '4,300.00', supplied.total_cost_to_movei);
+
+    const silent = buildPayload(
+      fixtureUnit({ isFurnished: null, leaseTerm: null }),
+      { memberId: 1 }
+    );
+    ok('furnished omitted when unknown', silent.status === undefined, silent.status);
+    ok('duration omitted when unknown', silent.property_duration === undefined, silent.property_duration);
+
+    const stated = buildPayload(fixtureUnit({ isFurnished: true }), { memberId: 1 });
+    ok('furnished written when stated', stated.status === 'furnished_', stated.status);
+    const unfurn = buildPayload(fixtureUnit({ isFurnished: false }), { memberId: 1 });
+    ok('unfurnished written when stated', unfurn.status === 'unfurnished_', unfurn.status);
+  }
+
+  // --- title must be unique per unit: it becomes the public URL
+  {
+    const a = buildPayload(
+      fixtureUnit({ propertyName: 'Sample Apartments', unitNumber: 'Apt 201', streetHidden: true }),
+      { memberId: 1 }
+    );
+    const b = buildPayload(
+      fixtureUnit({ propertyName: 'Sample Apartments', unitNumber: 'Apt 305', streetHidden: true }),
+      { memberId: 1 }
+    );
+    ok('community units get distinct titles', a.group_name !== b.group_name, a.group_name + ' / ' + b.group_name);
+    ok('title is property + unit', a.group_name === 'Sample Apartments Apt 201', a.group_name);
+
+    const flat = buildPayload(
+      fixtureUnit({ propertyName: null, unitNumber: null, street: '1420 SE Ash Street' }),
+      { memberId: 1 }
+    );
+    ok('street title when no unit number', flat.group_name === '1420 SE Ash Street', flat.group_name);
+
+    const noStreet = buildPayload(
+      fixtureUnit({ propertyName: null, unitNumber: null, streetHidden: true, city: 'Portland', state: 'OR' }),
+      { memberId: 1 }
+    );
+    ok('falls back to city and state', noStreet.group_name === 'Portland, OR', noStreet.group_name);
   }
 
   // --- dropdown keys, never labels
