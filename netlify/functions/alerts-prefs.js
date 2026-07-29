@@ -1,6 +1,32 @@
 // ==================================================================
-// alerts-prefs.js  —  ap-v7
+// alerts-prefs.js  —  ap-v8
 // Daily listing alerts: read + write renter alert preferences in BD.
+//
+// ap-v8 CHANGE: SEARCH IDS ARE STABLE ACROSS READS. FIXES A LIVE BUG
+// THAT PREDATES v6 AND IS PRESENT IN ap-v5.
+//
+// Caught by comparing two consecutive live ?status=1 reads of member
+// 3650: the same search came back as sms6oo93nkyhx, then sms6oxxr5h7jl.
+// The id was being regenerated on every read.
+//
+// CAUSE. A stored record with no id fell through to newId(), which is
+// timestamp + random. That happens for the ap-v3-era bare-criteria shape
+// (no v, no id, name from autoName, created from alerts_consent_at -
+// all four true of 3650) and for any v2 search missing an id.
+//
+// WHY IT MATTERS: DELETE WAS BROKEN FOR THOSE RECORDS.
+//   1. card reads, gets id A
+//   2. renter taps Delete, card POSTs id A
+//   3. backend re-reads, generates id B, filters for A, finds nothing
+//   4. 404 search not found
+// The matcher would have inherited the same problem: alerts_sent_ids
+// dedupe keyed on a search id that changes every night dedupes nothing.
+//
+// FIX. An id that is absent from storage is now DERIVED from the search
+// content (sha1 of criteria + created + name, prefixed lg), so it is
+// identical on every read until a write persists it. newId() is still
+// used for genuinely new searches arriving from the card, where random
+// is correct.
 //
 // ap-v7 CHANGE: LEGACY DEAL BREAKERS ARE QUARANTINED, NOT TRUSTED.
 //
@@ -124,9 +150,10 @@
 // ==================================================================
 
 const https = require("https");
+const crypto = require("crypto");
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "ap-v7";
+const FN_VERSION = "ap-v8";
 const SCHEMA_VERSION = 3;
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const MAX_SEARCHES = 5;
@@ -444,6 +471,14 @@ function newId() {
   return "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+// DERIVED id for a stored search that has none. Must be a pure function
+// of the content, or the id changes on every read and delete breaks.
+// Never used for new searches from the card - those get newId().
+function derivedId(criteria, created, name) {
+  const seed = JSON.stringify(criteria || {}) + "|" + (created || "") + "|" + (name || "");
+  return "lg" + crypto.createHash("sha1").update(seed).digest("hex").slice(0, 12);
+}
+
 function bedsLabel(beds) {
   if (!beds || !beds.length) return "";
   if (beds.length === 1) return beds[0] === "studio" ? "Studio" : beds[0] + "BR";
@@ -528,15 +563,22 @@ function parseStored(rawStr, consentAt) {
     const searches = o.searches
       .filter((s) => s && typeof s === "object")
       .slice(0, MAX_SEARCHES)
-      .map((s) => ({
-        id: String(s.id || newId()).slice(0, 24),
-        name: String(s.name || "My search").slice(0, 40),
-        created: String(s.created || consentAt || "").slice(0, 30),
-        updated: String(s.updated || "").slice(0, 30),
-        enabled: s.enabled === false ? false : true,
-        source: pickFrom(s.source, SOURCES) || "form",
-        criteria: sanitizeCriteria(s.criteria)
-      }));
+      .map((s) => {
+        const criteria = sanitizeCriteria(s.criteria);
+        const name = String(s.name || "My search").slice(0, 40);
+        const created = String(s.created || consentAt || "").slice(0, 30);
+        return {
+          // Derived, not random, when storage has no id. A random id here
+          // changes on every read and breaks delete.
+          id: String(s.id || derivedId(criteria, created, name)).slice(0, 24),
+          name: name,
+          created: created,
+          updated: String(s.updated || "").slice(0, 30),
+          enabled: s.enabled === false ? false : true,
+          source: pickFrom(s.source, SOURCES) || "form",
+          criteria: criteria
+        };
+      });
     return {
       searches: searches,
       consent: consent,
@@ -553,12 +595,14 @@ function parseStored(rawStr, consentAt) {
     return { searches: [], consent: consent, migrated: false, fromVersion: fromVersion };
   }
 
+  const legacyName = autoName(legacy);
+  const legacyCreated = consentAt || "";
   return {
     searches: [{
-      id: newId(),
-      name: autoName(legacy),
-      created: consentAt || new Date().toISOString(),
-      updated: consentAt || new Date().toISOString(),
+      id: derivedId(legacy, legacyCreated, legacyName),
+      name: legacyName,
+      created: legacyCreated || new Date().toISOString(),
+      updated: legacyCreated || new Date().toISOString(),
       enabled: true,
       source: "form",
       criteria: legacy
