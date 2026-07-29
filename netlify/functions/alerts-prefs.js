@@ -1,6 +1,32 @@
 // ==================================================================
-// alerts-prefs.js  —  ap-v6
+// alerts-prefs.js  —  ap-v7
 // Daily listing alerts: read + write renter alert preferences in BD.
+//
+// ap-v7 CHANGE: LEGACY DEAL BREAKERS ARE QUARANTINED, NOT TRUSTED.
+//
+// Confirmed live on member 3650 (read, no write): the stored record had
+//   nice_to_have:  move_in_special, large_dog_ok, yard
+//   deal_breakers: washer_dryer_in_unit, no_stairs, furnished,
+//                  utilities_included
+// Those breakers are POSITIVE keys. Read literally the member will not
+// accept in-unit laundry, no stairs, furniture or utilities included.
+// Nobody meant that. The ap-v5 UI reused the positive labels on the
+// deal-breaker row (Open Thread #44), so the stored value means
+// something other than what it says and the intent is NOT recoverable
+// from the data.
+//
+// THE HAZARD THIS REMOVES: the moment a matcher treats deal_breakers as
+// hard exclusions, this member is filtered out of good listings
+// silently, and the symptom reads as "alerts never send anything."
+//
+// So deal_breakers now accepts ONLY the negative vocabulary. Legacy
+// positive keys arriving on that row are moved to legacy_breakers,
+// which is PRESERVED for review and IGNORED BY THE MATCHER. Nothing is
+// deleted, the live ac-v12 card keeps saving without error, and the
+// field the matcher reads can be trusted.
+//
+// ?report=1 now lists membersNeedingBreakerReview so the affected
+// renters can be re-asked. At this member count that is a handful.
 //
 // ap-v6 CHANGE: SCHEMA v3. CURATED CRITERIA + CONSENT + ONE VOCABULARY.
 //
@@ -100,7 +126,7 @@
 const https = require("https");
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "ap-v6";
+const FN_VERSION = "ap-v7";
 const SCHEMA_VERSION = 3;
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const MAX_SEARCHES = 5;
@@ -136,9 +162,12 @@ const BREAKER_CHIPS = [
   "smoking_building"
 ];
 
-// Old positive keys were accepted in deal_breakers by ap-v5. They stay
-// valid so the live ac-v12 card does not lose data mid-window.
+// ap-v5 accepted positive keys on the deal-breaker row. They are still
+// ACCEPTED (so a live ac-v12 save never errors) but they are no longer
+// trusted as exclusions - they are quarantined into legacy_breakers.
+// See the ap-v7 note in the header.
 const BREAKER_ACCEPTED = BREAKER_CHIPS.concat(POSITIVE_CHIPS);
+const LEGACY_BREAKER_KEYS = POSITIVE_CHIPS;
 
 const BED_SIZES = ["studio", "1", "2", "3", "4plus"];
 const UNIT_TYPES = ["apartment", "house", "townhouse", "condo", "duplex", "room"];
@@ -330,10 +359,20 @@ function sanitizeCriteria(raw) {
   const nice = setFrom(niceRaw, POSITIVE_CHIPS, POSITIVE_CHIPS.length)
     .filter((k) => must.indexOf(k) === -1);
 
-  // A key cannot be both wanted and a deal breaker. Wants win. The UI
-  // blocks this, but the UI is not the security boundary.
-  const breakers = setFrom(c.deal_breakers, BREAKER_ACCEPTED, BREAKER_ACCEPTED.length)
+  // ---- deal breakers, split ----
+  // Only the negative vocabulary lands in deal_breakers. A positive key
+  // on this row is ap-v5-era data whose meaning is unrecoverable, so it
+  // is quarantined rather than believed. A key cannot be both wanted and
+  // a deal breaker: wants win. The UI blocks that, but the UI is not the
+  // security boundary.
+  const breakerRow = Array.isArray(c.deal_breakers) ? c.deal_breakers : [];
+  const breakers = setFrom(breakerRow, BREAKER_CHIPS, BREAKER_CHIPS.length)
     .filter((k) => must.indexOf(k) === -1 && nice.indexOf(k) === -1);
+
+  const quarantined = setFrom(
+    [].concat(Array.isArray(c.legacy_breakers) ? c.legacy_breakers : [], breakerRow),
+    LEGACY_BREAKER_KEYS, LEGACY_BREAKER_KEYS.length
+  );
 
   // ---- rent ----
   const rent = num(c.rent_max);
@@ -373,6 +412,9 @@ function sanitizeCriteria(raw) {
     must_have: must,
     nice_to_have: nice,
     deal_breakers: breakers,
+    // Preserved, never matched on. Present means this search predates
+    // the #44 fix and the renter should be re-asked.
+    legacy_breakers: quarantined,
     notes: str(c.notes, NOTES_MAX),
     transcript_excerpt: str(c.transcript_excerpt || c.transcript, TRANSCRIPT_EXCERPT_MAX)
   };
@@ -392,6 +434,7 @@ function criteriaIsEmpty(c) {
   if ((c.must_have || []).length) return false;
   if ((c.nice_to_have || []).length) return false;
   if ((c.deal_breakers || []).length) return false;
+  if ((c.legacy_breakers || []).length) return false;
   if (c.notes) return false;
   if (c.transcript_excerpt) return false;
   return true;
@@ -624,6 +667,8 @@ function schemaBlock() {
     positiveChips: POSITIVE_CHIPS,
     breakerChips: BREAKER_CHIPS,
     breakerAccepted: BREAKER_ACCEPTED,
+    legacyBreakerKeys: LEGACY_BREAKER_KEYS,
+    legacyBreakersQuarantined: true,
     bedSizes: BED_SIZES,
     unitTypes: UNIT_TYPES,
     leaseTerms: LEASE_TERMS,
@@ -686,6 +731,8 @@ exports.handler = async (event) => {
     const mustCount = {};
     const niceCount = {};
     const breakerCount = {};
+    const legacyBreakerCount = {};
+    const needsBreakerReview = [];
     const bedCount = {};
     const unitCount = {};
     const leaseCount = {};
@@ -716,6 +763,7 @@ exports.handler = async (event) => {
 
       let memberHasVoucher = false;
       let memberHasPet = false;
+      let memberHasLegacyBreakers = false;
 
       for (const sr of rec.searches || []) {
         totalSearches += 1;
@@ -731,6 +779,10 @@ exports.handler = async (event) => {
         for (const k of c.must_have || []) bump(mustCount, k);
         for (const k of c.nice_to_have || []) bump(niceCount, k);
         for (const k of c.deal_breakers || []) bump(breakerCount, k);
+        for (const k of c.legacy_breakers || []) {
+          bump(legacyBreakerCount, k);
+          memberHasLegacyBreakers = true;
+        }
         for (const k of c.beds || []) bump(bedCount, k);
         for (const k of c.unit_types || []) bump(unitCount, k);
         for (const k of c.lease_terms || []) bump(leaseCount, k);
@@ -738,6 +790,7 @@ exports.handler = async (event) => {
 
       if (memberHasVoucher) voucherMembers += 1;
       if (memberHasPet) petMembers += 1;
+      if (memberHasLegacyBreakers) needsBreakerReview.push(rec.memberId);
 
       // Full verbatim transcripts. The highest-value text on the
       // platform: renters describing in their own words what to go find.
@@ -780,6 +833,11 @@ exports.handler = async (event) => {
       mustHaveDemand: rank(mustCount),
       niceToHaveDemand: rank(niceCount),
       dealBreakerDemand: rank(breakerCount),
+      // #44 fallout. These searches carry positive keys on the old
+      // deal-breaker row; the intent is unrecoverable and the matcher
+      // ignores them. Re-ask these renters.
+      legacyBreakerKeysSeen: rank(legacyBreakerCount),
+      membersNeedingBreakerReview: needsBreakerReview,
       voucherMembers: voucherMembers,
       membersWithPets: petMembers,
       moveInDates: moveIns.sort(),
