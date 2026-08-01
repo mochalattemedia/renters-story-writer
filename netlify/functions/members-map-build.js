@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v25
+// FN_VERSION: mmb-v26
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v25";
+const FN_VERSION = "mmb-v26";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -365,6 +365,7 @@ function emptyState() {
     nextId: 1,
     highestIdSeen: 0,
     lastFullScanAt: 0,
+    signups: {},
     bdTotal: null,
     seen: {},
     byZip: {},
@@ -390,21 +391,25 @@ function foldMember(state, m, weekAgo) {
   const t = typeOf(m);
   if (t) state.totals[t]++; else state.totals.uncategorized++;
 
+  // mmb-v26: retain the signup timestamp per member. "New this week" is time-decaying
+  // (a member new today is not new in 8 days), so it CANNOT be a counter incremented
+  // once at fold time — in an incremental cycle most members are never re-folded, so
+  // the old counter went stale in both directions (missed new signups, never expired
+  // old ones). It is now RECOMPUTED from these timestamps every snapshot build.
   const ms = signupMs(m.signup_date);
-  const isNew = ms !== null && ms >= weekAgo;
-  if (isNew) state.totals.new7++;
-
+  if (ms !== null) state.signups[id] = ms;
+  // also remember which zip this member is in, so per-pin newCount can be recomputed
   const z = zip5(m.zip_code);
   if (!z) { state.totals.unplaced++; return; }
   state.totals.placed++;
 
   if (!state.byZip[z]) {
-    state.byZip[z] = { renters: 0, landlords: 0, propertyManagers: 0, realtors: 0, total: 0, newCount: 0, labels: {}, coord: null };
+    state.byZip[z] = { renters: 0, landlords: 0, propertyManagers: 0, realtors: 0, total: 0, newCount: 0, labels: {}, coord: null, memberIds: [] };
   }
   const b = state.byZip[z];
   b.total++;
   if (t) b[t]++;
-  if (isNew) b.newCount++;
+  b.memberIds.push(id);
 
   const city = (m.city || "").trim();
   const st = (m.state_code || "").trim();
@@ -552,16 +557,31 @@ async function loadProgress(store, fresh) {
 // become pins; the rest wait for the geocode pass. Enforces the new-this-week
 // suppression on thin pins server-side.
 function buildSnapshotFromState(state) {
+  // ⭐ mmb-v26: "New this week" is RECOMPUTED FRESH here every build, from the retained
+  // per-member signup timestamps, against NOW. This is the fix for "0 new this week"
+  // showing while real signups existed: the old code incremented a counter at fold
+  // time, but incremental cycles rarely re-fold members, so the counter went stale.
+  // Recomputing means the number is always correct and decays correctly (a member new
+  // today stops counting in 8 days) regardless of which scan phase you catch.
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const signups = state.signups || {};
+
+  // aggregate new-this-week across ALL known members
+  let new7 = 0;
+  for (const id in signups) { if (signups[id] >= weekAgo) new7++; }
+
   const pins = [];
-  let suppressedNew = 0, unresolvedZips = 0;
+  let unresolvedZips = 0;
   for (const z of Object.keys(state.byZip)) {
     const b = state.byZip[z];
     if (!b.coord) { unresolvedZips++; continue; }
-    let newCount = b.newCount;
-    // mmb-v24: suppression REMOVED per Kenny's decision. A member volunteered their
-    // zip; displaying "1 new this week" in a zip of ~20,000 people is his call and is
-    // not a privacy leak. The old MIN_MEMBERS_FOR_NEW gate zeroed the flag on thin
-    // pins and, worse, made the aggregate strip read 0. Both now show real counts.
+
+    // per-pin new-this-week, recomputed from this zip's member ids. Suppression stays
+    // removed (Kenny's call): one new member in a zip of ~20,000 displays.
+    let newCount = 0;
+    const ids = b.memberIds || [];
+    for (let i = 0; i < ids.length; i++) { if (signups[ids[i]] >= weekAgo) newCount++; }
+
     let label = "", best = 0;
     for (const k of Object.keys(b.labels)) if (b.labels[k] > best) { best = b.labels[k]; label = k; }
     pins.push([z, label, b.coord[0], b.coord[1], b.renters, b.landlords, b.propertyManagers, b.realtors, newCount]);
@@ -575,14 +595,14 @@ function buildSnapshotFromState(state) {
       totals: {
         members: state.totals.members, renters: state.totals.renters,
         landlords: state.totals.landlords, propertyManagers: state.totals.propertyManagers,
-        realtors: state.totals.realtors, new7: state.totals.new7,
+        realtors: state.totals.realtors, new7: new7,
         placed: state.totals.placed, unplaced: state.totals.unplaced
       },
       pinCount: pins.length,
       schema: ["zip", "label", "lat", "lon", "renters", "landlords", "propertyManagers", "realtors", "newCount"],
       pins: pins
     },
-    suppressedNew: suppressedNew,
+    suppressedNew: 0,
     unresolvedZips: unresolvedZips
   };
 }
@@ -681,49 +701,17 @@ async function build(opts) {
     };
   }
 
-  // ---- PHASE 4: the pins. The privacy rule is enforced HERE, server-side. ----
-  const pins = [];
-  let suppressedNew = 0;
-  let unresolvedZips = 0;
-
-  for (const z of Object.keys(state.byZip)) {
-    const b = state.byZip[z];
-    if (!b.coord) { unresolvedZips++; continue; }
-
-    // THE ONE SUPPRESSION. A count is a fact about a place. A timestamp on a thin
-    // pin is a fact about a PERSON. Zeroed here so it never reaches the browser and
-    // cannot be read out of the payload.
-    let newCount = b.newCount;
-    // mmb-v24: suppression REMOVED per Kenny's decision. A member volunteered their
-    // zip; displaying "1 new this week" in a zip of ~20,000 people is his call and is
-    // not a privacy leak. The old MIN_MEMBERS_FOR_NEW gate zeroed the flag on thin
-    // pins and, worse, made the aggregate strip read 0. Both now show real counts.
-
-    let label = "", best = 0;
-    for (const k of Object.keys(b.labels)) if (b.labels[k] > best) { best = b.labels[k]; label = k; }
-
-    pins.push([z, label, b.coord[0], b.coord[1], b.renters, b.landlords, b.propertyManagers, b.realtors, newCount]);
-  }
-
-  pins.sort((a, b) => (b[4] + b[5] + b[6] + b[7]) - (a[4] + a[5] + a[6] + a[7]));
-
-  const snapshot = {
-    v: FN_VERSION,
-    builtAt: new Date().toISOString(),
-    totals: {
-      members: state.totals.members,
-      renters: state.totals.renters,
-      landlords: state.totals.landlords,
-      propertyManagers: state.totals.propertyManagers,
-      realtors: state.totals.realtors,
-      new7: state.totals.new7,
-      placed: state.totals.placed,
-      unplaced: state.totals.unplaced
-    },
-    pinCount: pins.length,
-    schema: ["zip", "label", "lat", "lon", "renters", "landlords", "propertyManagers", "realtors", "newCount"],
-    pins: pins
-  };
+  // ---- PHASE 4: the final published snapshot. ----
+  // mmb-v26: use the SAME builder as the partial writes, so new7 and per-pin newCount
+  // are recomputed fresh from signup timestamps here too. Previously this path
+  // hand-rolled its own snapshot with the stale state.totals.new7 counter, which is
+  // why the PUBLISHED number read 0 even right after a full scan.
+  const builtFinal = buildSnapshotFromState(state);
+  const snapshot = builtFinal.snapshot;
+  const pins = snapshot.pins;
+  const unresolvedZips = builtFinal.unresolvedZips;
+  // this IS the published, complete snapshot — mark it non-partial
+  snapshot.partial = false;
 
   await store.set(KEY_SNAPSHOT, JSON.stringify(snapshot));
 
@@ -761,6 +749,7 @@ async function build(opts) {
     next.byZip = state.byZip;
     next.seen = state.seen;
     next.totals = state.totals;
+    next.signups = state.signups;  // mmb-v26: carry timestamps forward or new7 recompute breaks next cycle
     log("next cycle: INCREMENTAL, starting at id", next.nextId);
   }
   await store.set(KEY_PROGRESS, JSON.stringify(next));
@@ -780,7 +769,7 @@ async function build(opts) {
     zipCacheSize: Object.keys(cache).length,
     geocodedThisRun: toDo.length,
     geocodeStillPending: Math.max(0, pending.length - toDo.length),
-    newSuppressedOnThinPins: suppressedNew,
+    newSuppressedOnThinPins: 0,
     membersStillOnJunkCoordinate: state.totals.onJunkCoordinate,
     uncategorizedMembers: state.totals.uncategorized,
     ms: Date.now() - started
