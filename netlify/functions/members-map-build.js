@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v26
+// FN_VERSION: mmb-v27
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v26";
+const FN_VERSION = "mmb-v27";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -348,6 +348,10 @@ async function fetchMemberById(id) {
 // IDs cost one fast 400 each and are simply skipped. New signups above the ceiling
 // get picked up when the ceiling is bumped, but we set it high enough that this is
 // years away.
+const TAIL_REFRESH = 130;  // mmb-v27: every wake, re-read the top N ids to keep recent
+                           // signup timestamps current, so "New this week" is accurate
+                           // even during incremental cycles. Folded in here instead of a
+                           // separate function (a second scheduled fn was getting 403'd).
 const ID_CEILING = 3950;  // mmb-v22: was 4200. Real max id ~3880; no point walking 300+ empty ids at the tail every fill.
 function findMaxId() {
   return ID_CEILING;
@@ -623,6 +627,41 @@ async function build(opts) {
   // 200 wakes (~33h) and freezing a healthy scan mid-fill. A cron-driven job has no
   // runaway to guard against — each wake is one bounded batch that exits on its own.
   state.chain = (state.chain || 0) + 1;
+
+  // ---- mmb-v27: TAIL REFRESH — keep "New this week" live without a second function.
+  // New members hold the highest ids. Each wake, re-read the top TAIL_REFRESH ids and
+  // refresh their signup timestamps in state.signups, so buildSnapshotFromState's
+  // recompute reflects today's signups within one wake (~10 min) regardless of where
+  // the main incremental scan currently sits. Paced, serial, tiny — a few seconds.
+  if (!warmOnly) {
+    try {
+      if (!state.signups) state.signups = {};
+      const hi = ID_CEILING;
+      const from = Math.max(1, hi - TAIL_REFRESH);
+      const tailDeadline = started + Math.min(4000, TIME_BUDGET_MS - 1000);
+      for (let id = hi; id >= from; id--) {
+        if (Date.now() > tailDeadline) break;
+        const m = await fetchMemberById(id);
+        if (m) {
+          const ms = signupMs(m.signup_date);
+          if (ms !== null) state.signups[id] = ms;
+        }
+        await sleep(REQUEST_DELAY_MS);
+      }
+      // republish the snapshot's new7 immediately from refreshed timestamps, so the
+      // page sees today's number even if the main scan is mid-incremental-cycle.
+      try {
+        const pub = JSON.parse(await store.get(KEY_SNAPSHOT));
+        if (pub && pub.totals) {
+          const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+          let n7 = 0;
+          for (const k in state.signups) { if (state.signups[k] >= weekAgo) n7++; }
+          pub.totals.new7 = n7;
+          await store.set(KEY_SNAPSHOT, JSON.stringify(pub));
+        }
+      } catch (e) { /* no published snapshot yet; the normal build path will create it */ }
+    } catch (e) { log("tail refresh skipped:", e.message); }
+  }
 
   // ---- PHASE 1: read every member BY ID, resumable ----
   if (state.phase === "scanning") {
