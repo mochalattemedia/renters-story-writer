@@ -2,13 +2,8 @@
   functions = "netlify/functions"
   publish = "."
 
-# Live Members Map (Element T) — full member scan. Cron is the clock: each wake does
-# one bounded batch, checkpoints, exits. Never self-invokes.
+# Live Members Map (Element T) — the one function that does everything: full member
+# scan, pins, AND the "New this week" count (folded in at mmb-v28). Cron is the clock:
+# each wake does one bounded batch, checkpoints, exits. Never self-invokes.
 [functions."members-map-build"]
-  schedule = "*/10 * * * *"
-
-# Live Members Map — fast "New this week" updater. Sweeps only the top ~180 ids (where
-# all recent signups live) every 10 minutes and writes a fresh new7 the page prefers,
-# so today's signups appear on the counter within minutes instead of a full scan cycle.
-[functions."members-map-new7"]
   schedule = "*/10 * * * *"
