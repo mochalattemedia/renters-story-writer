@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v28
+// FN_VERSION: mmb-v29
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v28";
+const FN_VERSION = "mmb-v29";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -83,8 +83,9 @@ const SELF_URL = process.env.URL || "https://renters-story-writer.netlify.app";
 
 // Bounded per-run geocoding so a scheduled run can never time out. Unknown zips
 // left over get picked up on the next run. Self-healing.
-const MAX_GEOCODE_PER_RUN = 120;
-const MAX_GEOCODE_PER_WARM = 400;
+const MAX_GEOCODE_PER_RUN = 40;   // mmb-v29: hard ceiling. Cache persists, so normal runs geocode 0. This caps Google calls if the cache is ever wiped.
+const MAX_GEOCODE_PER_WARM = 40;  // mmb-v29: was 400. No run should geocode more than 40 zips. Bulk geocoding = a wiped cache = a bug to investigate, not something to just power through.
+const DAILY_GEOCODE_CAP = 300;    // mmb-v29: absolute Google-calls-per-day ceiling across ALL runs, tracked in the cache blob. A full backfill of new zips spreads across days rather than billing in one burst. Hard protection against a wiped cache running up a bill.
 
 let   PAGE_LIMIT = 100;  // BD rows per page. Discovery may lower this.
 const PAGE_BATCH = 1;     // ⚠️ SERIAL. BD rate-limits. See the banner below.
@@ -722,9 +723,28 @@ async function build(opts) {
   }
 
   const pending = Object.keys(state.byZip).filter((z) => !state.byZip[z].coord);
-  const budget = warmOnly ? MAX_GEOCODE_PER_WARM : MAX_GEOCODE_PER_RUN;
+
+  // ---- mmb-v29: DAILY GEOCODE CAP. Absolute ceiling on Google calls per day, across
+  // every run, tracked in the cache blob under __geoDay. Protects against a wiped cache
+  // running up a bill: instead of re-geocoding thousands at once, it spreads across days.
+  const today = new Date().toISOString().slice(0, 10);   // YYYY-MM-DD
+  let geoDay = cache.__geoDay && cache.__geoDay.day === today ? cache.__geoDay.count : 0;
+  const dailyRemaining = Math.max(0, DAILY_GEOCODE_CAP - geoDay);
+
+  // ---- mmb-v29: LOUD ALARM if a run suddenly needs to geocode in bulk. In steady
+  // state this is 0 (cache hits). A large number means the cache was wiped or lost —
+  // a bug to investigate, not silently absorb into a Google bill.
+  if (pending.length > 100) {
+    log("⚠️ WARNING: " + pending.length + " zips need geocoding. In steady state this should be ~0. " +
+        "The zip cache may have been wiped. Capping this run at " + Math.min(MAX_GEOCODE_PER_RUN, dailyRemaining) +
+        " and spreading the rest across future runs/days to protect Google spend.");
+  }
+
+  const runBudget = warmOnly ? MAX_GEOCODE_PER_WARM : MAX_GEOCODE_PER_RUN;
+  const budget = Math.min(runBudget, dailyRemaining);
   const toDo = pending.slice(0, budget);
-  log("zips:", Object.keys(state.byZip).length, "| cached:", cacheBefore, "| need geocode:", pending.length, "| doing:", toDo.length);
+  log("zips:", Object.keys(state.byZip).length, "| cached:", cacheBefore, "| need geocode:", pending.length,
+      "| doing:", toDo.length, "| geocoded today:", geoDay, "/", DAILY_GEOCODE_CAP);
 
   for (let i = 0; i < toDo.length; i += 8) {
     const slice = toDo.slice(i, i + 8);
@@ -733,6 +753,8 @@ async function build(opts) {
       if (got[j]) { cache[slice[j]] = got[j]; state.byZip[slice[j]].coord = got[j]; }
     }
   }
+  // mmb-v29: record today's geocode tally so the daily cap holds across runs.
+  cache.__geoDay = { day: today, count: geoDay + toDo.length };
   await store.set(KEY_ZIPCACHE, JSON.stringify(cache));
 
   if (warmOnly) {
@@ -741,7 +763,7 @@ async function build(opts) {
       ok: true, done: true, mode: "warm", _v: FN_VERSION,
       membersRead: state.totals.members,
       zipsSeen: Object.keys(state.byZip).length,
-      zipCacheSize: Object.keys(cache).length,
+      zipCacheSize: Object.keys(cache).filter(function(k){return k !== "__geoDay";}).length,
       geocodedThisRun: toDo.length,
       stillMissing: Math.max(0, pending.length - toDo.length),
       ms: Date.now() - started
@@ -813,7 +835,7 @@ async function build(opts) {
     totals: snapshot.totals,
     pins: pins.length,
     zipsUnresolved: unresolvedZips,
-    zipCacheSize: Object.keys(cache).length,
+    zipCacheSize: Object.keys(cache).filter(function(k){return k !== "__geoDay";}).length,
     geocodedThisRun: toDo.length,
     geocodeStillPending: Math.max(0, pending.length - toDo.length),
     newSuppressedOnThinPins: 0,
