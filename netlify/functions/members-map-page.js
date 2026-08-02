@@ -1,7 +1,7 @@
 // members-map-page.js
 // Renters.com — Live Members Map (Element T) — the public page.
 //
-// FN_VERSION: mmp-v1
+// FN_VERSION: mmp-v4
 //
 // Serves the whole Leaflet page as a Netlify function (same pattern as
 // find-renters-page.js / listing-check-page.js). Reads the nightly snapshot Blob
@@ -16,10 +16,9 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmp-v3";
+const FN_VERSION = "mmp-v4";
 const BLOB_STORE = "members-map";
 const KEY_SNAPSHOT = "snapshot";
-const KEY_NEW7 = "new7-override";  // mmp-v3: fast "New this week" from members-map-new7.js
 
 const NAVY = "#0d2d4e";
 const TEAL = "#3a9e8f";
@@ -44,24 +43,6 @@ async function loadSnapshot() {
   }
 }
 
-// mmp-v3: the fast-updater (members-map-new7.js) writes a fresh "New this week" count
-// every 10 minutes. Prefer it over the snapshot's new7 when it exists and is recent,
-// so the counter reflects today's signups without waiting for a full scan cycle.
-async function loadNew7Override() {
-  try {
-    const raw = await rdcStore(BLOB_STORE).get(KEY_NEW7);
-    if (!raw) return null;
-    const o = JSON.parse(raw);
-    if (o && typeof o.new7 === "number" && o.checkedAt) {
-      const age = Date.now() - Date.parse(o.checkedAt);
-      // trust it for up to 45 min; if the updater stalls, fall back to the snapshot
-      if (age >= 0 && age < 45 * 60 * 1000) return o.new7;
-    }
-    return null;
-  } catch (e) {
-    return null;
-  }
-}
 
 function page(snapshot, compact) {
   const data = snapshot || {
@@ -167,8 +148,11 @@ function page(snapshot, compact) {
     ["Realtors", t.realtors]
   ];
   var html = "";
+  // mmp-v4: show ALL five member types in compact mode too. The old "i>2" cap hid
+  // Property Managers and Realtors even though both are counted. This is the fix that
+  // kept silently reverting: v2 removed the cap, v3 was built from a pre-v2 base and
+  // brought it back. v4 removes it for good.
   for (var i=0;i<stats.length;i++){
-    if (COMPACT && i>2) continue;
     html += '<div class="stat"><b>'+n(stats[i][1])+'</b><span>'+stats[i][0]+'</span></div>';
   }
   html += '<div class="stat new"><b>'+n(t.new7)+'</b><span>New this week</span></div>';
@@ -304,10 +288,8 @@ exports.handler = async (event) => {
   }
 
   const snapshot = await loadSnapshot();
-  const freshNew7 = await loadNew7Override();
-  if (snapshot && snapshot.totals && freshNew7 !== null) {
-    snapshot.totals.new7 = freshNew7;  // mmp-v3: prefer the fast count
-  }
+  // mmp-v4: the separate new7 updater was retired; mmb-v28 writes the correct
+  // "New this week" straight into the snapshot, so the page just uses snapshot.totals.new7.
   const compact = q.compact === "1" || q.compact === "true";
 
   return {
