@@ -1,12 +1,16 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v9   (2026-07-17)
+//  FN_VERSION: slde-v10  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
 //  listings page can be annotated without opening each one.
 //
 //  Changelog
+//   slde-v10 Jul 17  Email now ALWAYS shows the full standard checklist; ticked
+//                    reasons appear as a highlighted "on your listing
+//                    specifically" callout above it (both, not either/or). The
+//                    per-listing status still logs just the ticked specifics.
 //   slde-v9  Jul 17  Per-listing status tracker. POST accepts `postId` (the
 //                    "ID:" on the listing row) and logs {items, date, to} to a
 //                    Netlify Blob index (store "listing-status", key "index").
@@ -29,7 +33,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v9";
+const FN_VERSION = "slde-v10";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -154,16 +158,20 @@ function pickedItems(reasons, missing) {
 function buildEmail({ name, listingUrl, picked }) {
   const greet = esc(cleanName(name));
   const url = listingUrl || EDIT_URL;
-  var midHtml, midText;
+  // Ticked specifics as a highlighted callout (only if any were ticked)...
+  var specificHtml = "", specificText = "";
   if (picked.length) {
-    midHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>Here&rsquo;s what we still need before it can go live:</p>"
-      + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(picked.map(esc)) + "</table>";
-    midText = "Here's what we still need before it can go live:\n" + picked.map(function (i) { return "- " + i; }).join("\n") + "\n";
-  } else {
-    midHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>To keep listings trustworthy for renters, every live listing needs clear, well-lit photos of the whole property:</p>"
-      + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(STANDARD_ITEMS) + "</table>";
-    midText = "To keep listings trustworthy for renters, every live listing needs clear, well-lit photos of the whole property:\n" + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n";
+    specificHtml = "<div style='background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 16px;margin:0 0 18px;'>"
+      + "<p style='font-size:14px;color:#7c2d12;line-height:1.55;margin:0 0 6px;font-weight:700;'>On your listing specifically, we still need:</p>"
+      + "<table style='border-collapse:collapse;width:100%;'>" + checklistRows(picked.map(esc)) + "</table></div>";
+    specificText = "On your listing specifically, we still need:\n" + picked.map(function (i) { return "- " + i; }).join("\n") + "\n\n";
   }
+  // ...and ALWAYS the full standard checklist beneath it.
+  var standardHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>Every live listing needs clear, well-lit photos of the whole property:</p>"
+    + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(STANDARD_ITEMS) + "</table>";
+  var standardText = "Every live listing needs clear, well-lit photos of the whole property:\n" + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n";
+  var midHtml = specificHtml + standardHtml;
+  var midText = specificText + standardText;
   const subject = "Your Renters.com listing needs updated photos to go live";
   const html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
     + "<body style='margin:0;padding:0;background:#eef2f5;font-family:Open Sans,Arial,sans-serif;'>"
