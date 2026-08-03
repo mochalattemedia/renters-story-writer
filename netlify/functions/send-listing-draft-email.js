@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v16  (2026-07-17)
+//  FN_VERSION: slde-v17  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v16";
+const FN_VERSION = "slde-v17";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -390,6 +390,30 @@ exports.handler = async function (event) {
     const results = [];
     for (var ci = 0; ci < cands.length; ci++) { results.push(await bdRawGet(cands[ci])); }
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ probePost: pid2, results: results }, null, 2) };
+  }
+
+  // [DIAGNOSTIC] Field inventory: dump the listing + landlord member fields so we
+  // can build profile / non-photo checks against the real BD field names.
+  if (body.inspectPost) {
+    const iid = String(body.inspectPost).trim();
+    const L = await bdGetListing(iid);
+    if (L.error) return { statusCode: 502, headers: corsHeaders, body: JSON.stringify({ error: "listing fetch failed", detail: L.error }) };
+    function inv(obj) {
+      var o = {};
+      Object.keys(obj || {}).forEach(function (k) {
+        var v = obj[k];
+        if (k === "users_portfolio") { o[k] = "[array of " + (Array.isArray(v) ? v.length : 0) + " photos]"; return; }
+        if (v && typeof v === "object") { o[k] = Array.isArray(v) ? ("[array " + v.length + "]") : ("[object keys: " + Object.keys(v).join(",") + "]"); }
+        else { o[k] = String(v == null ? "" : v).slice(0, 140); }
+      });
+      return o;
+    }
+    var uid = (L.user && (L.user.id || L.user.user_id)) || L.listing.user_id || L.listing.created_by || L.listing.user_created || L.listing.author_id || "";
+    var member = uid ? await bdRawGet("/api/v2/user/get/" + encodeURIComponent(String(uid))) : { note: "no user id field found on listing record" };
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+      inspectPost: iid, memberIdGuess: uid,
+      listingFields: inv(L.listing), embeddedUser: L.user, memberRaw: member,
+    }, null, 2) };
   }
 
   // [STAGE 1] Scan one listing: read its photos from BD, judge with Claude, return the verdict.
