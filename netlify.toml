@@ -7,3 +7,4 @@
 # each wake does one bounded batch, checkpoints, exits. Never self-invokes.
 [functions."members-map-build"]
   schedule = "*/10 * * * *"
+  
