@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v15  (2026-07-17)
+//  FN_VERSION: slde-v16  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v15";
+const FN_VERSION = "slde-v16";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -105,6 +105,18 @@ async function writeStatus(postId, entry) {
     await store.setJSON("index", idx);
     return true;
   } catch (e) { console.error("[slde] status write failed: " + (e && e.message)); return false; }
+}
+// Shallow-merge a patch onto an existing status record. Used by the auto-scan so
+// it updates the `auto` verdict WITHOUT wiping a manual "notified" record.
+async function mergeStatus(postId, patch) {
+  try {
+    const store = statusStore();
+    const idx = (await store.get("index", { type: "json" })) || {};
+    const cur = idx[String(postId)] || {};
+    idx[String(postId)] = Object.assign({}, cur, patch);
+    await store.setJSON("index", idx);
+    return true;
+  } catch (e) { console.error("[slde] status merge failed: " + (e && e.message)); return false; }
 }
 
 // ---- BD member lookup -------------------------------------------------------
@@ -386,11 +398,21 @@ exports.handler = async function (event) {
     const L = await bdGetListing(sid);
     if (L.error) return { statusCode: 502, headers: corsHeaders, body: JSON.stringify({ error: "listing fetch failed", detail: L.error }) };
     const a = await anthropicAssess(L.listing, L.photos);
+    // Persist the verdict so the tracker badges fill in automatically. Merge, so
+    // it never clobbers a manual "notified" record — it only updates `auto`.
+    var saved = false;
+    if (a && a.parsed && Array.isArray(a.parsed.missing)) {
+      saved = await mergeStatus(sid, { auto: {
+        items: a.parsed.missing, notes: a.parsed.notes || "", quality: a.parsed.quality || "",
+        date: new Date().toISOString(), group_status: L.listing.group_status,
+        beds: L.listing.property_beds, baths: L.listing.property_baths, photoCount: L.photos.length,
+      } });
+    }
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
       scanPost: sid, name: L.listing.group_name, group_status: L.listing.group_status,
       beds: L.listing.property_beds, baths: L.listing.property_baths, type: L.listing.property_type,
       photoCount: L.photos.length, landlordEmail: (L.user && L.user.email) || null,
-      assessment: a,
+      saved: saved, assessment: a,
     }, null, 2) };
   }
 
