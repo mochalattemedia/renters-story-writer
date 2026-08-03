@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v33
+// FN_VERSION: mmb-v34
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v33";
+const FN_VERSION = "mmb-v34";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -452,6 +452,13 @@ async function scanById(store, state, deadline) {
     state.bdTotal = state.maxId; // rough; real member count is state.totals.members
     state.nextId = 1;
     await store.set(KEY_PROGRESS, JSON.stringify(state));
+  } else if (state.maxId < ID_CEILING) {
+    // ⚠️ mmb-v34: the stored checkpoint was capped at the OLD ceiling (3950). Raise it
+    // to the new ceiling so the resumed scan climbs past 3950 to read members 3951-4315
+    // that were never seen. Without this, `while (nextId <= maxId)` stops at 3950 forever.
+    log("scan maxId was", state.maxId, "- raising to new ceiling", ID_CEILING, "to read newer members");
+    state.maxId = ID_CEILING;
+    await store.set(KEY_PROGRESS, JSON.stringify(state));
   }
 
   while (state.nextId <= state.maxId) {
@@ -657,6 +664,14 @@ async function build(opts) {
       // no empty-id dead zone, and the newest signups are always in the window.
       const cacheForTop = await loadZipCache(store);
       let topId = (cacheForTop.__topId && cacheForTop.__topId > 0) ? cacheForTop.__topId : 0;
+      // ⚠️ mmb-v34: a cached top of 3950 (the OLD ceiling) is stale — it was capped by
+      // the old ID_CEILING, not the real top. Distrust any cached top at/above 3900 but
+      // below the new ceiling, and force a fresh discovery so we find the real top (4315+).
+      if (topId >= 3900 && topId < ID_CEILING - 100) {
+        log("tail: cached top", topId, "looks stale (old ceiling). Forcing rediscovery.");
+        topId = 0;
+        delete cacheForTop.__topId;
+      }
 
       const tailDeadline = started + Math.min(6000, TIME_BUDGET_MS - 1000);  // v32: give the tail more of the wake
 
@@ -1028,5 +1043,3 @@ exports.handler = async (event) => {
     return json(500, { _v: FN_VERSION, ok: false, error: e.message });
   }
 };
-
-
