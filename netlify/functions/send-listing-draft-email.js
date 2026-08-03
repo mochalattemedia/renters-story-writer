@@ -1,10 +1,48 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v13  (2026-07-17)
-//  Emails a landlord when a listing is set back to draft; keeps a per-listing
-//  status; includes a one-time BD content-API probe (?probePost).
+//  FN_VERSION: slde-v14  (2026-07-17)
+//
+//  Emails a LANDLORD when a listing is set back to draft for not meeting the
+//  photo standard, AND keeps a per-listing "what's missing" status so the
+//  listings page can be annotated without opening each one.
+//
+//  Changelog
+//   slde-v12 Jul 17  Two sections: POST accepts `listingReasons` and
+//                    `profileReasons` (plus `missing`). Email renders a
+//                    "On your listing" callout and an "On your profile" callout
+//                    separately, then the full standard photo checklist. Status
+//                    logs the combined items. `reasons` still accepted (treated
+//                    as listing) for back-compat.
+//   slde-v11 Jul 17  Preview mode: POST { preview:true, reasons, missing } returns
+//                    the rendered { subject, html, text } WITHOUT sending, so the
+//                    bookmarklet can show an in-panel email preview before send.
+//   slde-v10 Jul 17  Email now ALWAYS shows the full standard checklist; ticked
+//                    reasons appear as a highlighted "on your listing
+//                    specifically" callout above it (both, not either/or). The
+//                    per-listing status still logs just the ticked specifics.
+//   slde-v9  Jul 17  Per-listing status tracker. POST accepts `postId` (the
+//                    "ID:" on the listing row) and logs {items, date, to} to a
+//                    Netlify Blob index (store "listing-status", key "index").
+//                    New `saveOnly:true` logs the status WITHOUT sending an
+//                    email. New GET `?statuses=1` returns the whole index for
+//                    the list-page overlay bookmarklet.
+//   slde-v8  Jul 17  Member-ID lookup via BD /user/get/{id} + BD_API_KEY.
+//   slde-v7  Jul 17  Dropped listing-title from copy; sender verify@renters.com.
+//   slde-v6  Jul 17  BCC every send to LISTING_EMAIL_BCC (default kenny@).
+//   slde-v5  Jul 17  Reason checkboxes.
+//   slde-v4  Jul 17  Security hardening.
+//   slde-v3/2/1      Template, SDK rewrite, first cut.
+//
+//  ENV: SES_* · LISTING_EMAIL_ADMIN_KEY · LISTING_EMAIL_SENDER (verify@) ·
+//       LISTING_EMAIL_BCC (kenny@) · EDIT_LISTING_URL · BD_API_KEY.
+//  Blob: uses @netlify/blobs (already a dependency) — store "listing-status".
+//
+//  ENDPOINTS
+//   GET ?version=1   -> config probe
+//   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
+//   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v13";
+const FN_VERSION = "slde-v14";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -53,6 +91,7 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ab, bb);
 }
 
+// ---- per-listing status index (Netlify Blob) --------------------------------
 function statusStore() { return require("@netlify/blobs").getStore("listing-status"); }
 async function readStatusIndex() {
   try { return (await statusStore().get("index", { type: "json" })) || {}; }
@@ -68,6 +107,7 @@ async function writeStatus(postId, entry) {
   } catch (e) { console.error("[slde] status write failed: " + (e && e.message)); return false; }
 }
 
+// ---- BD member lookup -------------------------------------------------------
 function bdGetMember(id) {
   return new Promise(function (resolve) {
     const key = process.env.BD_API_KEY;
@@ -113,6 +153,71 @@ function bdRawGet(path) {
   });
 }
 
+// ---- automatic scan: read a listing (photos + details) from BD --------------
+function bdGetListing(id) {
+  return new Promise(function (resolve) {
+    const key = process.env.BD_API_KEY;
+    if (!key) return resolve({ error: "no_bd_key" });
+    const req = https.request({ host: "www.renters.com", path: "/api/v2/users_portfolio_groups/get/" + encodeURIComponent(String(id).trim()), method: "GET", headers: { "X-Api-Key": key, Accept: "application/json" } }, function (res) {
+      if (res.statusCode >= 300 && res.statusCode < 400) { res.resume(); return resolve({ error: "redirect_" + res.statusCode }); }
+      var data = "";
+      res.on("data", function (c) { data += c; });
+      res.on("end", function () {
+        try {
+          const j = JSON.parse(data);
+          const rec = Array.isArray(j.message) ? j.message[0] : null;
+          if (!rec) return resolve({ error: "no_record" });
+          const photos = (rec.users_portfolio || []).map(function (p) { return p.file_main_full_url; }).filter(Boolean);
+          resolve({ listing: rec, photos: photos, user: rec.user || {} });
+        } catch (e) { resolve({ error: "parse_error", raw: String(data).slice(0, 200) }); }
+      });
+    });
+    req.on("error", function (e) { resolve({ error: String(e && e.message) }); });
+    req.end();
+  });
+}
+
+// ---- automatic scan: judge the photos with Claude vision --------------------
+function anthropicAssess(listing, photos) {
+  return new Promise(function (resolve) {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) return resolve({ error: "no_anthropic_key" });
+    const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+    const beds = listing.property_beds || "?";
+    const baths = listing.property_baths || "?";
+    const ptype = listing.property_type || "home";
+    const desc = String(listing.group_desc || "").replace(/<[^>]+>/g, " ").slice(0, 700);
+    const content = [];
+    content.push({ type: "text", text:
+      "You review a rental listing's photos against a publishing standard. Property: " + ptype + ", " + beds + " bed / " + baths + " bath. Description: " + desc + "\n\n"
+      + "The standard requires clear, well-lit photos of: the living area, EACH bedroom (there should be " + beds + "), the kitchen, EACH bathroom, the outside/exterior, and any shared spaces the description mentions (laundry, common areas, parking). "
+      + "Looking only at the photos, decide which of these are NOT clearly shown, and whether any photos are too dark/blurry/low-quality or clearly not of this property.\n\n"
+      + "Return ONLY compact JSON, no prose: {\"missing\":[\"A photo of the kitchen\",\"Photos of each bathroom\"],\"quality\":\"ok\",\"notes\":\"one short sentence\"}. "
+      + "Phrase missing items the way a landlord should read them. If nothing is missing, use an empty array and quality \"ok\"."
+    });
+    (photos || []).slice(0, 12).forEach(function (u) { content.push({ type: "image", source: { type: "url", url: u } }); });
+    const bodyStr = JSON.stringify({ model: model, max_tokens: 600, messages: [{ role: "user", content: content }] });
+    const req = https.request({ host: "api.anthropic.com", path: "/v1/messages", method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", "Content-Length": Buffer.byteLength(bodyStr) } }, function (res) {
+      var data = "";
+      res.on("data", function (c) { data += c; });
+      res.on("end", function () {
+        try {
+          const j = JSON.parse(data);
+          if (j.error) return resolve({ error: "anthropic_" + (j.error.type || "err"), detail: j.error.message });
+          const txt = (j.content && j.content[0] && j.content[0].text) || "";
+          var parsed = null;
+          try { parsed = JSON.parse(txt.replace(/^```json\s*|\s*```$/g, "").trim()); } catch (e2) {}
+          resolve({ model: model, raw: txt, parsed: parsed });
+        } catch (e) { resolve({ error: "parse_error", raw: String(data).slice(0, 400) }); }
+      });
+    });
+    req.on("error", function (e) { resolve({ error: String(e && e.message) }); });
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+// ---- email content ----------------------------------------------------------
 const STANDARD_ITEMS = [
   "<strong style='color:#0d2d4e;'>Every room inside</strong> &mdash; the living area and each bedroom",
   "<strong style='color:#0d2d4e;'>The kitchen</strong>",
@@ -131,6 +236,7 @@ function checklistRows(items) {
       + "<td style='padding:0 0 10px 0;font-size:14px;color:#4a5a6a;line-height:1.55;'>" + it + "</td></tr>";
   }).join("");
 }
+// Reasons ticked + optional free-text "other", as a plain-string list.
 function pickedItems(reasons, missing) {
   const picked = [];
   (Array.isArray(reasons) ? reasons : []).forEach(function (r) { r = String(r == null ? "" : r).trim(); if (r) picked.push(r); });
@@ -156,6 +262,7 @@ function buildEmail({ name, listingUrl, listingPicked, profilePicked }) {
     specificHtml += callout("On your profile, please add or complete:", profilePicked, "#0c4a6e", "#eff6ff", "#bfdbfe");
     specificText += "On your profile, please add or complete:\n" + profilePicked.map(function (i) { return "- " + i; }).join("\n") + "\n\n";
   }
+  // ...and ALWAYS the full standard photo checklist beneath.
   var standardHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>Every live listing needs clear, well-lit photos of the whole property:</p>"
     + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(STANDARD_ITEMS) + "</table>";
   var standardText = "Every live listing needs clear, well-lit photos of the whole property:\n" + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n";
@@ -215,6 +322,7 @@ exports.handler = async function (event) {
     return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
   }
 
+  // [DIAGNOSTIC] Feasibility probe: can BD return a listing/post (with photos) via API?
   if (body.probePost) {
     const pid2 = String(body.probePost).trim();
     const cands = ["/api/v2/content/get/" + pid2, "/api/v2/post/get/" + pid2, "/api/v2/listing/get/" + pid2, "/api/v2/portfolio/get/" + pid2, "/api/v2/user_portfolio/get/" + pid2, "/api/v2/content/get?content_id=" + pid2, "/api/v2/posts/get/" + pid2];
@@ -223,25 +331,43 @@ exports.handler = async function (event) {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ probePost: pid2, results: results }, null, 2) };
   }
 
+  // [STAGE 1] Scan one listing: read its photos from BD, judge with Claude, return the verdict.
+  if (body.scanPost) {
+    const sid = String(body.scanPost).trim();
+    const L = await bdGetListing(sid);
+    if (L.error) return { statusCode: 502, headers: corsHeaders, body: JSON.stringify({ error: "listing fetch failed", detail: L.error }) };
+    const a = await anthropicAssess(L.listing, L.photos);
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+      scanPost: sid, name: L.listing.group_name, group_status: L.listing.group_status,
+      beds: L.listing.property_beds, baths: L.listing.property_baths, type: L.listing.property_type,
+      photoCount: L.photos.length, landlordEmail: (L.user && L.user.email) || null,
+      assessment: a,
+    }, null, 2) };
+  }
+
   const postId = String(body.postId || "").trim();
   const saveOnly = !!body.saveOnly;
+  // Listing section (accepts legacy `reasons` too) + Profile section.
   const listingSrc = body.listingReasons != null ? body.listingReasons : body.reasons;
   const listingPicked = pickedItems(listingSrc, body.missing);
   const profilePicked = pickedItems(body.profileReasons, null);
-  const picked = listingPicked.concat(profilePicked);
+  const picked = listingPicked.concat(profilePicked); // combined, for the status log/tracker
   const nowISO = new Date().toISOString();
 
+  // Preview: render the email and return it, without sending or requiring a recipient.
   if (body.preview === true) {
     const pv = buildEmail({ name: body.name, listingUrl: body.listingUrl, listingPicked: listingPicked, profilePicked: profilePicked });
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, preview: true, subject: pv.subject, html: pv.html, text: pv.text }) };
   }
 
+  // Save-only: record the listing's status without emailing anyone.
   if (saveOnly) {
     if (!postId) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "postId required to save a status" }) };
     await writeStatus(postId, { items: picked, date: nowISO, to: null });
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, saved: true, postId: postId, items: picked }) };
   }
 
+  // Send path: resolve recipient (memberId lookup or typed email).
   let email = String(body.email || "").trim();
   let name = body.name;
   if ((!email || !name) && body.memberId != null && String(body.memberId).trim()) {
