@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v30
+// FN_VERSION: mmb-v31
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v30";
+const FN_VERSION = "mmb-v31";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -637,31 +637,66 @@ async function build(opts) {
   if (!warmOnly) {
     try {
       if (!state.signups) state.signups = {};
-      // ⚠️ mmb-v30 FIX. v28 anchored the tail to state.highestIdSeen + 40. But
-      // highestIdSeen only advances as the MAIN scan walks ids, and the tail runs at
-      // the START of a wake, before the scan advances. So if members signed up AFTER
-      // the last full scan reached the top, their ids were never seen, highestIdSeen
-      // was stale, and the tail anchored BELOW them — counting new7:0 forever. The
-      // tail must not depend on the main scan's progress at all.
+      // ⚠️ mmb-v31 FIX. v30 probed downward from ID_CEILING (3950), but the top ~460
+      // ids (3491..3950) are EMPTY — above every real member. At 300ms each, the tail
+      // deadline (~4.5s) burned out after ~13 empty ids near 3950 and NEVER reached a
+      // real member at 3491. So new7 stayed 0. (The mock passed because it packed
+      // members up near the ceiling; production has a dead zone the tail couldn't cross.)
       //
-      // v30: ALWAYS probe downward from the ceiling. The ceiling (3950) is safely
-      // above the real top (~3500), so sweeping down from it always reaches the newest
-      // members regardless of where the main scan sits. We keep going until we have
-      // seen TAIL_REFRESH *real* members (not just ids), so gaps of deleted ids at the
-      // top don't cut the sweep short. Also update highestIdSeen when we find members
-      // up here, so the incremental cycle boundary stays correct too.
-      const tailDeadline = started + Math.min(4500, TIME_BUDGET_MS - 1000);
-      let realSeen = 0;
-      for (let id = ID_CEILING; id >= 1 && realSeen < TAIL_REFRESH; id--) {
-        if (Date.now() > tailDeadline) break;
-        const m = await fetchMemberById(id);
-        if (m) {
-          realSeen++;
-          if (id > (state.highestIdSeen || 0)) state.highestIdSeen = id;
-          const ms = signupMs(m.signup_date);
-          if (ms !== null) state.signups[id] = ms;
+      // v31: find the REAL top id ONCE via a coarse downward probe (big steps, cheap),
+      // cache it in the persistent zipcache blob under __topId, then sweep a tight
+      // window DOWN FROM the real top. So every wake reads real members immediately,
+      // no empty-id dead zone, and the newest signups are always in the window.
+      const cacheForTop = await loadZipCache(store);
+      let topId = (cacheForTop.__topId && cacheForTop.__topId > 0) ? cacheForTop.__topId : 0;
+
+      const tailDeadline = started + Math.min(5000, TIME_BUDGET_MS - 1000);
+
+      // (Re)discover the real top id occasionally: coarse probe down from the ceiling in
+      // big steps to find the neighborhood of the highest real member, then step up to
+      // the exact top. Cheap: ~a dozen calls. Do it when unknown or every ~30 wakes.
+      const needTopScan = !topId || ((state.chain || 0) % 30 === 0);
+      if (needTopScan) {
+        let found = 0;
+        // coarse: step down by 25 until we hit a real member
+        for (let id = ID_CEILING; id >= 1; id -= 25) {
+          if (Date.now() > tailDeadline) break;
+          const m = await fetchMemberById(id);
+          await sleep(REQUEST_DELAY_MS);
+          if (m) { found = id; break; }
         }
-        await sleep(REQUEST_DELAY_MS);
+        // fine: from there, step UP to the true highest real id
+        if (found) {
+          let top = found;
+          for (let id = found + 1; id <= ID_CEILING; id++) {
+            if (Date.now() > tailDeadline) break;
+            const m = await fetchMemberById(id);
+            await sleep(REQUEST_DELAY_MS);
+            if (m) top = id;
+          }
+          topId = top;
+          cacheForTop.__topId = topId;
+          await store.set(KEY_ZIPCACHE, JSON.stringify(cacheForTop));
+          log("tail: discovered real top id =", topId);
+        }
+      }
+
+      // Now sweep DOWN FROM the real top, reading real members and refreshing their
+      // signup timestamps, until we have TAIL_REFRESH real members or run out of time.
+      if (topId > 0) {
+        let realSeen = 0;
+        for (let id = topId; id >= 1 && realSeen < TAIL_REFRESH; id--) {
+          if (Date.now() > tailDeadline) break;
+          const m = await fetchMemberById(id);
+          if (m) {
+            realSeen++;
+            if (id > (state.highestIdSeen || 0)) state.highestIdSeen = id;
+            const ms = signupMs(m.signup_date);
+            if (ms !== null) state.signups[id] = ms;
+          }
+          await sleep(REQUEST_DELAY_MS);
+        }
+        log("tail: swept", realSeen, "real members from top", topId);
       }
       // republish the snapshot's new7 immediately from refreshed timestamps, so the
       // page sees today's number even if the main scan is mid-incremental-cycle.
