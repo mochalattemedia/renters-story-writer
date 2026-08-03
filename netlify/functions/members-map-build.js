@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v31
+// FN_VERSION: mmb-v33
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v31";
+const FN_VERSION = "mmb-v33";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -349,11 +349,19 @@ async function fetchMemberById(id) {
 // IDs cost one fast 400 each and are simply skipped. New signups above the ceiling
 // get picked up when the ceiling is bumped, but we set it high enough that this is
 // years away.
-const TAIL_REFRESH = 130;  // mmb-v27: every wake, re-read the top N ids to keep recent
+const TAIL_REFRESH = 130;
+const TAIL_WINDOW = 60;   // v32: the tail checks the top 60 ids from the real top each wake, fast (120ms). Enough to catch anyone who joined since the scan last passed the top.  // mmb-v27: every wake, re-read the top N ids to keep recent
                            // signup timestamps current, so "New this week" is accurate
                            // even during incremental cycles. Folded in here instead of a
                            // separate function (a second scheduled fn was getting 403'd).
-const ID_CEILING = 3950;  // mmb-v22: was 4200. Real max id ~3880; no point walking 300+ empty ids at the tail every fill.
+const ID_CEILING = 5200;  // ⚠️ mmb-v33: was 3950 (set in v22 when the top was ~3880).
+                          // The platform grew to 4315 and the ceiling never moved, so the
+                          // scan AND the tail were blind to every member above 3950 — the
+                          // newest ~365, including all recent signups. THAT is why new7
+                          // read 0. Set well above the real top (4315) with headroom for
+                          // growth. Empty ids above the real top cost one fast 400 each and
+                          // the tail's coarse probe skips them in big steps, so headroom is
+                          // cheap. ⚠️ RAISE THIS AGAIN before the member count nears 5200.
 function findMaxId() {
   return ID_CEILING;
 }
@@ -650,12 +658,12 @@ async function build(opts) {
       const cacheForTop = await loadZipCache(store);
       let topId = (cacheForTop.__topId && cacheForTop.__topId > 0) ? cacheForTop.__topId : 0;
 
-      const tailDeadline = started + Math.min(5000, TIME_BUDGET_MS - 1000);
+      const tailDeadline = started + Math.min(6000, TIME_BUDGET_MS - 1000);  // v32: give the tail more of the wake
 
       // (Re)discover the real top id occasionally: coarse probe down from the ceiling in
       // big steps to find the neighborhood of the highest real member, then step up to
       // the exact top. Cheap: ~a dozen calls. Do it when unknown or every ~30 wakes.
-      const needTopScan = !topId || ((state.chain || 0) % 30 === 0);
+      const needTopScan = !topId || ((state.chain || 0) % 60 === 0);  // v32: rediscover rarely; reuse cached top so the sweep gets the full budget
       if (needTopScan) {
         let found = 0;
         // coarse: step down by 25 until we hit a real member
@@ -683,20 +691,26 @@ async function build(opts) {
 
       // Now sweep DOWN FROM the real top, reading real members and refreshing their
       // signup timestamps, until we have TAIL_REFRESH real members or run out of time.
+      // v32: sweep the top TAIL_WINDOW ids fast. This only needs to catch members who
+      // joined since the main scan last passed the top; the scan fills in everyone else.
+      // A short serial burst at 120ms is well under BD's throttle (proven: bursts only
+      // trip it above sustained parallel load).
       if (topId > 0) {
-        let realSeen = 0;
-        for (let id = topId; id >= 1 && realSeen < TAIL_REFRESH; id--) {
+        const TAIL_PACE = 120;
+        let realSeen = 0, idsChecked = 0;
+        for (let id = topId; id >= 1 && idsChecked < TAIL_WINDOW; id--) {
           if (Date.now() > tailDeadline) break;
           const m = await fetchMemberById(id);
+          idsChecked++;
           if (m) {
             realSeen++;
             if (id > (state.highestIdSeen || 0)) state.highestIdSeen = id;
             const ms = signupMs(m.signup_date);
             if (ms !== null) state.signups[id] = ms;
           }
-          await sleep(REQUEST_DELAY_MS);
+          await sleep(TAIL_PACE);
         }
-        log("tail: swept", realSeen, "real members from top", topId);
+        log("tail: swept", realSeen, "real members across", idsChecked, "ids from top", topId);
       }
       // republish the snapshot's new7 immediately from refreshed timestamps, so the
       // page sees today's number even if the main scan is mid-incremental-cycle.
