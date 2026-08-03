@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v14  (2026-07-17)
+//  FN_VERSION: slde-v15  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v14";
+const FN_VERSION = "slde-v15";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -167,12 +167,56 @@ function bdGetListing(id) {
           const j = JSON.parse(data);
           const rec = Array.isArray(j.message) ? j.message[0] : null;
           if (!rec) return resolve({ error: "no_record" });
-          const photos = (rec.users_portfolio || []).map(function (p) { return p.file_main_full_url; }).filter(Boolean);
+          const photos = (rec.users_portfolio || []).map(function (p) { return p.file_thumbnail_full_url || p.file_main_full_url; }).filter(Boolean);
           resolve({ listing: rec, photos: photos, user: rec.user || {} });
         } catch (e) { resolve({ error: "parse_error", raw: String(data).slice(0, 200) }); }
       });
     });
     req.on("error", function (e) { resolve({ error: String(e && e.message) }); });
+    req.end();
+  });
+}
+
+// ---- download one image server-side and return it as base64 (+ media type) --
+// Claude's URL fetcher can't reach draft photos, so the function pulls the bytes
+// itself and hands Claude base64 instead. Follows one redirect; caps the size.
+function fetchImageB64(url, redirectsLeft) {
+  return new Promise(function (resolve) {
+    if (redirectsLeft == null) redirectsLeft = 3;
+    var u;
+    try { u = new URL(url); } catch (e) { return resolve(null); }
+    const opts = { host: u.hostname, path: u.pathname + (u.search || ""), method: "GET", headers: { Accept: "image/*" } };
+    const req = https.request(opts, function (res) {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
+        res.resume();
+        var next = res.headers.location;
+        try { next = new URL(next, url).toString(); } catch (e) {}
+        return resolve(fetchImageB64(next, redirectsLeft - 1));
+      }
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+      var ct = String(res.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
+      if (!/^image\//.test(ct)) ct = "";
+      var chunks = [], total = 0, aborted = false;
+      res.on("data", function (c) {
+        total += c.length;
+        if (total > 5 * 1024 * 1024) { aborted = true; res.destroy(); return; }
+        chunks.push(c);
+      });
+      res.on("end", function () {
+        if (aborted || !chunks.length) return resolve(null);
+        const buf = Buffer.concat(chunks);
+        var media = ct;
+        if (!media) {
+          if (/\.png(\?|$)/i.test(url)) media = "image/png";
+          else if (/\.gif(\?|$)/i.test(url)) media = "image/gif";
+          else if (/\.webp(\?|$)/i.test(url)) media = "image/webp";
+          else media = "image/jpeg";
+        }
+        resolve({ media_type: media, data: buf.toString("base64") });
+      });
+    });
+    req.on("error", function () { resolve(null); });
+    req.setTimeout(15000, function () { req.destroy(); resolve(null); });
     req.end();
   });
 }
@@ -187,6 +231,10 @@ function anthropicAssess(listing, photos) {
     const baths = listing.property_baths || "?";
     const ptype = listing.property_type || "home";
     const desc = String(listing.group_desc || "").replace(/<[^>]+>/g, " ").slice(0, 700);
+    const urls = (photos || []).slice(0, 12);
+    Promise.all(urls.map(function (u) { return fetchImageB64(u); })).then(function (imgs) {
+    const usable = imgs.filter(Boolean);
+    if (!usable.length) return resolve({ error: "no_images_fetched", detail: "Could not download any of the " + urls.length + " photo URLs.", tried: urls.length });
     const content = [];
     content.push({ type: "text", text:
       "You review a rental listing's photos against a publishing standard. Property: " + ptype + ", " + beds + " bed / " + baths + " bath. Description: " + desc + "\n\n"
@@ -195,7 +243,7 @@ function anthropicAssess(listing, photos) {
       + "Return ONLY compact JSON, no prose: {\"missing\":[\"A photo of the kitchen\",\"Photos of each bathroom\"],\"quality\":\"ok\",\"notes\":\"one short sentence\"}. "
       + "Phrase missing items the way a landlord should read them. If nothing is missing, use an empty array and quality \"ok\"."
     });
-    (photos || []).slice(0, 12).forEach(function (u) { content.push({ type: "image", source: { type: "url", url: u } }); });
+    usable.forEach(function (img) { content.push({ type: "image", source: { type: "base64", media_type: img.media_type, data: img.data } }); });
     const bodyStr = JSON.stringify({ model: model, max_tokens: 600, messages: [{ role: "user", content: content }] });
     const req = https.request({ host: "api.anthropic.com", path: "/v1/messages", method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", "Content-Length": Buffer.byteLength(bodyStr) } }, function (res) {
       var data = "";
@@ -207,13 +255,14 @@ function anthropicAssess(listing, photos) {
           const txt = (j.content && j.content[0] && j.content[0].text) || "";
           var parsed = null;
           try { parsed = JSON.parse(txt.replace(/^```json\s*|\s*```$/g, "").trim()); } catch (e2) {}
-          resolve({ model: model, raw: txt, parsed: parsed });
+          resolve({ model: model, raw: txt, parsed: parsed, imagesUsed: usable.length, imagesTried: urls.length });
         } catch (e) { resolve({ error: "parse_error", raw: String(data).slice(0, 400) }); }
       });
     });
     req.on("error", function (e) { resolve({ error: String(e && e.message) }); });
     req.write(bodyStr);
     req.end();
+    });
   });
 }
 
