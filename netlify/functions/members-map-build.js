@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v36
+// FN_VERSION: mmb-v37
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v36";
+const FN_VERSION = "mmb-v37";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -354,7 +354,7 @@ const TAIL_WINDOW = 60;   // v32: the tail checks the top 60 ids from the real t
                            // signup timestamps current, so "New this week" is accurate
                            // even during incremental cycles. Folded in here instead of a
                            // separate function (a second scheduled fn was getting 403'd).
-const ID_CEILING = 5200;  // ⚠️ mmb-v33: was 3950 (set in v22 when the top was ~3880).
+const ID_CEILING = 6000;  // ⚠️ v37: raised to 6000. Real top is 4315; keep well clear.
                           // The platform grew to 4315 and the ceiling never moved, so the
                           // scan AND the tail were blind to every member above 3950 — the
                           // newest ~365, including all recent signups. THAT is why new7
@@ -649,6 +649,24 @@ async function build(opts) {
   // runaway to guard against — each wake is one bounded batch that exits on its own.
   state.chain = (state.chain || 0) + 1;
 
+  // ⚠️ mmb-v37 SELF-HEAL. A checkpoint written under the old 3950 ceiling gets wedged:
+  // its maxId is 3950 and nextId sits in the 3900s, so it churns without completing and
+  // never picks up the newer members. If we detect that shape, reset the PROGRESS to a
+  // clean full scan (id 1..new ceiling). The zip cache is a SEPARATE blob and is NOT
+  // touched, so this costs no geocoding — members are just re-read from BD (free).
+  if (!fresh && state.maxId && state.maxId < ID_CEILING - 100 && (state.nextId || 0) > state.maxId - 400) {
+    log("SELF-HEAL: checkpoint wedged at old ceiling (maxId " + state.maxId + ", nextId " +
+        state.nextId + "). Resetting progress to a clean full scan. Zip cache preserved.");
+    const carriedSignups = state.signups || {};   // keep signup timestamps we already learned
+    const fresh2 = emptyState();
+    fresh2.signups = carriedSignups;
+    fresh2.maxId = ID_CEILING;
+    fresh2.nextId = 1;
+    fresh2.chain = state.chain;
+    Object.assign(state, fresh2);
+    await store.set(KEY_PROGRESS, JSON.stringify(state));
+  }
+
   // ---- mmb-v27: TAIL REFRESH — keep "New this week" live without a second function.
   // New members hold the highest ids. Each wake, re-read the top TAIL_REFRESH ids and
   // refresh their signup timestamps in state.signups, so buildSnapshotFromState's
@@ -672,8 +690,11 @@ async function build(opts) {
       // ⚠️ mmb-v34: a cached top of 3950 (the OLD ceiling) is stale — it was capped by
       // the old ID_CEILING, not the real top. Distrust any cached top at/above 3900 but
       // below the new ceiling, and force a fresh discovery so we find the real top (4315+).
-      if (topId >= 3900 && topId < ID_CEILING - 100) {
-        log("tail: cached top", topId, "looks stale (old ceiling). Forcing rediscovery.");
+      // v37: only distrust the SPECIFIC old ceiling (3950), not any high id. Earlier
+      // this fired on a valid rediscovered top (4315) too, causing a needless re-probe
+      // every wake. A real top just below the ceiling is fine; only 3950 is the stale one.
+      if (topId === 3950) {
+        log("tail: cached top 3950 is the old ceiling. Forcing one rediscovery.");
         topId = 0;
         delete cacheForTop.__topId;
       }
