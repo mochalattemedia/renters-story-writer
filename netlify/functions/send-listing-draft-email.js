@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v18  (2026-07-17)
+//  FN_VERSION: slde-v19  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v18";
+const FN_VERSION = "slde-v19";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -117,6 +117,25 @@ async function mergeStatus(postId, patch) {
     await store.setJSON("index", idx);
     return true;
   } catch (e) { console.error("[slde] status merge failed: " + (e && e.message)); return false; }
+}
+
+// Record that a landlord was emailed about a listing: bump the count, stamp the
+// date, append to a capped log — WITHOUT wiping the auto-scan verdict.
+async function recordNotification(postId, info) {
+  try {
+    const store = statusStore();
+    const idx = (await store.get("index", { type: "json" })) || {};
+    const cur = idx[String(postId)] || {};
+    const log = Array.isArray(cur.notifyLog) ? cur.notifyLog.slice(-9) : [];
+    log.push({ date: info.date, to: info.to || null, items: info.items || [] });
+    const count = (cur.notifyCount || 0) + 1;
+    idx[String(postId)] = Object.assign({}, cur, {
+      items: info.items || cur.items || [], date: info.date, to: info.to || null,
+      notifyCount: count, lastNotified: info.date, notifyLog: log,
+    });
+    await store.setJSON("index", idx);
+    return count;
+  } catch (e) { console.error("[slde] notify record failed: " + (e && e.message)); return null; }
 }
 
 // ---- BD member lookup -------------------------------------------------------
@@ -462,16 +481,24 @@ exports.handler = async function (event) {
     const listingGaps = assessListingFields(L.listing);
     const profileGaps = assessProfile(L.user);
     const aiOk = !!(a && a.parsed);
+    // Landlord, so the tracker can email them their gaps in one click.
+    const uid = String((L.listing && (L.listing.user_id || L.listing.logged_user)) || (L.user && (L.user.user_id || L.user.id)) || "").trim();
+    var lname = "";
+    if (L.user) { lname = [L.user.first_name, L.user.last_name].filter(Boolean).join(" ").trim(); if (!lname && L.user.company) lname = String(L.user.company).trim(); }
     // Persist the verdict so the tracker badges fill in automatically. Merge, so
     // it never clobbers a manual "notified" record — it only updates `auto`.
-    const saved = await mergeStatus(sid, { auto: {
-      photo: photoGaps, listing: listingGaps, profile: profileGaps,
-      items: photoGaps.concat(listingGaps, profileGaps),
-      photoError: aiOk ? "" : ((a && (a.error || a.detail)) || "photo_scan_failed"),
-      notes: (a && a.parsed && a.parsed.notes) || "", quality: (a && a.parsed && a.parsed.quality) || "",
-      date: new Date().toISOString(), group_status: L.listing.group_status,
-      beds: L.listing.property_beds, baths: L.listing.property_baths, photoCount: L.photos.length,
-    } });
+    const saved = await mergeStatus(sid, {
+      listingName: L.listing.group_name,
+      landlord: { userId: uid, email: (L.user && L.user.email) || "", name: lname },
+      auto: {
+        photo: photoGaps, listing: listingGaps, profile: profileGaps,
+        items: photoGaps.concat(listingGaps, profileGaps),
+        photoError: aiOk ? "" : ((a && (a.error || a.detail)) || "photo_scan_failed"),
+        notes: (a && a.parsed && a.parsed.notes) || "", quality: (a && a.parsed && a.parsed.quality) || "",
+        date: new Date().toISOString(), group_status: L.listing.group_status,
+        beds: L.listing.property_beds, baths: L.listing.property_baths, photoCount: L.photos.length,
+      },
+    });
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
       scanPost: sid, name: L.listing.group_name, group_status: L.listing.group_status,
       beds: L.listing.property_beds, baths: L.listing.property_baths, type: L.listing.property_type,
@@ -496,10 +523,11 @@ exports.handler = async function (event) {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, preview: true, subject: pv.subject, html: pv.html, text: pv.text }) };
   }
 
-  // Save-only: record the listing's status without emailing anyone.
+  // Save-only: record the listing's status without emailing anyone. Merge so it
+  // keeps the auto-scan verdict and notify history intact.
   if (saveOnly) {
     if (!postId) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "postId required to save a status" }) };
-    await writeStatus(postId, { items: picked, date: nowISO, to: null });
+    await mergeStatus(postId, { items: picked, date: nowISO, to: null });
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, saved: true, postId: postId, items: picked }) };
   }
 
@@ -525,9 +553,10 @@ exports.handler = async function (event) {
 
   try {
     const res = await ses.send(command);
-    if (postId) await writeStatus(postId, { items: picked, date: nowISO, to: email });
+    var notifyCount = null;
+    if (postId) notifyCount = await recordNotification(postId, { items: picked, date: nowISO, to: email });
     console.log("[slde] sent to " + email + (postId ? " (listing " + postId + ")" : "") + " MessageId=" + (res && res.MessageId));
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, _v: FN_VERSION, email, postId: postId || null, messageId: (res && res.MessageId) || null }) };
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, _v: FN_VERSION, email, postId: postId || null, notifyCount: notifyCount, messageId: (res && res.MessageId) || null }) };
   } catch (err) {
     console.error("[slde] SES error:", err);
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to send email", details: err.message }) };
