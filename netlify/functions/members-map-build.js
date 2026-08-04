@@ -1,7 +1,7 @@
 // members-map-build.js
 // Renters.com — Live Members Map (Element T) — the nightly snapshot builder.
 //
-// FN_VERSION: mmb-v38
+// FN_VERSION: mmb-v39
 //
 // WHAT IT DOES
 //   Reads every member from BD's bulk list endpoint, reduces them to ZIP COUNTS,
@@ -43,7 +43,13 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmb-v38";
+const FN_VERSION = "mmb-v39";
+// ⚠️ ONE-TIME HARD RESET. When this token differs from what's stored in the Blob, the
+// NEXT run deletes the wedged `progress` checkpoint and the stale `__topId` from the zip
+// cache, then records this token so it never resets again. This is how we clear a stuck
+// state using only the Netlify "Run now" button (no direct URL, no fresh=1, no agent).
+// To force another clean reset in future, bump this string (e.g. "reset-2").
+const RESET_TOKEN = "reset-1";
 // ⚠️ Bump STATE_SCHEMA *only* when the shape of the checkpoint (emptyState) changes.
 // loadProgress keys off THIS, not FN_VERSION. mmb-v20 nuked a 24-hour scan because
 // loadProgress discarded progress whenever FN_VERSION changed — but a code bump that
@@ -1051,6 +1057,29 @@ async function status() {
 
 exports.handler = async (event) => {
   const q = (event && event.queryStringParameters) || {};
+
+  // ⚠️ mmb-v39 ONE-TIME HARD RESET. Runs on ANY invocation (including the scheduled
+  // "Run now" path, which takes no query string). Clears the wedged progress + stale
+  // cached top exactly once per RESET_TOKEN, then proceeds normally.
+  try {
+    const rstore = rdcStore(BLOB_STORE);
+    let done = null;
+    try { done = await rstore.get("reset-token"); } catch (e) {}
+    if (done !== RESET_TOKEN) {
+      // wipe the wedged checkpoint entirely
+      try { await rstore.set(KEY_PROGRESS, JSON.stringify(emptyState())); } catch (e) {}
+      // strip the stale top id from the zip cache (keep the geocoded zips themselves)
+      try {
+        const zc = JSON.parse(await rstore.get(KEY_ZIPCACHE)) || {};
+        delete zc.__topId;
+        await rstore.set(KEY_ZIPCACHE, JSON.stringify(zc));
+      } catch (e) {}
+      await rstore.set("reset-token", RESET_TOKEN);
+      log("HARD RESET applied for token " + RESET_TOKEN + ": wiped progress, cleared stale top. Fresh scan begins now.");
+    }
+  } catch (e) {
+    log("hard reset step skipped:", e.message);
+  }
 
   if (q.version) {
     return json(200, {
