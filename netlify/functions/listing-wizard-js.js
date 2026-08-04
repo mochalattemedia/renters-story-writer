@@ -1,4 +1,4 @@
-// lw-v53  <-- PASTE CHECK: this is the version. Must match ?version=1
+// lw-v54  <-- PASTE CHECK: this is the version. Must match ?version=1
 // =====================================================================
 // RENTERS.COM - LISTING WIZARD  ·  listing-wizard-js.js
 // =====================================================================
@@ -1095,12 +1095,12 @@
 //                      version; they layer on top.
 // =====================================================================
 
-const LW_VERSION = "lw-v53";
+const LW_VERSION = "lw-v54";
 
 const WIZARD = String.raw`(function () {
   "use strict";
 
-  var LW_VERSION = "lw-v53";
+  var LW_VERSION = "lw-v54";
   var DEBUG = false;
 
   // =============================================================
@@ -2238,6 +2238,10 @@ const WIZARD = String.raw`(function () {
     h += "</div>";
     for (var i = 0; i < STEPS.length; i++) h += stepHTML(STEPS[i], i);
     h += "</div><div class='lw-esc' id='lw-esc-line'></div>";
+    // lw-v54: permanent escape hatch. Rendered once, outside the step body,
+    // so it survives every re-render and is present on every step.
+    h += "<div class='lw-esc' id='lw-esc-perm'>Prefer to fill this out yourself? " +
+         "<a data-act='shownative'>Open the full form</a></div>";
     return h;
   }
 
@@ -3011,11 +3015,15 @@ const WIZARD = String.raw`(function () {
       n.className = "show";
       if (card) card.style.display = "none";
       setEscLabel("<a data-act='usewizard'>Back to the guided steps</a>");
+      var permOn = document.getElementById("lw-esc-perm");
+      if (permOn) permOn.style.display = "none";   // lw-v54
       return;
     }
 
     if (card) card.style.display = "";
     setEscLabel("");
+    var permOff = document.getElementById("lw-esc-perm");
+    if (permOff) permOff.style.display = "";       // lw-v54
 
     if (mode === "address") {
       if (relocateAddressWidget()) { n.className = ""; return; }
