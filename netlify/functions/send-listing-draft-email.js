@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v23  (2026-07-17)
+//  FN_VERSION: slde-v24  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v23";
+const FN_VERSION = "slde-v24";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -173,6 +173,13 @@ async function blobSelfTest() {
   try { require("@netlify/blobs"); out.moduleLoaded = true; }
   catch (e) { out.moduleError = (e && e.message) || String(e); return out; }
   out.manualConfig = !!((process.env.BLOBS_SITE_ID || process.env.NETLIFY_SITE_ID || process.env.SITE_ID) && (process.env.BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN));
+  out.envSeen = {
+    BLOBS_SITE_ID: !!process.env.BLOBS_SITE_ID,
+    BLOBS_TOKEN: !!process.env.BLOBS_TOKEN,
+    SITE_ID: !!process.env.SITE_ID,
+    NETLIFY_SITE_ID: !!process.env.NETLIFY_SITE_ID,
+    NETLIFY_API_TOKEN: !!process.env.NETLIFY_API_TOKEN,
+  };
   try {
     const store = statusStore();
     await store.setJSON("selftest", { t: "ok" });
