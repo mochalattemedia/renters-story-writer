@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v24  (2026-07-17)
+//  FN_VERSION: slde-v25  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v24";
+const FN_VERSION = "slde-v25";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -561,6 +561,7 @@ exports.handler = async function (event) {
         photoError: aiOk ? "" : ((a && (a.error || a.detail)) || "photo_scan_failed"),
         notes: (a && a.parsed && a.parsed.notes) || "", quality: (a && a.parsed && a.parsed.quality) || "",
         date: new Date().toISOString(), group_status: L.listing.group_status,
+        created: L.listing.date_updated || "", lastEdit: L.listing.revision_timestamp || "",
         beds: L.listing.property_beds, baths: L.listing.property_baths, photoCount: L.photos.length,
       },
     });
