@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v4
+// alerts-teaser-js.js  —  at-v5
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,14 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v5: LAYOUT. Matches the homepage pattern - a centered primary
+// heading with the concept line beneath it, sitting ABOVE the input card
+// (like the hero and "Featured homes"), rather than a heading crammed
+// inside the card. The card itself is calmer: voice is the clear first
+// action, the form sits under a subtle divider, chips wrap with more
+// breathing room, and the whole thing is centered to the same column as
+// the two cards above. Logic unchanged from at-v4.
 //
 // at-v4: VOICE INTAKE, matching the dashboard (ac-v14). Same browser
 // webkitSpeechRecognition capture, same alerts-voice.js (av-v1) backend,
@@ -55,7 +63,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v4";
+const FN_VERSION = "at-v5";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -114,6 +122,9 @@ const JS = `
     recapLine: "font-size:14px;color:" + NAVY + ";margin:0 0 4px;",
     recapMuted: "font-size:13px;color:#5b6b82;margin:0;",
     back: "background:none;border:0;color:#5b6b82;font-size:13px;cursor:pointer;text-decoration:underline;margin-top:14px;",
+    head: "max-width:1100px;margin:0 auto 22px;text-align:center;",
+    title: "margin:0 0 10px;font-size:clamp(26px,4vw,36px);font-weight:800;color:" + NAVY + ";letter-spacing:-.5px;line-height:1.1;",
+    concept: "margin:0 auto;max-width:560px;font-size:clamp(15px,2vw,17px);color:#5b6b82;line-height:1.5;",
     err: "color:#b3261e;font-size:13px;margin-top:10px;min-height:16px;",
     mic: "background:" + TEAL + ";color:#fff;border:0;border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;",
     ghost: "background:#fff;color:" + NAVY + ";border:1px solid #d7dee8;border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;",
@@ -149,13 +160,18 @@ const JS = `
   function renderForm() {
     if (seededFromVoice && Array.isArray(seed.wants)) { wants = seed.wants.slice(); }
     mount.innerHTML =
+      '<div style="' + S.head + '">' +
+        '<h2 style="' + S.title + '">Find your next place before anyone else</h2>' +
+        '<p style="' + S.concept + '">Tell us what you are looking for. When a verified home matches, we email you. No matches, no email.</p>' +
+      '</div>' +
       '<div style="' + S.card + '">' +
-        '<h3 style="' + S.h + '">Find your next place before anyone else</h3>' +
-        '<p style="' + S.sub + '">Tell us what you are looking for. When a verified home matches, we email you. No matches, no email.</p>' +
         (speechOK()
-          ? '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;">' +
+          ? '<div style="text-align:center;margin-bottom:22px;">' +
               '<button id="rt-voice" type="button" style="' + S.mic + '">🎙 Describe it out loud</button>' +
-              '<span style="align-self:center;font-size:13px;color:#7a8ba1;">or fill in the form below</span>' +
+              '<div style="font-size:13px;color:#9aa8b8;margin-top:12px;position:relative;">' +
+                '<span style="background:#fff;padding:0 12px;position:relative;z-index:1;">or fill in the details</span>' +
+                '<span style="position:absolute;left:0;right:0;top:50%;height:1px;background:#e8edf3;z-index:0;"></span>' +
+              '</div>' +
             '</div>'
           : "") +
         '<div style="margin-bottom:14px;"><span style="' + S.lab + '">Where do you want to live?</span>' +
@@ -201,9 +217,11 @@ const JS = `
   // ---------------- VOICE VIEW ----------------
   function renderVoice() {
     mount.innerHTML =
+      '<div style="' + S.head + '">' +
+        '<h2 style="' + S.title + '">Describe your ideal place</h2>' +
+        '<p style="' + S.concept + '">Talk the way you would tell a friend. Where you want to live, your budget, beds, pets, anything that matters. We turn it into a search you can tweak.</p>' +
+      '</div>' +
       '<div style="' + S.card + '">' +
-        '<h3 style="' + S.h + '">Describe your ideal place</h3>' +
-        '<p style="' + S.sub + '">Talk the way you would tell a friend. Say where you want to live, your budget, beds, pets, anything that matters. We turn it into a search you can tweak.</p>' +
         '<div id="rt-live" style="' + S.live + '">' + (esc(voice.transcript + voice.interim) || '<span style="color:#9aa8b8;">Your words will show up here.</span>') + '</div>' +
         '<div id="rt-vstatus" style="' + S.vstatus + '">' + esc(voice.status) + '</div>' +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
