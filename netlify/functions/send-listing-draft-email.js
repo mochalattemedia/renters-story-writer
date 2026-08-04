@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v20  (2026-07-17)
+//  FN_VERSION: slde-v21  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v20";
+const FN_VERSION = "slde-v21";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -57,7 +57,7 @@ const ses = new SESClient({
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, x-admin-key",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
   "Content-Type": "application/json",
 };
@@ -431,6 +431,11 @@ exports.handler = async function (event) {
 
   if (event.httpMethod === "GET") {
     if (qs.statuses != null) {
+      // Gated: the status feed carries landlord emails, so require the admin key
+      // via the x-admin-key header (not the URL). Callers: dashboard + tracker.
+      const hk = (event.headers && (event.headers["x-admin-key"] || event.headers["X-Admin-Key"])) || "";
+      const ak = process.env.LISTING_EMAIL_ADMIN_KEY || "";
+      if (!ak || !safeEqual(hk, ak)) return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
       const idx = await readStatusIndex();
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(idx) };
     }
