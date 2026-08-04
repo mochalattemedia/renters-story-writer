@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Renters.com — Listing Status Dashboard</title>
+<style>
+  :root { --navy:#0d2d4e; --green:#8dc63f; --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Arial,Helvetica,sans-serif; color:var(--ink); background:#f1f5f9; }
+  header { background:var(--navy); color:#fff; padding:16px 22px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; font-weight:800; letter-spacing:.01em; }
+  header .sp { flex:1; }
+  header button { background:var(--green); color:var(--navy); border:0; border-radius:8px; padding:8px 14px; font-size:14px; font-weight:700; cursor:pointer; }
+  .wrap { max-width:1180px; margin:0 auto; padding:18px 22px 60px; }
+  .stats { display:flex; gap:12px; flex-wrap:wrap; margin:6px 0 16px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 16px; min-width:130px; }
+  .stat .n { font-size:24px; font-weight:800; color:var(--navy); }
+  .stat .l { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+  .controls input[type=text] { padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; min-width:220px; }
+  .filters { display:flex; gap:6px; flex-wrap:wrap; }
+  .filters button { background:#fff; border:1px solid var(--line); border-radius:20px; padding:6px 13px; font-size:13px; cursor:pointer; color:var(--ink); }
+  .filters button.active { background:var(--navy); color:#fff; border-color:var(--navy); }
+  .scanbox { margin-left:auto; display:flex; gap:6px; align-items:center; }
+  .scanbox input { width:110px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+  .scanbox button { background:var(--navy); color:#fff; border:0; border-radius:8px; padding:8px 12px; font-size:13px; font-weight:700; cursor:pointer; }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  thead th { background:#f8fafc; text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); padding:11px 12px; border-bottom:1px solid var(--line); }
+  tbody td { padding:12px; border-bottom:1px solid var(--line); font-size:14px; vertical-align:top; }
+  tbody tr:last-child td { border-bottom:0; }
+  .name { font-weight:700; color:var(--navy); }
+  .idpill { display:inline-block; font-size:11px; color:var(--muted); background:#f1f5f9; border-radius:6px; padding:1px 6px; margin-left:6px; }
+  .tag { display:inline-block; font-size:11px; font-weight:700; border-radius:6px; padding:2px 7px; text-transform:uppercase; letter-spacing:.03em; }
+  .tag.draft { background:#fff7ed; color:#9a3412; border:1px solid #fed7aa; }
+  .tag.live { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
+  .grp { margin:3px 0; font-size:13px; line-height:1.45; }
+  .grp b { text-transform:uppercase; font-size:11px; letter-spacing:.03em; color:var(--navy); }
+  .complete { color:#065f46; font-weight:700; font-size:13px; }
+  .muted { color:var(--muted); }
+  .emailinfo { font-size:12px; color:var(--muted); }
+  .actions { white-space:nowrap; }
+  .actions button { display:block; width:100%; margin-bottom:6px; border:0; border-radius:7px; padding:7px 10px; font-size:12px; font-weight:700; cursor:pointer; }
+  .btn-email { background:var(--navy); color:#fff; }
+  .btn-scan { background:#eef2f5; color:var(--navy); border:1px solid var(--line)!important; }
+  .empty { text-align:center; color:var(--muted); padding:50px 20px; }
+  .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--navy); color:#fff; padding:10px 16px; border-radius:8px; font-size:14px; box-shadow:0 8px 24px rgba(2,6,23,.35); opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+  .updated { font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Renters.com &middot; Listing Status</h1>
+  <span class="sp"></span>
+  <span id="updated" class="updated" style="color:#cbd8e6;"></span>
+  <button id="refresh">Refresh</button>
+</header>
+<div class="wrap">
+  <div class="stats" id="stats"></div>
+  <div class="controls">
+    <input id="search" type="text" placeholder="Search by name or ID…">
+    <div class="filters" id="filters">
+      <button data-f="needs" class="active">Needs work</button>
+      <button data-f="drafts">Drafts</button>
+      <button data-f="notemailed">Not emailed</button>
+      <button data-f="complete">Complete</button>
+      <button data-f="all">All</button>
+    </div>
+    <div class="scanbox">
+      <input id="scanid" type="text" inputmode="numeric" placeholder="Listing ID">
+      <button id="scanbtn">Scan</button>
+    </div>
+  </div>
+  <div id="tablewrap"></div>
+</div>
+<div id="unlock" style="position:fixed;inset:0;background:#0d2d4e;display:flex;align-items:center;justify-content:center;z-index:9999;">
+  <div style="background:#fff;border-radius:12px;padding:26px 28px;width:340px;max-width:92vw;box-shadow:0 20px 50px rgba(2,6,23,.5);">
+    <div style="font-size:17px;font-weight:800;color:#0d2d4e;margin-bottom:6px;">Renters.com &middot; Listing Status</div>
+    <div style="font-size:13px;color:#64748b;margin-bottom:14px;">Enter your access key to continue.</div>
+    <input id="unlockkey" type="password" placeholder="Access key" style="width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px;margin-bottom:6px;">
+    <div id="unlockerr" style="font-size:12px;color:#b91c1c;min-height:16px;margin-bottom:6px;"></div>
+    <button id="unlockbtn" style="width:100%;background:#8dc63f;color:#0d2d4e;border:0;border-radius:8px;padding:11px;font-size:15px;font-weight:800;cursor:pointer;">Unlock</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+  var FN = "https://renters-story-writer.netlify.app/.netlify/functions/send-listing-draft-email";
+  var KEY = sessionStorage.getItem("rdc_key") || "";
+  var DATA = {};        // id -> status record
+  var FILTER = "needs";
+  var SEARCH = "";
+
+  function esc(x) { return String(x == null ? "" : x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function d10(x) { return String(x || "").slice(0, 10); }
+  function toast(m) { var t = document.getElementById("toast"); t.textContent = m; t.classList.add("show"); setTimeout(function () { t.classList.remove("show"); }, 2600); }
+
+  function gaps(s) {
+    var au = s.auto || {};
+    var photo = au.photo || (au.items && !au.listing && !au.profile ? au.items : []) || [];
+    return { photo: photo, listing: au.listing || [], profile: au.profile || [], scanned: !!au.date, group_status: au.group_status };
+  }
+  function totalGaps(s) { var g = gaps(s); return g.photo.length + g.listing.length + g.profile.length + ((s.items && !g.scanned) ? s.items.length : 0); }
+
+  function stats() {
+    var ids = Object.keys(DATA), needs = 0, drafts = 0, notEmailed = 0, complete = 0, emailed = 0;
+    ids.forEach(function (id) {
+      var s = DATA[id], g = gaps(s), tg = totalGaps(s), isDraft = g.group_status === "3";
+      if (isDraft) drafts++;
+      if (tg > 0) needs++; else if (g.scanned) complete++;
+      if (s.notifyCount) emailed++; else if (tg > 0 && isDraft) notEmailed++;
+    });
+    var box = document.getElementById("stats");
+    function card(n, l) { return '<div class="stat"><div class="n">' + n + '</div><div class="l">' + l + '</div></div>'; }
+    box.innerHTML = card(ids.length, "Listings tracked") + card(needs, "Need work") + card(drafts, "In draft") + card(notEmailed, "Draft, not emailed") + card(emailed, "Emailed");
+  }
+
+  function matches(id, s) {
+    var g = gaps(s), tg = totalGaps(s), isDraft = g.group_status === "3";
+    if (FILTER === "needs" && tg === 0) return false;
+    if (FILTER === "drafts" && !isDraft) return false;
+    if (FILTER === "notemailed" && (s.notifyCount || tg === 0 || !isDraft)) return false;
+    if (FILTER === "complete" && (tg > 0 || !g.scanned)) return false;
+    if (SEARCH) {
+      var hay = (id + " " + (s.listingName || "") + " " + ((s.landlord && s.landlord.email) || "")).toLowerCase();
+      if (hay.indexOf(SEARCH) === -1) return false;
+    }
+    return true;
+  }
+
+  function grpHtml(title, arr) { return arr && arr.length ? ('<div class="grp"><b>' + title + ':</b> ' + arr.map(esc).join("; ") + '</div>') : ""; }
+
+  function render() {
+    stats();
+    var ids = Object.keys(DATA).filter(function (id) { return matches(id, DATA[id]); });
+    ids.sort(function (a, b) { return totalGaps(DATA[b]) - totalGaps(DATA[a]); });
+    var wrap = document.getElementById("tablewrap");
+    if (!ids.length) { wrap.innerHTML = '<div class="empty">No listings match this view yet. Scan a listing by ID above, or run the tracker on your BD listings page.</div>'; return; }
+    var rows = ids.map(function (id) {
+      var s = DATA[id], g = gaps(s), tg = totalGaps(s), isDraft = g.group_status === "3";
+      var statusCell = tg > 0
+        ? (grpHtml("Photos", g.photo) + grpHtml("Listing", g.listing) + grpHtml("Profile", g.profile) + ((!g.scanned && s.items && s.items.length) ? grpHtml("Flagged", s.items) : ""))
+        : (g.scanned ? '<span class="complete">&#10003; Looks complete</span>' : '<span class="muted">Not scanned</span>');
+      var land = s.landlord || {};
+      var landCell = land.email ? esc(land.email) : (land.userId ? ('member ' + esc(land.userId)) : '<span class="muted">unknown</span>');
+      var emailCell = s.notifyCount ? ("&#9993; " + s.notifyCount + "&times;<br><span class='muted'>last " + esc(d10(s.lastNotified || s.date)) + "</span>") : '<span class="muted">Not emailed</span>';
+      var canEmail = tg > 0 && isDraft && (land.userId || land.email);
+      var actions = '<div class="actions">'
+        + (canEmail ? '<button class="btn-email" data-email="' + esc(id) + '">' + (s.notifyCount ? "Email again" : "Email landlord") + '</button>' : '')
+        + '<button class="btn-scan" data-scan="' + esc(id) + '">Re-scan</button></div>';
+      return '<tr>'
+        + '<td><span class="name">' + esc(s.listingName || ("Listing " + id)) + '</span><span class="idpill">ID ' + esc(id) + '</span><br>'
+        + '<span class="tag ' + (isDraft ? "draft" : "live") + '">' + (isDraft ? "Draft" : (g.group_status ? "Live" : "?")) + '</span></td>'
+        + '<td>' + statusCell + '</td>'
+        + '<td>' + landCell + '</td>'
+        + '<td class="emailinfo">' + emailCell + '</td>'
+        + '<td class="actions">' + actions + '</td>'
+        + '</tr>';
+    }).join("");
+    wrap.innerHTML = '<table><thead><tr><th>Listing</th><th>What it needs</th><th>Landlord</th><th>Emailed</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    wireRowButtons();
+  }
+
+  function wireRowButtons() {
+    var eb = document.querySelectorAll("[data-email]");
+    for (var i = 0; i < eb.length; i++) {
+      (function (btn) {
+        var id = btn.getAttribute("data-email"), armed = false, timer = null;
+        var s = DATA[id], land = s.landlord || {}, g = gaps(s);
+        var to = land.email || ("member " + land.userId);
+        btn.onclick = function () {
+          if (!armed) { armed = true; var orig = btn.textContent; btn.textContent = "Send to " + to + "?"; timer = setTimeout(function () { armed = false; btn.textContent = orig; }, 4000); return; }
+          if (timer) clearTimeout(timer);
+          btn.disabled = true; btn.textContent = "Sending…";
+          var sendListing = g.photo.concat(g.listing), sendProfile = g.profile;
+          fetch(FN, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: KEY, postId: id, memberId: land.userId || "", email: land.email || "", listingReasons: sendListing, profileReasons: sendProfile }) })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+            .then(function (res) {
+              if (res.ok && res.j && res.j.success) {
+                s.notifyCount = res.j.notifyCount || ((s.notifyCount || 0) + 1);
+                s.lastNotified = new Date().toISOString(); s.to = res.j.email || land.email;
+                toast("Emailed " + (res.j.email || to)); render();
+              } else { btn.disabled = false; btn.textContent = "Failed - retry"; toast("Email failed: " + ((res.j && res.j.error) || "error")); }
+            })
+            .catch(function (e) { btn.disabled = false; btn.textContent = "Error - retry"; toast("Error: " + e.message); });
+        };
+      })(eb[i]);
+    }
+    var sb = document.querySelectorAll("[data-scan]");
+    for (var k = 0; k < sb.length; k++) {
+      (function (btn) {
+        var id = btn.getAttribute("data-scan");
+        btn.onclick = function () {
+          btn.disabled = true; btn.textContent = "Scanning…";
+          scanId(id).then(function (okmsg) { toast(okmsg); render(); }).catch(function (e) { btn.disabled = false; btn.textContent = "Re-scan"; toast("Scan failed: " + e.message); });
+        };
+      })(sb[k]);
+    }
+  }
+
+  function scanId(id) {
+    return fetch(FN, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: KEY, scanPost: id }) })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok || !(res.j && res.j.gaps)) throw new Error((res.j && (res.j.error || res.j.detail)) || "no response");
+        // Re-pull the saved record so we get landlord + notify history too.
+        return load().then(function () { return "Scanned listing " + id; });
+      });
+  }
+
+  function load() {
+    return fetch(FN + "?statuses=1&cb=" + Date.now(), { headers: { "x-admin-key": KEY } })
+      .then(function (r) {
+        if (r.status === 401) { throw new Error("unauthorized"); }
+        return r.json();
+      })
+      .then(function (idx) { DATA = idx || {}; var u = document.getElementById("updated"); u.textContent = "Updated " + new Date().toLocaleTimeString(); return DATA; });
+  }
+
+  document.getElementById("refresh").onclick = function () { load().then(render).catch(function (e) { toast("Load failed: " + e.message); }); };
+  document.getElementById("filters").onclick = function (e) {
+    if (e.target.tagName !== "BUTTON") return;
+    var bs = this.querySelectorAll("button"); for (var i = 0; i < bs.length; i++) bs[i].classList.remove("active");
+    e.target.classList.add("active"); FILTER = e.target.getAttribute("data-f"); render();
+  };
+  document.getElementById("search").oninput = function () { SEARCH = this.value.trim().toLowerCase(); render(); };
+  document.getElementById("scanbtn").onclick = function () {
+    var id = document.getElementById("scanid").value.trim(); if (!id) { toast("Enter a listing ID"); return; }
+    this.disabled = true; this.textContent = "…";
+    var self = this;
+    scanId(id).then(function (m) { toast(m); document.getElementById("scanid").value = ""; render(); }).catch(function (e) { toast("Scan failed: " + e.message); }).then(function () { self.disabled = false; self.textContent = "Scan"; });
+  };
+
+  function showApp() { document.getElementById("unlock").style.display = "none"; }
+  function showUnlock(msg) {
+    var u = document.getElementById("unlock"); u.style.display = "flex";
+    document.getElementById("unlockerr").textContent = msg || "";
+    document.getElementById("unlockkey").focus();
+  }
+  function tryLoad() {
+    return load().then(function () { showApp(); render(); })
+      .catch(function (e) {
+        if (e && e.message === "unauthorized") { KEY = ""; sessionStorage.removeItem("rdc_key"); showUnlock("That key didn't work. Try again."); }
+        else { showApp(); document.getElementById("tablewrap").innerHTML = '<div class="empty">Could not load data (' + esc(e.message) + ').</div>'; }
+      });
+  }
+  document.getElementById("unlockbtn").onclick = function () {
+    var v = document.getElementById("unlockkey").value.trim();
+    if (!v) { document.getElementById("unlockerr").textContent = "Enter your key."; return; }
+    KEY = v; sessionStorage.setItem("rdc_key", v); document.getElementById("unlockerr").textContent = "Checking…"; tryLoad();
+  };
+  document.getElementById("unlockkey").addEventListener("keydown", function (e) { if (e.key === "Enter") document.getElementById("unlockbtn").click(); });
+
+  if (KEY) tryLoad(); else showUnlock("");
+})();
+</script>
+</body>
+</html>
