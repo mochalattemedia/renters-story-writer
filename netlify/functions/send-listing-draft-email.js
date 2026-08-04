@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v19  (2026-07-17)
+//  FN_VERSION: slde-v20  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v19";
+const FN_VERSION = "slde-v20";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -91,30 +91,52 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ab, bb);
 }
 
-// ---- per-listing status index (Netlify Blob) --------------------------------
+// ---- per-listing status (Netlify Blob) --------------------------------------
+// Each listing is its OWN blob key ("l:<id>") so concurrent scans never clobber
+// each other (the old single "index" object had a lost-update race under the
+// tracker's parallel scan). readStatusIndex() also folds in the legacy "index"
+// object for back-compat with anything stored before this change.
 function statusStore() { return require("@netlify/blobs").getStore("listing-status"); }
-async function readStatusIndex() {
-  try { return (await statusStore().get("index", { type: "json" })) || {}; }
-  catch (e) { console.error("[slde] status read failed: " + (e && e.message)); return {}; }
+const STATUS_PREFIX = "l:";
+function statusKey(id) { return STATUS_PREFIX + String(id).trim(); }
+async function readOneStatus(id) {
+  try { return (await statusStore().get(statusKey(id), { type: "json" })) || null; }
+  catch (e) { return null; }
 }
-async function writeStatus(postId, entry) {
+async function readStatusIndex() {
+  const out = {};
   try {
     const store = statusStore();
-    const idx = (await store.get("index", { type: "json" })) || {};
-    idx[String(postId)] = entry;
-    await store.setJSON("index", idx);
-    return true;
-  } catch (e) { console.error("[slde] status write failed: " + (e && e.message)); return false; }
+    // Legacy single-index object (older versions) — lowest priority.
+    try {
+      const legacy = await store.get("index", { type: "json" });
+      if (legacy && typeof legacy === "object") Object.keys(legacy).forEach(function (k) { out[k] = legacy[k]; });
+    } catch (e) {}
+    // Per-listing keys — authoritative, overwrite legacy.
+    var cursor;
+    do {
+      const page = await store.list({ prefix: STATUS_PREFIX, cursor: cursor });
+      const blobs = (page && page.blobs) || [];
+      await Promise.all(blobs.map(async function (b) {
+        const id = b.key.slice(STATUS_PREFIX.length);
+        try { const v = await store.get(b.key, { type: "json" }); if (v) out[id] = v; } catch (e) {}
+      }));
+      cursor = page && page.cursor;
+    } while (cursor);
+  } catch (e) { console.error("[slde] status index read failed: " + (e && e.message)); }
+  return out;
 }
-// Shallow-merge a patch onto an existing status record. Used by the auto-scan so
-// it updates the `auto` verdict WITHOUT wiping a manual "notified" record.
+async function writeStatus(postId, entry) {
+  try { await statusStore().setJSON(statusKey(postId), entry); return true; }
+  catch (e) { console.error("[slde] status write failed: " + (e && e.message)); return false; }
+}
+// Shallow-merge a patch onto one listing's record. Only touches that listing's
+// own key, so it never disturbs any other listing.
 async function mergeStatus(postId, patch) {
   try {
     const store = statusStore();
-    const idx = (await store.get("index", { type: "json" })) || {};
-    const cur = idx[String(postId)] || {};
-    idx[String(postId)] = Object.assign({}, cur, patch);
-    await store.setJSON("index", idx);
+    const cur = (await store.get(statusKey(postId), { type: "json" })) || {};
+    await store.setJSON(statusKey(postId), Object.assign({}, cur, patch));
     return true;
   } catch (e) { console.error("[slde] status merge failed: " + (e && e.message)); return false; }
 }
@@ -124,16 +146,14 @@ async function mergeStatus(postId, patch) {
 async function recordNotification(postId, info) {
   try {
     const store = statusStore();
-    const idx = (await store.get("index", { type: "json" })) || {};
-    const cur = idx[String(postId)] || {};
+    const cur = (await store.get(statusKey(postId), { type: "json" })) || {};
     const log = Array.isArray(cur.notifyLog) ? cur.notifyLog.slice(-9) : [];
     log.push({ date: info.date, to: info.to || null, items: info.items || [] });
     const count = (cur.notifyCount || 0) + 1;
-    idx[String(postId)] = Object.assign({}, cur, {
+    await store.setJSON(statusKey(postId), Object.assign({}, cur, {
       items: info.items || cur.items || [], date: info.date, to: info.to || null,
       notifyCount: count, lastNotified: info.date, notifyLog: log,
-    });
-    await store.setJSON("index", idx);
+    }));
     return count;
   } catch (e) { console.error("[slde] notify record failed: " + (e && e.message)); return null; }
 }
