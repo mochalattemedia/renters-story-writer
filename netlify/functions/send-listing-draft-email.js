@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v21  (2026-07-17)
+//  FN_VERSION: slde-v22  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v21";
+const FN_VERSION = "slde-v22";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -156,6 +156,24 @@ async function recordNotification(postId, info) {
     }));
     return count;
   } catch (e) { console.error("[slde] notify record failed: " + (e && e.message)); return null; }
+}
+
+// [DIAGNOSTIC] Prove out Netlify Blobs: does the module load, and can we write
+// then read a value? Returns the exact failure so we can fix the right thing.
+async function blobSelfTest() {
+  const out = { moduleLoaded: false };
+  let mod;
+  try { mod = require("@netlify/blobs"); out.moduleLoaded = true; }
+  catch (e) { out.moduleError = (e && e.message) || String(e); return out; }
+  try {
+    const store = mod.getStore("listing-status");
+    await store.setJSON("selftest", { t: "ok" });
+    const v = await store.get("selftest", { type: "json" });
+    out.wroteAndRead = !!(v && v.t === "ok");
+  } catch (e) {
+    out.opError = (e && e.name ? e.name + ": " : "") + ((e && e.message) || String(e));
+  }
+  return out;
 }
 
 // ---- BD member lookup -------------------------------------------------------
@@ -438,6 +456,13 @@ exports.handler = async function (event) {
       if (!ak || !safeEqual(hk, ak)) return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
       const idx = await readStatusIndex();
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(idx) };
+    }
+    if (qs.blobtest != null) {
+      const hk = (event.headers && (event.headers["x-admin-key"] || event.headers["X-Admin-Key"])) || "";
+      const ak = process.env.LISTING_EMAIL_ADMIN_KEY || "";
+      if (!ak || !safeEqual(hk, ak)) return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
+      const t = await blobSelfTest();
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(t) };
     }
     return {
       statusCode: 200, headers: corsHeaders,
