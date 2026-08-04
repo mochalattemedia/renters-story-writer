@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v17  (2026-07-17)
+//  FN_VERSION: slde-v18  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v17";
+const FN_VERSION = "slde-v18";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -278,6 +278,42 @@ function anthropicAssess(listing, photos) {
   });
 }
 
+// ---- deterministic checks: listing fields + landlord profile ----------------
+// A field "has a value" if it is non-empty and not a zero / null placeholder.
+function hasVal(x) {
+  if (x == null) return false;
+  var s = String(x).trim();
+  if (!s || s.toLowerCase() === "null") return false;
+  if (/^0+(\.0+)?$/.test(s)) return false;         // "0", "0.00"
+  if (/^[0.,\s]+$/.test(s) && !/[1-9]/.test(s)) return false; // "0,00.00"
+  if (s === "0000-00-00") return false;
+  return true;
+}
+// Non-photo gaps on the listing record itself.
+function assessListingFields(g) {
+  g = g || {};
+  var out = [];
+  if (!hasVal(g.group_name)) out.push("Add a listing title");
+  var desc = String(g.group_desc || "").replace(/<[^>]+>/g, " ").replace(/&[a-z#0-9]+;/gi, " ").replace(/\s+/g, " ").trim();
+  if (desc.length < 40) out.push("Add a fuller property description");
+  if (!hasVal(g.property_price) && !hasVal(g.post_promo) && !hasVal(g.rate)) out.push("Add the monthly rent price");
+  if (!hasVal(g.property_beds)) out.push("Set the number of bedrooms");
+  if (!hasVal(g.property_baths)) out.push("Set the number of bathrooms");
+  if (!hasVal(g.property_type)) out.push("Set the property type");
+  if (!hasVal(g.post_location)) out.push("Add the property address");
+  return out;
+}
+// Gaps on the landlord's member profile.
+function assessProfile(u) {
+  u = u || {};
+  var out = [];
+  if (!hasVal(u.first_name) && !hasVal(u.last_name)) out.push("Add your name");
+  if (!hasVal(u.phone_number)) out.push("Add a contact phone number");
+  if (!hasVal(u.about_me)) out.push("Complete your About / bio");
+  if (String(u.verified) !== "1") out.push("Get verified");
+  return out;
+}
+
 // ---- email content ----------------------------------------------------------
 const STANDARD_ITEMS = [
   "<strong style='color:#0d2d4e;'>Every room inside</strong> &mdash; the living area and each bedroom",
@@ -422,21 +458,26 @@ exports.handler = async function (event) {
     const L = await bdGetListing(sid);
     if (L.error) return { statusCode: 502, headers: corsHeaders, body: JSON.stringify({ error: "listing fetch failed", detail: L.error }) };
     const a = await anthropicAssess(L.listing, L.photos);
+    const photoGaps = (a && a.parsed && Array.isArray(a.parsed.missing)) ? a.parsed.missing : [];
+    const listingGaps = assessListingFields(L.listing);
+    const profileGaps = assessProfile(L.user);
+    const aiOk = !!(a && a.parsed);
     // Persist the verdict so the tracker badges fill in automatically. Merge, so
     // it never clobbers a manual "notified" record — it only updates `auto`.
-    var saved = false;
-    if (a && a.parsed && Array.isArray(a.parsed.missing)) {
-      saved = await mergeStatus(sid, { auto: {
-        items: a.parsed.missing, notes: a.parsed.notes || "", quality: a.parsed.quality || "",
-        date: new Date().toISOString(), group_status: L.listing.group_status,
-        beds: L.listing.property_beds, baths: L.listing.property_baths, photoCount: L.photos.length,
-      } });
-    }
+    const saved = await mergeStatus(sid, { auto: {
+      photo: photoGaps, listing: listingGaps, profile: profileGaps,
+      items: photoGaps.concat(listingGaps, profileGaps),
+      photoError: aiOk ? "" : ((a && (a.error || a.detail)) || "photo_scan_failed"),
+      notes: (a && a.parsed && a.parsed.notes) || "", quality: (a && a.parsed && a.parsed.quality) || "",
+      date: new Date().toISOString(), group_status: L.listing.group_status,
+      beds: L.listing.property_beds, baths: L.listing.property_baths, photoCount: L.photos.length,
+    } });
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
       scanPost: sid, name: L.listing.group_name, group_status: L.listing.group_status,
       beds: L.listing.property_beds, baths: L.listing.property_baths, type: L.listing.property_type,
-      photoCount: L.photos.length, landlordEmail: (L.user && L.user.email) || null,
-      saved: saved, assessment: a,
+      photoCount: L.photos.length, landlordEmail: (L.user && L.user.email) || null, saved: saved,
+      gaps: { photo: photoGaps, listing: listingGaps, profile: profileGaps },
+      assessment: a,
     }, null, 2) };
   }
 
