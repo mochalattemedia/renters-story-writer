@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v22  (2026-07-17)
+//  FN_VERSION: slde-v23  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v22";
+const FN_VERSION = "slde-v23";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -96,7 +96,15 @@ function safeEqual(a, b) {
 // each other (the old single "index" object had a lost-update race under the
 // tracker's parallel scan). readStatusIndex() also folds in the legacy "index"
 // object for back-compat with anything stored before this change.
-function statusStore() { return require("@netlify/blobs").getStore("listing-status"); }
+// Netlify didn't auto-configure Blobs on this site, so configure it explicitly
+// with a Site ID + token when those env vars are present (falls back to auto).
+function statusStore() {
+  const blobs = require("@netlify/blobs");
+  const siteID = process.env.BLOBS_SITE_ID || process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+  const token = process.env.BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN;
+  if (siteID && token) return blobs.getStore({ name: "listing-status", siteID: siteID, token: token });
+  return blobs.getStore("listing-status");
+}
 const STATUS_PREFIX = "l:";
 function statusKey(id) { return STATUS_PREFIX + String(id).trim(); }
 async function readOneStatus(id) {
@@ -162,11 +170,11 @@ async function recordNotification(postId, info) {
 // then read a value? Returns the exact failure so we can fix the right thing.
 async function blobSelfTest() {
   const out = { moduleLoaded: false };
-  let mod;
-  try { mod = require("@netlify/blobs"); out.moduleLoaded = true; }
+  try { require("@netlify/blobs"); out.moduleLoaded = true; }
   catch (e) { out.moduleError = (e && e.message) || String(e); return out; }
+  out.manualConfig = !!((process.env.BLOBS_SITE_ID || process.env.NETLIFY_SITE_ID || process.env.SITE_ID) && (process.env.BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN));
   try {
-    const store = mod.getStore("listing-status");
+    const store = statusStore();
     await store.setJSON("selftest", { t: "ok" });
     const v = await store.get("selftest", { type: "json" });
     out.wroteAndRead = !!(v && v.t === "ok");
