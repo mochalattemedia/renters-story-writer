@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v5
+// alerts-teaser-js.js  —  at-v7
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,23 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v7: ALIGNMENT. The two action buttons (voice + Notify) now share
+// one width, capped at 360px and centered, so they stack evenly instead
+// of one hugging its text and the other being wider. The "Add filters"
+// link moved up to sit directly under the location bar - it extends the
+// input, so it belongs with it, and that keeps the two buttons together
+// at the bottom instead of splitting them. Also softened the teaser
+// heading to "Start your search" so it stops competing with the section
+// heading above it on the homepage.
+//
+// at-v6: CALM LAYOUT. The card now opens with just three things: a big
+// location bar, a voice button, and Notify. Everything else - rent, beds,
+// baths, move-in, the 11 chips, notes - lives behind a quiet "Add filters"
+// link and is hidden until asked for. One clean screen, generous padding,
+// nothing competing. Refinement is optional; the point is to get a search
+// started, not to make them fill a form. If voice extraction pre-fills any
+// hidden field, the filters panel auto-opens so they can see what we heard.
 //
 // at-v5: LAYOUT. Matches the homepage pattern - a centered primary
 // heading with the concept line beneath it, sitting ABOVE the input card
@@ -63,7 +80,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v5";
+const FN_VERSION = "at-v7";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -104,7 +121,7 @@ const JS = `
   var NAVY = "#0d2d4e", NAVY2 = "#081f38", TEAL = "#3a9e8f", LIME = "#8dc63f";
 
   var S = {
-    card: "background:#fff;border:1px solid #e3e8ef;border-radius:16px;padding:32px clamp(24px,4vw,44px);max-width:1100px;margin:0 auto;font-family:inherit;box-shadow:0 2px 18px rgba(13,45,78,0.06);",
+    card: "background:#fff;border:1px solid #e8edf3;border-radius:20px;padding:clamp(32px,5vw,56px);max-width:920px;margin:0 auto;font-family:inherit;box-shadow:0 4px 30px rgba(13,45,78,0.07);",
     h: "margin:0 0 6px;font-size:22px;font-weight:800;color:" + NAVY + ";",
     sub: "margin:0 0 18px;font-size:15px;color:#5b6b82;line-height:1.5;",
     lab: "display:block;font-size:13px;font-weight:600;color:" + NAVY + ";margin:0 0 6px;",
@@ -113,7 +130,7 @@ const JS = `
     chips: "display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px;",
     chip: "border:1px solid #d7dee8;background:#fff;color:#33475f;border-radius:999px;padding:9px 15px;font-size:13px;cursor:pointer;",
     chipOn: "border:1px solid " + NAVY + ";background:" + NAVY + ";color:#fff;border-radius:999px;padding:9px 15px;font-size:13px;cursor:pointer;",
-    btn: "background:" + NAVY + ";color:#fff;border:0;border-radius:11px;padding:15px 26px;font-size:16px;font-weight:700;cursor:pointer;width:100%;max-width:340px;display:block;",
+    btn: "background:" + NAVY + ";color:#fff;border:0;border-radius:11px;padding:15px 26px;font-size:16px;font-weight:700;cursor:pointer;width:100%;max-width:360px;display:block;margin:0 auto;",
     btnGo: "background:" + TEAL + ";color:#fff;border:0;border-radius:11px;padding:14px 26px;font-size:16px;font-weight:700;cursor:pointer;width:100%;text-decoration:none;display:block;text-align:center;box-sizing:border-box;",
     wallWrap: "text-align:center;padding:8px 4px;max-width:560px;margin:0 auto;",
     wallH: "margin:0 0 10px;font-size:21px;font-weight:800;color:" + NAVY + ";",
@@ -122,11 +139,14 @@ const JS = `
     recapLine: "font-size:14px;color:" + NAVY + ";margin:0 0 4px;",
     recapMuted: "font-size:13px;color:#5b6b82;margin:0;",
     back: "background:none;border:0;color:#5b6b82;font-size:13px;cursor:pointer;text-decoration:underline;margin-top:14px;",
-    head: "max-width:1100px;margin:0 auto 22px;text-align:center;",
+    head: "max-width:920px;margin:0 auto 28px;text-align:center;",
+    bigInp: "width:100%;padding:18px 18px;border:1px solid #d7dee8;border-radius:13px;font-size:17px;box-sizing:border-box;",
+    addLink: "background:none;border:0;color:" + TEAL + ";font-size:14px;font-weight:600;cursor:pointer;padding:8px 0;text-decoration:none;display:inline-flex;align-items:center;gap:6px;",
+    panel: "border-top:1px solid #eef1f5;margin-top:8px;padding-top:22px;",
     title: "margin:0 0 10px;font-size:clamp(26px,4vw,36px);font-weight:800;color:" + NAVY + ";letter-spacing:-.5px;line-height:1.1;",
     concept: "margin:0 auto;max-width:560px;font-size:clamp(15px,2vw,17px);color:#5b6b82;line-height:1.5;",
     err: "color:#b3261e;font-size:13px;margin-top:10px;min-height:16px;",
-    mic: "background:" + TEAL + ";color:#fff;border:0;border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;",
+    mic: "background:#fff;color:" + TEAL + ";border:2px solid " + TEAL + ";border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;width:100%;max-width:360px;display:block;margin:0 auto;",
     ghost: "background:#fff;color:" + NAVY + ";border:1px solid #d7dee8;border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;",
     live: "background:#f7f9fc;border:1px solid #e3e8ef;border-radius:12px;padding:16px;min-height:90px;font-size:16px;color:" + NAVY + ";line-height:1.5;margin:0 0 16px;text-align:left;",
     vstatus: "font-size:13px;color:#5b6b82;margin:0 0 14px;min-height:16px;"
@@ -136,6 +156,7 @@ const JS = `
   var voice = { active: false, transcript: "", interim: "", status: "", rec: null };
   var seed = { rent_max:"", beds_min:"", baths_min:"", move_in_by:"", where:"", wants:null, notes:"" };
   var seededFromVoice = false;
+  var filtersOpen = false;
   var VIEW = "form";  // "form" | "voice"
 
   function speechOK() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
@@ -145,68 +166,91 @@ const JS = `
     return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
 
+  function val(id) { var el = document.getElementById(id); return el ? el.value : ""; }
   function readForm() {
     return {
-      rent_max: document.getElementById("rt-rent").value,
-      beds_min: document.getElementById("rt-beds").value,
-      baths_min: document.getElementById("rt-baths").value,
-      move_in_by: document.getElementById("rt-move").value,
-      where: document.getElementById("rt-where").value.trim(),
+      rent_max: val("rt-rent"),
+      beds_min: val("rt-beds"),
+      baths_min: val("rt-baths"),
+      move_in_by: val("rt-move"),
+      where: String(val("rt-where")).trim(),
       wants: wants.slice(),
-      notes: document.getElementById("rt-notes").value.trim()
+      notes: String(val("rt-notes")).trim()
     };
   }
 
   function renderForm() {
     if (seededFromVoice && Array.isArray(seed.wants)) { wants = seed.wants.slice(); }
+
+    // Filters open automatically if voice pre-filled a hidden field, so the
+    // renter can see what we heard. Otherwise they start hidden.
+    var seededHidden = seededFromVoice && (seed.rent_max || seed.beds_min || seed.baths_min || seed.move_in_by || (Array.isArray(seed.wants) && seed.wants.length) || seed.notes);
+    if (seededHidden) filtersOpen = true;
+
     mount.innerHTML =
       '<div style="' + S.head + '">' +
-        '<h2 style="' + S.title + '">Find your next place before anyone else</h2>' +
-        '<p style="' + S.concept + '">Tell us what you are looking for. When a verified home matches, we email you. No matches, no email.</p>' +
+        '<h2 style="' + S.title + '">Start your search</h2>' +
+        '<p style="' + S.concept + '">Type it or say it. When a verified home matches, we email you. No matches, no email.</p>' +
       '</div>' +
       '<div style="' + S.card + '">' +
-        (speechOK()
-          ? '<div style="text-align:center;margin-bottom:22px;">' +
-              '<button id="rt-voice" type="button" style="' + S.mic + '">🎙 Describe it out loud</button>' +
-              '<div style="font-size:13px;color:#9aa8b8;margin-top:12px;position:relative;">' +
-                '<span style="background:#fff;padding:0 12px;position:relative;z-index:1;">or fill in the details</span>' +
-                '<span style="position:absolute;left:0;right:0;top:50%;height:1px;background:#e8edf3;z-index:0;"></span>' +
-              '</div>' +
-            '</div>'
-          : "") +
-        '<div style="margin-bottom:14px;"><span style="' + S.lab + '">Where do you want to live?</span>' +
-          '<input id="rt-where" placeholder="Portland, OR or a ZIP" value="' + esc(seed.where) + '" style="' + S.inp + '"></div>' +
-        '<div style="' + S.row + '">' +
-          '<div style="flex:2;min-width:130px;"><span style="' + S.lab + '">Max rent</span>' +
-            '<input id="rt-rent" type="number" inputmode="numeric" placeholder="2200" value="' + esc(seed.rent_max) + '" style="' + S.inp + '"></div>' +
-          '<div style="flex:1;min-width:80px;"><span style="' + S.lab + '">Beds</span>' +
-            '<input id="rt-beds" type="number" inputmode="numeric" placeholder="2" value="' + esc(seed.beds_min) + '" style="' + S.inp + '"></div>' +
-          '<div style="flex:1;min-width:80px;"><span style="' + S.lab + '">Baths</span>' +
-            '<input id="rt-baths" type="number" inputmode="numeric" placeholder="1" value="' + esc(seed.baths_min) + '" style="' + S.inp + '"></div>' +
+        '<div style="margin-bottom:10px;"><input id="rt-where" placeholder="Where do you want to live? City or ZIP" value="' + esc(seed.where) + '" style="' + S.bigInp + '"></div>' +
+        '<div style="text-align:center;margin-bottom:22px;">' +
+          '<button id="rt-toggle" type="button" style="' + S.addLink + '">' + (filtersOpen ? "Hide filters" : "Add filters (rent, beds, more)") + '</button>' +
         '</div>' +
-        '<div style="margin-bottom:14px;"><span style="' + S.lab + '">Move in by</span>' +
-          '<input id="rt-move" type="date" value="' + esc(seed.move_in_by) + '" style="' + S.inp + '"></div>' +
-        '<span style="' + S.lab + '">Nice to have</span>' +
-        '<div id="rt-chips" style="' + S.chips + '"></div>' +
-        '<div style="margin-bottom:18px;"><span style="' + S.lab + '">Anything else that matters?</span>' +
-          '<input id="rt-notes" maxlength="200" placeholder="Quiet street, close to the light rail" value="' + esc(seed.notes) + '" style="' + S.inp + '"></div>' +
+        '<div id="rt-filters" style="display:' + (filtersOpen ? "block" : "none") + ';">' +
+          '<div style="' + S.panel + '">' +
+            '<div style="' + S.row + '">' +
+              '<div style="flex:2;min-width:130px;"><span style="' + S.lab + '">Max rent</span>' +
+                '<input id="rt-rent" type="number" inputmode="numeric" placeholder="2200" value="' + esc(seed.rent_max) + '" style="' + S.inp + '"></div>' +
+              '<div style="flex:1;min-width:80px;"><span style="' + S.lab + '">Beds</span>' +
+                '<input id="rt-beds" type="number" inputmode="numeric" placeholder="2" value="' + esc(seed.beds_min) + '" style="' + S.inp + '"></div>' +
+              '<div style="flex:1;min-width:80px;"><span style="' + S.lab + '">Baths</span>' +
+                '<input id="rt-baths" type="number" inputmode="numeric" placeholder="1" value="' + esc(seed.baths_min) + '" style="' + S.inp + '"></div>' +
+            '</div>' +
+            '<div style="margin-bottom:16px;"><span style="' + S.lab + '">Move in by</span>' +
+              '<input id="rt-move" type="date" value="' + esc(seed.move_in_by) + '" style="' + S.inp + '"></div>' +
+            '<span style="' + S.lab + '">Nice to have</span>' +
+            '<div id="rt-chips" style="' + S.chips + '"></div>' +
+            '<div style="margin-bottom:4px;"><span style="' + S.lab + '">Anything else that matters?</span>' +
+              '<input id="rt-notes" maxlength="200" placeholder="Quiet street, close to the light rail" value="' + esc(seed.notes) + '" style="' + S.inp + '"></div>' +
+          '</div>' +
+        '</div>' +
+        (speechOK()
+          ? '<button id="rt-voice" type="button" style="' + S.mic + '">🎙 Describe it out loud</button>' +
+            '<div style="height:12px;"></div>'
+          : "") +
         '<button id="rt-go" style="' + S.btn + '">Notify me when this matches</button>' +
-        '<div id="rt-err" style="' + S.err + '"></div>' +
+        '<div id="rt-err" style="' + S.err + 'text-align:center;"></div>' +
       '</div>';
 
-    var chipMount = document.getElementById("rt-chips");
-    CHIPS.forEach(function (c) {
-      var b = document.createElement("button");
-      b.type = "button";
-      b.textContent = c[1];
-      b.style.cssText = wants.indexOf(c[0]) !== -1 ? S.chipOn : S.chip;
-      b.onclick = function () {
-        var i = wants.indexOf(c[0]);
-        if (i === -1) wants.push(c[0]); else wants.splice(i, 1);
+    // Chips only need building when the panel is visible.
+    function buildChips() {
+      var chipMount = document.getElementById("rt-chips");
+      if (!chipMount || chipMount.getAttribute("data-built") === "1") return;
+      chipMount.setAttribute("data-built", "1");
+      CHIPS.forEach(function (c) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.textContent = c[1];
         b.style.cssText = wants.indexOf(c[0]) !== -1 ? S.chipOn : S.chip;
-      };
-      chipMount.appendChild(b);
-    });
+        b.onclick = function () {
+          var i = wants.indexOf(c[0]);
+          if (i === -1) wants.push(c[0]); else wants.splice(i, 1);
+          b.style.cssText = wants.indexOf(c[0]) !== -1 ? S.chipOn : S.chip;
+        };
+        chipMount.appendChild(b);
+      });
+    }
+    if (filtersOpen) buildChips();
+
+    document.getElementById("rt-toggle").onclick = function () {
+      filtersOpen = !filtersOpen;
+      var panel = document.getElementById("rt-filters");
+      var tog = document.getElementById("rt-toggle");
+      panel.style.display = filtersOpen ? "block" : "none";
+      tog.textContent = filtersOpen ? "Hide filters" : "Add filters (rent, beds, more)";
+      if (filtersOpen) buildChips();
+    };
 
     document.getElementById("rt-go").onclick = submit;
 
