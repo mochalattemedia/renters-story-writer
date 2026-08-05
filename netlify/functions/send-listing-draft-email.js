@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v27  (2026-07-17)
+//  FN_VERSION: slde-v28  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v27";
+const FN_VERSION = "slde-v28";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -474,14 +474,14 @@ function buildEmail({ name, listingUrl, listingPicked, profilePicked, note }) {
     + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 14px;'>A quick fix to get your listing live</h1>"
     + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + greet + ", thanks for listing your place on Renters.com. " + reasonHtml + "</p>"
     + midHtml
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>Once those are done, set your listing back to live and it&rsquo;ll be visible again.</p>"
+    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>Once those are done, set your listing back to live. It will go to pending approval, and we&rsquo;ll review it and make it visible as soon as it meets the standard.</p>"
     + "<div style='text-align:center;margin-bottom:24px;'><a href='" + esc(url) + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>Complete your listing &rarr;</a></div>"
     + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0;'>&mdash; The Renters.com team</p>"
     + "</div><p style='font-size:12px;color:#9aa7b3;text-align:center;margin:18px 0 0;'>Renters.com. Finding a home should feel safe.</p>"
     + "</div></body></html>";
   const text = "Hi " + cleanName(name) + ",\n\n"
     + "Thanks for listing your place on Renters.com. " + reasonText + "\n\n"
-    + midText + "\nOnce those are done, set your listing back to live and it'll be visible again.\n\nEdit your listing: " + url + "\n\n- The Renters.com team\n\nRenters.com. Finding a home should feel safe.";
+    + midText + "\nOnce those are done, set your listing back to live. It will go to pending approval, and we'll review it and make it visible as soon as it meets the standard.\n\nComplete your listing: " + url + "\n\n- The Renters.com team\n\nRenters.com. Finding a home should feel safe.";
   return { subject, html, text };
 }
 
