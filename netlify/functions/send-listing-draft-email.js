@@ -1,6 +1,6 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v25  (2026-07-17)
+//  FN_VERSION: slde-v27  (2026-07-17)
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +42,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v25";
+const FN_VERSION = "slde-v27";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -412,32 +412,59 @@ function pickedItems(reasons, missing) {
   if (missing && String(missing).trim()) picked.push(String(missing).trim());
   return picked;
 }
-function buildEmail({ name, listingUrl, listingPicked, profilePicked }) {
+function buildEmail({ name, listingUrl, listingPicked, profilePicked, note }) {
   const greet = esc(cleanName(name));
   const url = listingUrl || EDIT_URL;
   listingPicked = listingPicked || [];
   profilePicked = profilePicked || [];
+  note = (note && String(note).trim()) ? String(note).trim() : "";
+  const hasPhotos = listingPicked.length > 0;
+  const hasProfile = profilePicked.length > 0;
   function callout(title, items, textColor, bg, border) {
     return "<div style='background:" + bg + ";border:1px solid " + border + ";border-radius:10px;padding:14px 16px;margin:0 0 18px;'>"
       + "<p style='font-size:14px;color:" + textColor + ";line-height:1.55;margin:0 0 6px;font-weight:700;'>" + title + "</p>"
       + "<table style='border-collapse:collapse;width:100%;'>" + checklistRows(items.map(esc)) + "</table></div>";
   }
+  // The opening line follows what's actually checked — photos, profile, or both.
+  var reasonHtml, reasonText;
+  if (hasPhotos && hasProfile) { reasonHtml = "We&rsquo;ve set your listing back to draft because a few things still need attention before it can go live. It&rsquo;s a quick fix, not a rejection."; }
+  else if (hasPhotos) { reasonHtml = "We&rsquo;ve set your listing back to draft because the photos don&rsquo;t yet meet our community standard. It&rsquo;s a quick fix, not a rejection."; }
+  else if (hasProfile) { reasonHtml = "We&rsquo;ve set your listing back to draft because your profile needs a couple of updates before it can go live. It&rsquo;s a quick fix, not a rejection."; }
+  else { reasonHtml = "We&rsquo;ve set your listing back to draft because it needs a couple of updates before it can go live. It&rsquo;s a quick fix, not a rejection."; }
+  reasonText = reasonHtml.replace(/&rsquo;/g, "'");
+
   var specificHtml = "", specificText = "";
-  if (listingPicked.length) {
+  if (hasPhotos) {
     specificHtml += callout("On your listing, we still need:", listingPicked, "#7c2d12", "#fff7ed", "#fed7aa");
     specificText += "On your listing, we still need:\n" + listingPicked.map(function (i) { return "- " + i; }).join("\n") + "\n\n";
   }
-  if (profilePicked.length) {
+  if (hasProfile) {
     specificHtml += callout("On your profile, please add or complete:", profilePicked, "#0c4a6e", "#eff6ff", "#bfdbfe");
     specificText += "On your profile, please add or complete:\n" + profilePicked.map(function (i) { return "- " + i; }).join("\n") + "\n\n";
+    // Identity + listing opt-in live at the end of the setup wizard.
+    var identity = profilePicked.some(function (i) { return /identit|verif/i.test(i); });
+    if (identity) {
+      specificHtml += "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 18px;'>To confirm your identity and opt in to how you&rsquo;d like to list, finish the last step (Step 5 of 5) of the setup wizard on your dashboard.</p>";
+      specificText += "To confirm your identity and opt in to how you'd like to list, finish the last step (Step 5 of 5) of the setup wizard on your dashboard.\n\n";
+    }
   }
-  // ...and ALWAYS the full standard photo checklist beneath.
-  var standardHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>Every live listing needs clear, well-lit photos of the whole property:</p>"
-    + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(STANDARD_ITEMS) + "</table>";
-  var standardText = "Every live listing needs clear, well-lit photos of the whole property:\n" + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n";
+  if (note) {
+    specificHtml += "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 18px;'><strong style='color:#0d2d4e;'>Also:</strong> " + esc(note) + "</p>";
+    specificText += "Also: " + note + "\n\n";
+  }
+  // The full standard photo checklist appears ONLY when photos are involved.
+  var standardHtml = "", standardText = "";
+  if (hasPhotos) {
+    standardHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>Every live listing needs clear, well-lit photos of the whole property:</p>"
+      + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(STANDARD_ITEMS) + "</table>";
+    standardText = "Every live listing needs clear, well-lit photos of the whole property:\n" + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n";
+  }
   var midHtml = specificHtml + standardHtml;
   var midText = specificText + standardText;
-  const subject = "Your Renters.com listing needs updated photos to go live";
+  var subject;
+  if (hasPhotos) subject = "Your Renters.com listing needs updated photos to go live";
+  else if (hasProfile) subject = "A couple of updates to get your Renters.com listing live";
+  else subject = "A quick fix to get your Renters.com listing live";
   const html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
     + "<body style='margin:0;padding:0;background:#eef2f5;font-family:Open Sans,Arial,sans-serif;'>"
     + "<div style='max-width:560px;margin:0 auto;padding:24px 16px;'>"
@@ -445,16 +472,16 @@ function buildEmail({ name, listingUrl, listingPicked, profilePicked }) {
     + "<div style='font-size:22px;font-weight:800;color:#ffffff;'>RENTERS<span style='color:#8dc63f;'>.</span></div></div>"
     + "<div style='background:#ffffff;padding:32px 30px;border-radius:0 0 14px 14px;'>"
     + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 14px;'>A quick fix to get your listing live</h1>"
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + greet + ", thanks for listing your place on Renters.com. We&rsquo;ve set your listing back to draft because the photos don&rsquo;t yet meet our community standard. It&rsquo;s a quick fix, not a rejection.</p>"
+    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + greet + ", thanks for listing your place on Renters.com. " + reasonHtml + "</p>"
     + midHtml
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>Add those and set your listing back to live, and it&rsquo;ll be visible again.</p>"
-    + "<div style='text-align:center;margin-bottom:24px;'><a href='" + esc(url) + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>Edit your listing &rarr;</a></div>"
+    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>Once those are done, set your listing back to live and it&rsquo;ll be visible again.</p>"
+    + "<div style='text-align:center;margin-bottom:24px;'><a href='" + esc(url) + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>Complete your listing &rarr;</a></div>"
     + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0;'>&mdash; The Renters.com team</p>"
     + "</div><p style='font-size:12px;color:#9aa7b3;text-align:center;margin:18px 0 0;'>Renters.com. Finding a home should feel safe.</p>"
     + "</div></body></html>";
   const text = "Hi " + cleanName(name) + ",\n\n"
-    + "Thanks for listing your place on Renters.com. We've set your listing back to draft because the photos don't yet meet our community standard. It's a quick fix, not a rejection.\n\n"
-    + midText + "\nAdd those and set your listing back to live, and it'll be visible again.\n\nEdit your listing: " + url + "\n\n- The Renters.com team\n\nRenters.com. Finding a home should feel safe.";
+    + "Thanks for listing your place on Renters.com. " + reasonText + "\n\n"
+    + midText + "\nOnce those are done, set your listing back to live and it'll be visible again.\n\nEdit your listing: " + url + "\n\n- The Renters.com team\n\nRenters.com. Finding a home should feel safe.";
   return { subject, html, text };
 }
 
@@ -576,16 +603,18 @@ exports.handler = async function (event) {
 
   const postId = String(body.postId || "").trim();
   const saveOnly = !!body.saveOnly;
-  // Listing section (accepts legacy `reasons` too) + Profile section.
+  // Listing section (accepts legacy `reasons` too) + Profile section. The free-text
+  // "Anything else" is a NOTE, kept separate so it never triggers the photo copy.
   const listingSrc = body.listingReasons != null ? body.listingReasons : body.reasons;
-  const listingPicked = pickedItems(listingSrc, body.missing);
+  const listingPicked = pickedItems(listingSrc, null);
   const profilePicked = pickedItems(body.profileReasons, null);
-  const picked = listingPicked.concat(profilePicked); // combined, for the status log/tracker
+  const note = (body.missing && String(body.missing).trim()) ? String(body.missing).trim() : "";
+  const picked = listingPicked.concat(profilePicked).concat(note ? [note] : []); // combined, for the status log/tracker
   const nowISO = new Date().toISOString();
 
   // Preview: render the email and return it, without sending or requiring a recipient.
   if (body.preview === true) {
-    const pv = buildEmail({ name: body.name, listingUrl: body.listingUrl, listingPicked: listingPicked, profilePicked: profilePicked });
+    const pv = buildEmail({ name: body.name, listingUrl: body.listingUrl, listingPicked: listingPicked, profilePicked: profilePicked, note: note });
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, preview: true, subject: pv.subject, html: pv.html, text: pv.text }) };
   }
 
@@ -608,7 +637,7 @@ exports.handler = async function (event) {
   }
   if (!looksLikeEmail(email)) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Provide a landlord email or a valid member ID", got: email }) };
 
-  const { subject, html, text } = buildEmail({ name: name, listingUrl: body.listingUrl, listingPicked: listingPicked, profilePicked: profilePicked });
+  const { subject, html, text } = buildEmail({ name: name, listingUrl: body.listingUrl, listingPicked: listingPicked, profilePicked: profilePicked, note: note });
 
   const destination = { ToAddresses: [email] };
   if (BCC && looksLikeEmail(BCC)) destination.BccAddresses = [BCC.trim()];
