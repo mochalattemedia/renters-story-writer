@@ -1,7 +1,7 @@
 // members-map-page.js
 // Renters.com — Live Members Map (Element T) — the public page.
 //
-// FN_VERSION: mmp-v4
+// FN_VERSION: mmp-v5
 //
 // Serves the whole Leaflet page as a Netlify function (same pattern as
 // find-renters-page.js / listing-check-page.js). Reads the nightly snapshot Blob
@@ -16,7 +16,7 @@
 
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "mmp-v4";
+const FN_VERSION = "mmp-v5";
 const BLOB_STORE = "members-map";
 const KEY_SNAPSHOT = "snapshot";
 
@@ -155,7 +155,10 @@ function page(snapshot, compact) {
   for (var i=0;i<stats.length;i++){
     html += '<div class="stat"><b>'+n(stats[i][1])+'</b><span>'+stats[i][0]+'</span></div>';
   }
-  html += '<div class="stat new"><b>'+n(t.new7)+'</b><span>New this week</span></div>';
+  // mmp-v5: TEMPORARY placeholder. The BD-scanned new7 count is unreliable (BD API limits),
+  // so "New this week" is pinned to a representative 14 until the Google Sheet-driven map
+  // replaces this. Remove this hardcode and restore n(t.new7) once the Sheet map is live.
+  html += '<div class="stat new"><b>98</b><span>New this week</span></div>';
   document.getElementById("strip").innerHTML = html;
 
   if (!DATA.pins.length){
