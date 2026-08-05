@@ -34,7 +34,7 @@ const KEY_SNAPSHOT = "snapshot";
 const KEY_NEW7 = "new7-count";
 const KEY_TOP = "new7-top";   // cached real top id so the coarse probe runs once, not every wake
 
-const CEILING = 6000;
+const CEILING = 4500;   // just above the real top id (~4315). Raise when membership nears this.
 const TOP_WINDOW = 60;    // top 60 real members covers a week of signups comfortably
 const REQUEST_DELAY_MS = 60;   // short burst of ~60 reads is safe under BD throttle
 const TIME_BUDGET_MS = 8000;
@@ -122,11 +122,11 @@ async function run() {
   } catch (e) {}
 
   if (!start) {
-    for (var probe = CEILING; probe >= 1; probe -= 15) {
+    for (var probe = CEILING; probe >= 1; probe -= 10) {
       if (Date.now() > deadline) { timedOut = true; break; }
       var pm = await fetchMemberById(probe);   // UNPACED: a short burst of light probes is fine
       idsChecked++;
-      if (pm) { start = Math.min(CEILING, probe + 15); break; }
+      if (pm) { start = Math.min(CEILING, probe + 10); break; }
     }
     if (start > 0) {
       try { await store.set(KEY_TOP, JSON.stringify({ top: start, at: Date.now() })); } catch (e) {}
