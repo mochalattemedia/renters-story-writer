@@ -1,5 +1,11 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v21  (2026-08-06, two PAID options replace the free tier)
+//  landlord-optin.js   ·   VERSION: v22  (2026-08-06, realtor buyer-intro opt-in)
+//    v22  REALTOR OPT-IN. POST { type:"realtor", memberId, optIn:true }
+//         writes the "realtor-buyer-intros" tag, so a realtor agreeing to
+//         buyer introductions is recorded against their member record rather
+//         than a browser cookie. GET ?status=1 now also returns
+//         realtorOptIn:true|false so the wizard can reflect it on any device.
+//         REQUIRES the tag "realtor-buyer-intros" to exist in BD.
 //    v21  Free tier removed. New tags match-per-lead / match-on-movein.
 //         Legacy matching-opted-in maps to on-movein (same deal, no re-ask);
 //         legacy matching-opted-out is treated as UNSET, because it meant
@@ -57,7 +63,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v21";
+const FUNCTION_VERSION = "v22";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -84,6 +90,12 @@ const TAG_OUT = "matching-opted-out";
 // write rather than guess.
 const TAG_PER_MATCH = "match-per-lead";
 const TAG_ON_MOVEIN = "match-on-movein";
+
+// v22: realtors have no CHOICE to make - one model - so this is an
+// agreement, not a preference. It records that they accepted buyer
+// introductions on per-introduction terms. Cookie-only was worthless: it
+// vanished on a device switch and left no record of who accepted what.
+const TAG_REALTOR_OPTIN = "realtor-buyer-intros";
 const KNOWN_TAGS = {
   "matching-opted-in":  { tag_id: "1", tag_type_id: "1" },
   "matching-opted-out": { tag_id: "2", tag_type_id: "1" },
@@ -309,6 +321,7 @@ exports.handler = async function (event) {
       let choice = null;
       let verified = false;
       let renterTier = null;
+      let realtorOptIn = false;
       if (member) {
         verified = String(member.verified) === "1";
         // Known tag IDs (from KNOWN_TAGS) so we can match by ID, not only by name.
@@ -336,6 +349,8 @@ exports.handler = async function (event) {
           // wizard asks them once, under terms that actually exist.
           else if (names.includes(TAG_OUT) || ids[OUT_ID]) choice = null;
           // Renter tier (independent of landlord in/out)
+          // v22: realtor buyer-intro agreement
+          if (names.includes(TAG_REALTOR_OPTIN)) realtorOptIn = true;
           if (names.includes(RENTER_TAGS.concierge)) renterTier = "concierge";
           else if (names.includes(RENTER_TAGS.match)) renterTier = "match";
           else if (names.includes(RENTER_TAGS.connect)) renterTier = "connect";
@@ -396,6 +411,7 @@ exports.handler = async function (event) {
           memberId: q.memberId,
           choice,                      // "in" | "out" | null  (landlord)
           renterTier,                  // "connect" | "match" | "concierge" | null  (renter)
+          realtorOptIn,                // v22: realtor agreed to buyer introductions
           verified,                    // true once you approve them
           verifiedSubmitted: submitted,// true once they submit the verify form
           profileComplete,             // NEW: intro (about_me OR my_story) AND a photo
@@ -472,6 +488,88 @@ exports.handler = async function (event) {
   const userId = memberId;
   if (!has(userId)) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "memberId required" }) };
+  }
+
+  // ============================================================
+  // REALTOR opt-in branch. Triggered when type === "realtor".
+  // Realtors have ONE model, so there is nothing to choose - this records
+  // that they agreed to receive buyer introductions on per-introduction
+  // terms. Writes a single tag and emails Kenny. Landlord and renter paths
+  // below are untouched.
+  // ============================================================
+  if (type === "realtor") {
+    let member = null;
+    try { member = await getMember(userId); } catch (e) { /* continue */ }
+
+    let tagWriteResult = { ok: false, status: 0, note: "" };
+    try {
+      const tags = await resolveTags();
+      const wantTag = tags[TAG_REALTOR_OPTIN];
+      if (wantTag && wantTag.tag_id) {
+        const addRes = await addTag(userId, wantTag, userId);
+        tagWriteResult = {
+          ok: addRes.ok && addRes.data && addRes.data.status === "success",
+          status: addRes.status,
+          note: addRes.ok ? "realtor tag written" : "realtor tag write failed: HTTP " + addRes.status,
+        };
+      } else {
+        // Fail loudly. A silent no-op here is indistinguishable from "my
+        // agreement did not save", which is the failure mode that cost two
+        // days this week.
+        return {
+          statusCode: 500,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            error: "Tag not configured",
+            detail: "The tag '" + TAG_REALTOR_OPTIN + "' does not exist in BD. Create it under Members > Tags.",
+            _v: FUNCTION_VERSION,
+          }),
+        };
+      }
+    } catch (e) {
+      tagWriteResult = { ok: false, status: 0, note: "realtor tag write error: " + e.message };
+    }
+
+    const rName = member ? (member.full_name || `${member.first_name || ""} ${member.last_name || ""}`.trim()) : "";
+    const rLines = ["Realtor agreed to buyer introductions on Renters.com.", ""];
+    if (has(rName))  rLines.push(`Name: ${rName}`);
+    if (has(userId)) rLines.push(`Member ID: ${userId}`);
+    if (member && has(member.email)) rLines.push(`Email: ${member.email}`);
+    if (member && has(member.phone_number)) rLines.push(`Phone: ${member.phone_number}`);
+    if (member && has(member.user_location)) rLines.push(`Location: ${member.user_location}`);
+    rLines.push(`Terms: per introduction, exclusive, flat fee. Nothing billed until agreed.`);
+    rLines.push(`Tag write: ${tagWriteResult.ok ? "OK" : "FAILED — " + tagWriteResult.note}`);
+    rLines.push(`Time: ${timestamp || new Date().toISOString()}`);
+    if (has(userId)) {
+      rLines.push("");
+      rLines.push("View in BD admin:");
+      rLines.push(`https://ww2.managemydirectory.com/admin/viewMembers.php?faction=view&userid=${userId}&newsite=38748`);
+    }
+    // Same SES shape the renter branch uses. Non-fatal: a failed notification
+    // must not lose an agreement that was already written to the tag.
+    try {
+      await ses.send(new SendEmailCommand({
+        Source: "verify@renters.com",
+        Destination: { ToAddresses: ["kenny@renters.com"] },
+        Message: {
+          Subject: { Data: `\u{1F3E1} ${has(rName) ? rName : "New realtor"} opted in to buyer introductions` },
+          Body: { Text: { Data: rLines.join("\n") } },
+        },
+      }));
+    } catch (err) { /* non-fatal */ }
+
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        success: true,
+        _v: FUNCTION_VERSION,
+        type: "realtor",
+        realtorOptIn: true,
+        tagWritten: tagWriteResult.ok,
+        tagNote: tagWriteResult.note,
+      }),
+    };
   }
 
   // ============================================================
