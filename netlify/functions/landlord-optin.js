@@ -1,8 +1,26 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v20  (2026-08-06, +search_description in the intro check - see hasIntro)
-//  prior: v18  (2026-07-22, +profileComplete in ?status=1; intro accepts about_me OR my_story so an account-type switch does not un-complete a profile)
-//  POST  { memberId, opt:"match"|"out", isChange?, timestamp? }  -> write tag + email Kenny
-//  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted }  (wizard reads on load)
+//  landlord-optin.js   ·   VERSION: v21  (2026-08-06, two PAID options replace the free tier)
+//    v21  Free tier removed. New tags match-per-lead / match-on-movein.
+//         Legacy matching-opted-in maps to on-movein (same deal, no re-ask);
+//         legacy matching-opted-out is treated as UNSET, because it meant
+//         FREE and that tier no longer exists - those members are asked once
+//         rather than silently enrolled in a paid plan. Writes now refuse
+//         with a 500 if a tag name does not resolve in BD, instead of
+//         silently no-opping.
+//         REQUIRES: tags "match-per-lead" and "match-on-movein" to exist in
+//         BD under Members > Tags before deploy.
+//    v20  +search_description in the intro check (see hasIntro). Landlord
+//         About Me is stored there, so every completed landlord was
+//         reporting hasIntro:false and the wizard never went away.
+//    v18  +profileComplete in ?status=1; intro accepts about_me OR my_story
+//         so an account-type switch does not un-complete a profile.
+//  POST  { memberId, opt:"per-match"|"on-movein", isChange?, timestamp? }
+//        legacy opt values still accepted: match/in/opted-in -> on-movein,
+//        free/out/opted-out -> per-match, so head code and this function can
+//        deploy in either order.  -> writes tag + emails Kenny
+//  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted,
+//        profileComplete, hasIntro, hasPhoto }   choice is now
+//        "per-match" | "on-movein" | null   (wizard reads on load)
 //  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (multi-method delete)
 //  API path confirmed working end-to-end: read + write member tags via www.renters.com/api/v2
 // ============================================================
@@ -39,7 +57,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v20";
+const FUNCTION_VERSION = "v21";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -48,6 +66,24 @@ const FUNCTION_VERSION = "v20";
 //   both live in tag group/type 1
 const TAG_IN = "matching-opted-in";
 const TAG_OUT = "matching-opted-out";
+
+// v21: TWO PAID OPTIONS REPLACE THE FREE TIER.
+// The old pair meant "opted into matching" (tag 1) and "listing free, no fee"
+// (tag 2). There is no free tier any more, so tag 2 describes an arrangement
+// that no longer exists and CANNOT be reused - a landlord holding it agreed to
+// something we no longer offer, and silently reading it as a paid plan would
+// enrol them in terms they never saw.
+//   tag 1 (matching-opted-in) -> mapped to "on-movein". Same commercial deal
+//         they already agreed to: we curate, they pay when a tenant moves in.
+//         No change of terms, so no need to re-ask.
+//   tag 2 (matching-opted-out) -> treated as UNSET. They are asked once, and
+//         choose properly, under terms that exist.
+// New tags must be created in BD before this ships. resolveTags() reads the
+// live list and merges over KNOWN_TAGS, so IDs resolve automatically once the
+// names exist - but see assertPaidTagResolvable() below, which refuses to
+// write rather than guess.
+const TAG_PER_MATCH = "match-per-lead";
+const TAG_ON_MOVEIN = "match-on-movein";
 const KNOWN_TAGS = {
   "matching-opted-in":  { tag_id: "1", tag_type_id: "1" },
   "matching-opted-out": { tag_id: "2", tag_type_id: "1" },
@@ -288,8 +324,17 @@ exports.handler = async function (event) {
           // Landlord matching choice. Match by tag NAME or by known tag ID.
           // Opted-out (tag 2) often comes back on the user record without the
           // "matching-opted-out" name, so ID matching is what makes it stick.
-          if (names.includes(TAG_IN) || ids[IN_ID]) choice = "in";
-          else if (names.includes(TAG_OUT) || ids[OUT_ID]) choice = "out";
+          // v21: new paid tags first. Then the legacy mapping.
+          if (names.includes(TAG_PER_MATCH)) choice = "per-match";
+          else if (names.includes(TAG_ON_MOVEIN)) choice = "on-movein";
+          // LEGACY: matching-opted-in was "we curate, you pay on move-in",
+          // which IS the on-movein option. Same terms, so honour it rather
+          // than making them choose again.
+          else if (names.includes(TAG_IN) || ids[IN_ID]) choice = "on-movein";
+          // LEGACY: matching-opted-out meant FREE. That tier is gone, so this
+          // is deliberately NOT mapped to anything. choice stays null and the
+          // wizard asks them once, under terms that actually exist.
+          else if (names.includes(TAG_OUT) || ids[OUT_ID]) choice = null;
           // Renter tier (independent of landlord in/out)
           if (names.includes(RENTER_TAGS.concierge)) renterTier = "concierge";
           else if (names.includes(RENTER_TAGS.match)) renterTier = "match";
@@ -559,9 +604,26 @@ exports.handler = async function (event) {
   // END renter branch — landlord logic continues unchanged below.
   // ============================================================
 
-  const optedIn = opt === "match" || opt === "in" || opt === "opted-in";
-  const wantTagName = optedIn ? TAG_IN : TAG_OUT;
-  const dropTagName = optedIn ? TAG_OUT : TAG_IN;
+  // v21: the POST now speaks the new vocabulary. Legacy values are still
+  // accepted so an unpasted head code cannot start failing writes mid-deploy.
+  //   "per-match" / "free" / "out"        -> match-per-lead
+  //   "on-movein" / "match" / "in"        -> match-on-movein
+  // NOTE the legacy remap of "out": it used to mean the FREE tier. There is
+  // no free tier now, so an old client sending "out" is expressing "I will
+  // find renters myself", which is what per-match is. It is NOT silently
+  // enrolling anyone - the wizard re-asks every holder of the old tag before
+  // any write happens (see the read path above).
+  const wantsPerMatch = opt === "per-match" || opt === "free" || opt === "out" || opt === "opted-out";
+  const optedIn = !wantsPerMatch;   // kept: the email/label code below reads it
+  const wantTagName = wantsPerMatch ? TAG_PER_MATCH : TAG_ON_MOVEIN;
+  // Drop the other new tag AND both legacy tags, so nobody ends up holding a
+  // marker for a tier we no longer offer.
+  const dropTagNames = [
+    wantsPerMatch ? TAG_ON_MOVEIN : TAG_PER_MATCH,
+    TAG_IN,
+    TAG_OUT,
+  ];
+  const dropTagName = dropTagNames[0];   // kept for the single-drop call below
 
   // Read member (for email enrichment + verified status).
   let member = null;
@@ -571,6 +633,24 @@ exports.handler = async function (event) {
   let tagWriteResult = { ok: false, status: 0, note: "" };
   try {
     const tags = await resolveTags();
+    // v21 GUARD: the new tags must exist in BD. resolveTags() merges the live
+    // list over KNOWN_TAGS, and the new names are deliberately NOT in
+    // KNOWN_TAGS because inventing an id would write the wrong tag. If the
+    // name did not resolve, fail loudly. A silent no-op here looks exactly
+    // like "my choice did not save", which is the failure mode that cost two
+    // days this week.
+    if (!tags[wantTagName] || !tags[wantTagName].tag_id) {
+      console.error("[optin] tag not found in BD: " + wantTagName);
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          error: "Tag not configured",
+          detail: "The tag '" + wantTagName + "' does not exist in BD. Create it under Members > Tags before using this option.",
+          _v: FUNCTION_VERSION,
+        }),
+      };
+    }
     const wantTag = tags[wantTagName];
 
     if (wantTag && wantTag.tag_id) {
