@@ -1,5 +1,6 @@
 // ============================================================
-//  landlord-optin.js   ·   VERSION: v18  (2026-07-22, +profileComplete in ?status=1; intro accepts about_me OR my_story so an account-type switch does not un-complete a profile)
+//  landlord-optin.js   ·   VERSION: v20  (2026-08-06, +search_description in the intro check - see hasIntro)
+//  prior: v18  (2026-07-22, +profileComplete in ?status=1; intro accepts about_me OR my_story so an account-type switch does not un-complete a profile)
 //  POST  { memberId, opt:"match"|"out", isChange?, timestamp? }  -> write tag + email Kenny
 //  GET   ?status=1&memberId=ID  -> { choice, verified, verifiedSubmitted }  (wizard reads on load)
 //  GET   ?reset=1&memberId=ID&key=renters2026  -> remove both matching tags (multi-method delete)
@@ -38,7 +39,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "v18";
+const FUNCTION_VERSION = "v20";
 
 // Tag names we manage. IDs are resolved at runtime by name, but we keep
 // confirmed known IDs as a fallback so a write can never fail on resolution.
@@ -323,8 +324,20 @@ exports.handler = async function (event) {
       }
       let hasIntro = false, hasPhoto = false;
       if (member) {
+        // v20: search_description ADDED. A landlord (#4362) had all five
+        // profile buttons solid in BD and a real About Me written, yet this
+        // reported hasIntro:false, so profileComplete was false, so the
+        // wizard reappeared on every login for a profile that was finished.
+        // Her text was in search_description - BD appears to store the About
+        // Me copy there for supply-side accounts, while about_me / my_story
+        // carry the renter-side fields. Checking only the renter fields made
+        // every completed landlord look incomplete.
+        // Kept as an OR across all of them rather than branching on plan:
+        // the question is "has this member written anything about
+        // themselves", and any of these being filled answers yes.
         hasIntro = nonEmpty(member.about_me) || nonEmpty(member.my_story) ||
-                   nonEmpty(member.about_me_1) || nonEmpty(member.describe_your_rent);
+                   nonEmpty(member.about_me_1) || nonEmpty(member.describe_your_rent) ||
+                   nonEmpty(member.search_description);
         hasPhoto = nonEmpty(member.image_main_file) ||
                    (Array.isArray(member.photos_schema) && member.photos_schema.length > 0);
       }
