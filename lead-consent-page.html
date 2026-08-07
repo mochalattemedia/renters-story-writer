@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>What should we share? — Renters.com</title>
+<link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;line-height:1.6}
+.wrap{max-width:640px;margin:0 auto;padding:24px 18px 60px}
+.brand{font-size:18px;font-weight:800;margin:0 0 22px}
+.brand span{color:#8dc63f}
+.card{background:#fff;border:1px solid #e6ebf0;border-radius:12px;padding:22px;margin:0 0 16px}
+h1{font-size:22px;font-weight:600;margin:0 0 8px}
+.lede{font-size:15px;color:#4a5a6a;margin:0 0 18px}
+.field{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;border:1px solid #e6ebf0;border-radius:8px;margin:0 0 8px;cursor:pointer;background:#fff}
+.field:hover{background:#f7fafc}
+.field.on{background:#f0faf6;border-color:#3a9e8f}
+.field input{margin-top:4px;flex:none;width:16px;height:16px;accent-color:#3a9e8f}
+.lbl{font-size:13px;color:#7b8a99}
+.val{font-size:14.5px;color:#0d2d4e;word-break:break-word}
+.bar{display:flex;gap:10px;align-items:center;margin:0 0 14px;font-size:13px;color:#4a5a6a}
+.bar button{font:inherit;font-size:12.5px;background:#fff;border:1px solid #dde3ea;border-radius:7px;padding:5px 11px;cursor:pointer;color:#0d2d4e}
+.bar button:hover{background:#f4f7f6}
+.note{background:#eaf4fb;border-left:3px solid #2980b9;color:#1a5276;padding:12px 15px;border-radius:0 8px 8px 0;font-size:13.5px;margin:0 0 18px}
+.privacy{background:#f0faf6;border-left:3px solid #3a9e8f;color:#1e8449;padding:12px 15px;border-radius:0 8px 8px 0;font-size:13.5px;margin:16px 0 0}
+textarea{width:100%;font:inherit;font-size:14.5px;line-height:1.7;padding:13px 15px;border:1px solid #dde3ea;border-radius:8px;min-height:150px;resize:vertical;color:#0d2d4e}
+.btn{font:inherit;font-size:15px;font-weight:600;padding:13px 22px;border-radius:9px;border:none;cursor:pointer;width:100%}
+.go{background:#3a9e8f;color:#fff}
+.go:disabled{opacity:.45;cursor:default}
+.ghost{background:#fff;color:#0d2d4e;border:1px solid #dde3ea;width:auto;padding:9px 16px;font-size:13.5px}
+.msg{font-size:13.5px;margin:12px 0 0;min-height:20px}
+.err{color:#c0392b}
+.okmsg{color:#1e8449}
+.muted{font-size:13px;color:#7b8a99}
+.done{text-align:center;padding:34px 20px}
+.done .tick{font-size:40px;color:#3a9e8f;margin:0 0 10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">RENTERS<span>.</span></div>
+  <div id="app"><div class="card"><p class="muted">Loading your request…</p></div></div>
+</div>
+
+<script>
+var FN = "/.netlify/functions/lead-consent";
+var token = new URLSearchParams(location.search).get("token") || "";
+var DATA = null, picked = {};
+
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function el(id){return document.getElementById(id);}
+
+/* The order fields are offered in. Contact details sit last and are
+   deliberately unticked by default: a renter should reach for those, not
+   have them pre-given away. Everything else defaults on, because a request
+   with nothing attached helps nobody. */
+var ORDER = ["budget","timing","term","location","propertyType","household","pets","petDetails","cosigner","description","obstacles","preferredDay","preferredTime","name","email","phone"];
+var CONTACT = {name:1,email:1,phone:1};
+
+/* Template-built summary. Reads only from ticked fields, so it cannot
+   describe something the renter did not authorise. This is the fallback
+   and the guarantee: an AI-written version can replace buildProfile() later,
+   but it must generate from this same filtered set and the renter must
+   still approve the text before anything is stored. */
+function buildProfile(){
+  var v = DATA.values, on = function(k){ return picked[k] && v[k]; };
+  var who = on("name") ? v.name : "This renter";
+  var bits = [];
+
+  var lead = who + " is looking for";
+  var what = [];
+  if (on("propertyType")) what.push(v.propertyType.toLowerCase());
+  if (on("household")) what.push("for " + v.household + (v.household === "1" ? " person" : " people"));
+  lead += what.length ? " " + what.join(" ") : " a place";
+  if (on("location")) lead += " in " + v.location;
+  bits.push(lead + ".");
+
+  if (on("budget")) bits.push("Budget is " + v.budget.toLowerCase() + ".");
+  if (on("timing")) bits.push("Looking to move " + v.timing.toLowerCase() + ".");
+  if (on("term")) bits.push("Interested in a " + v.term.toLowerCase() + " rental.");
+  if (on("pets")) bits.push(v.pets === "No pets" ? "No pets." : ("Has " + v.pets.toLowerCase() + (on("petDetails") ? " \u2014 " + v.petDetails : "") + "."));
+  if (on("cosigner") && v.cosigner === "Yes") bits.push("A co-signer is available if needed.");
+  if (on("description")) bits.push("In their own words: \u201c" + v.description + "\u201d");
+  if (on("obstacles")) bits.push("Worth knowing upfront: " + v.obstacles);
+  if (on("preferredDay") || on("preferredTime")) {
+    bits.push("Best reached " + [on("preferredDay") ? v.preferredDay.toLowerCase() : "", on("preferredTime") ? v.preferredTime.toLowerCase() : ""].filter(Boolean).join(", ") + ".");
+  }
+  return bits.join(" ");
+}
+
+function render(){
+  var v = DATA.values, L = DATA.labels;
+  var rows = ORDER.filter(function(k){ return v[k]; }).map(function(k){
+    return "<label class='field" + (picked[k] ? " on" : "") + "' data-k='" + k + "'>" +
+      "<input type='checkbox'" + (picked[k] ? " checked" : "") + ">" +
+      "<span><span class='lbl'>" + esc(L[k]) + "</span><br>" +
+      "<span class='val'>" + esc(v[k]) + "</span></span></label>";
+  }).join("");
+
+  el("app").innerHTML =
+    "<div class='card'>" +
+      "<h1>What should we share?</h1>" +
+      "<p class='lede'>Before we introduce you to anyone, tell us what you're happy for them to see. Nothing is shared unless you tick it.</p>" +
+      (DATA.alreadyConsented ? "<div class='note'>You've done this before. Your earlier choices are ticked below. Changing them here replaces what we'll share from now on, but we can't unsend anything already passed on.</div>" : "") +
+      "<div class='bar'><button id='bAll'>Tick everything</button><button id='bNone'>Untick everything</button><span id='cnt' class='muted'></span></div>" +
+      rows +
+      "<div class='privacy'><b>Some things we never share.</b> We don't pass on how you're paid or what you earn, ever, to anyone. Those aren't on this list and can't be.</div>" +
+    "</div>" +
+    "<div class='card'>" +
+      "<h1>How we'll describe you</h1>" +
+      "<p class='lede'>This is exactly what a landlord or property manager will read. Edit it however you like \u2014 it's your introduction.</p>" +
+      "<textarea id='prof'></textarea>" +
+      "<button class='btn go' id='bGo' style='margin-top:14px'>Approve and share this</button>" +
+      "<p class='msg' id='msg'></p>" +
+    "</div>";
+
+  Array.prototype.forEach.call(document.querySelectorAll(".field"), function(f){
+    f.addEventListener("click", function(e){
+      if (e.target.tagName !== "INPUT") { var b = f.querySelector("input"); b.checked = !b.checked; }
+      picked[f.getAttribute("data-k")] = f.querySelector("input").checked;
+      f.classList.toggle("on", f.querySelector("input").checked);
+      refresh();
+    });
+  });
+  el("bAll").onclick = function(){ ORDER.forEach(function(k){ if (v[k]) picked[k] = true; }); render(); };
+  el("bNone").onclick = function(){ picked = {}; render(); };
+  el("bGo").onclick = submit;
+  refresh();
+}
+
+function refresh(){
+  var n = Object.keys(picked).filter(function(k){ return picked[k]; }).length;
+  el("cnt").textContent = n + " selected";
+  el("prof").value = n ? buildProfile() : "";
+  el("bGo").disabled = n === 0;
+}
+
+function submit(){
+  var fields = Object.keys(picked).filter(function(k){ return picked[k]; });
+  var text = el("prof").value.trim();
+  var msg = el("msg"), btn = el("bGo");
+  if (!fields.length) { msg.className = "msg err"; msg.textContent = "Tick at least one thing you're happy to share."; return; }
+  if (!text) { msg.className = "msg err"; msg.textContent = "The description can't be empty."; return; }
+
+  btn.disabled = true; btn.textContent = "Saving\u2026";
+  var snap = {};
+  fields.forEach(function(k){ snap[k] = DATA.values[k]; });
+
+  fetch(FN, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      leadId: DATA.leadId, fields: fields, snapshot: snap, profileText: text,
+      renterName: DATA.values.name || null, renterEmail: DATA.values.email || null
+    })
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d && d.ok) {
+      el("app").innerHTML = "<div class='card done'><div class='tick'>\u2713</div>" +
+        "<h1>Thank you</h1><p class='lede'>We'll only share what you've approved. When we find somewhere that fits, we'll introduce you.</p>" +
+        "<p class='muted'>Recorded " + new Date(d.consentedAt).toLocaleString() + ". You can change this any time by opening this page again.</p></div>";
+      window.scrollTo(0,0);
+    } else {
+      btn.disabled = false; btn.textContent = "Approve and share this";
+      msg.className = "msg err"; msg.textContent = (d && (d.error || d.detail)) || "Something went wrong. Try again.";
+    }
+  }).catch(function(e){
+    btn.disabled = false; btn.textContent = "Approve and share this";
+    msg.className = "msg err"; msg.textContent = "Could not save: " + e;
+  });
+}
+
+if (!token) {
+  el("app").innerHTML = "<div class='card'><h1>This link is incomplete</h1><p class='lede'>Open the link from the email we sent you and it'll work.</p></div>";
+} else {
+  fetch(FN + "?token=" + encodeURIComponent(token))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d || !d.ok) {
+        el("app").innerHTML = "<div class='card'><h1>We couldn't find that request</h1><p class='lede'>" + esc((d && d.error) || "Try the link from your email again.") + "</p></div>";
+        return;
+      }
+      DATA = d;
+      /* Default: everything on except contact details. A request with
+         nothing attached helps nobody, but handing over a phone number
+         should be a decision, not a default. Returning renters get their
+         previous choices instead. */
+      if (d.previousFields && d.previousFields.length) {
+        d.previousFields.forEach(function(k){ picked[k] = true; });
+      } else {
+        Object.keys(d.values).forEach(function(k){ if (!CONTACT[k]) picked[k] = true; });
+      }
+      render();
+    })
+    .catch(function(e){
+      el("app").innerHTML = "<div class='card'><h1>Something went wrong</h1><p class='lede'>" + esc(String(e)) + "</p></div>";
+    });
+}
+</script>
+</body>
+</html>
