@@ -79,17 +79,26 @@ function buildProfile(){
 
   var lead = who + " is looking for";
   var what = [];
+  /* propertyType already decodes to "a single family home" / "an apartment",
+     so it carries its own article. Anything unmapped falls back to "a place"
+     rather than reading as a bare slug. */
   if (on("propertyType")) what.push(v.propertyType.toLowerCase());
+  else what.push("a place");
   if (on("household")) what.push("for " + v.household + (v.household === "1" ? " person" : " people"));
-  lead += what.length ? " " + what.join(" ") : " a place";
+  lead += " " + what.join(" ");
   if (on("location")) lead += " in " + v.location;
   bits.push(lead + ".");
 
-  if (on("budget")) bits.push("Budget is " + v.budget.toLowerCase() + ".");
+  if (on("budget")) bits.push("Budget is " + v.budget.toLowerCase().replace(/ a month$/, "") + " a month.");
   if (on("income")) bits.push("Earning around " + v.income.toLowerCase() + ".");
-  if (on("timing")) bits.push("Looking to move " + v.timing.toLowerCase() + ".");
-  if (on("term")) bits.push("Interested in a " + v.term.toLowerCase() + " rental.");
-  if (on("pets")) bits.push(v.pets === "No pets" ? "No pets." : ("Has " + v.pets.toLowerCase() + (on("petDetails") ? " \u2014 " + v.petDetails : "") + "."));
+  /* Timing decodes to either "Immediately" or a span like "3 to 6 months".
+     The first reads fine bare; the second needs "in". */
+  if (on("timing")) bits.push("Looking to move " + (/^(immediately|next|not sure)/i.test(v.timing) ? "" : "in ") + v.timing.toLowerCase() + ".");
+  /* The value decodes to "Long-term", so the word rental belongs here.
+     The member record spells it long_term_rental_, which used to decode
+     to "long term rental" and produced "a long term rental rental". */
+  if (on("term")) bits.push("Looking for a " + v.term.toLowerCase() + " rental.");
+  if (on("pets")) bits.push(/^no pets/i.test(v.pets) ? "No pets." : ("Has " + v.pets.toLowerCase() + (on("petDetails") ? ", " + v.petDetails : "") + "."));
   if (on("cosigner") && v.cosigner === "Yes") bits.push("A co-signer is available if needed.");
   if (on("description")) bits.push("In their own words: \u201c" + v.description + "\u201d");
   if (on("obstacles")) bits.push("Worth knowing upfront: " + v.obstacles);
