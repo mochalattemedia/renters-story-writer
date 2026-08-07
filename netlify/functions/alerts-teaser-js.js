@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v7
+// alerts-teaser-js.js  —  at-v8
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,19 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v8: FIX - voice did not fill the LOCATION field. The shared voice
+// backend (av-v1) is deliberately told to IGNORE place names, because on
+// the DASHBOARD the renter's location comes from their drawn Search Areas,
+// not speech. But on this logged-out teaser there are no search areas and
+// location is the one REQUIRED field - so a renter who said "Portland,
+// Oregon" got the whole form filled EXCEPT the location, then blocked with
+// "tell us where you want to live." The place name was captured (it showed
+// up in notes) but never routed to the location box.
+// Fix lives HERE, not in av-v1 (the dashboard depends on it ignoring
+// location): the teaser now pulls a place name out of the transcript
+// itself and fills the location field. Conservative - if it cannot find a
+// confident place, it leaves the field for the renter rather than guessing.
 //
 // at-v7: ALIGNMENT. The two action buttons (voice + Notify) now share
 // one width, capped at 360px and centered, so they stack evenly instead
@@ -80,7 +93,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v7";
+const FN_VERSION = "at-v8";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -369,6 +382,78 @@ const JS = `
     }
   }
 
+  // Pull a place name out of the spoken transcript, since av-v1 is told to
+  // ignore location. Looks for "in <Place>", "near <Place>", "around
+  // <Place>", or a bare City, ST / City, State. Conservative: returns "" if
+  // it is not reasonably sure, so we never put a wrong city in the box.
+  function locationFromTranscript(t) {
+    if (!t) return "";
+    var raw = "";
+    { var _t = "" + t, _cc, _i;
+      for (_i = 0; _i < _t.length; _i++) { _cc = _t.charCodeAt(_i);
+        raw += (_cc === 10 || _cc === 13 || _cc === 9) ? " " : _t.charAt(_i); } }
+    raw = raw.replace(/  +/g, " ").trim();
+    if (!raw) return "";
+    var s = " " + raw + " ";
+
+    var STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
+    var STATEWORDS = {"alabama":"AL","alaska":"AK","arizona":"AZ","arkansas":"AR","california":"CA","colorado":"CO","connecticut":"CT","delaware":"DE","florida":"FL","georgia":"GA","hawaii":"HI","idaho":"ID","illinois":"IL","indiana":"IN","iowa":"IA","kansas":"KS","kentucky":"KY","louisiana":"LA","maine":"ME","maryland":"MD","massachusetts":"MA","michigan":"MI","minnesota":"MN","mississippi":"MS","missouri":"MO","montana":"MT","nebraska":"NE","nevada":"NV","ohio":"OH","oklahoma":"OK","oregon":"OR","pennsylvania":"PA","tennessee":"TN","texas":"TX","utah":"UT","vermont":"VT","virginia":"VA","washington":"WA","wisconsin":"WY","wyoming":"WY"};
+    var STOP = {"i":1,"we":1,"my":1,"the":1,"a":1,"an":1,"it":1,"hey":1,"hi":1,"so":1,"can":1,"you":1,"looking":1,"want":1,"need":1,"me":1,"for":1,"with":1,"and":1,"under":1,"about":1};
+
+    var words = s.split(" ");
+    var i, w, lw;
+
+    // Pass 1: a capitalised word (or two) immediately followed by a state
+    // word or 2-letter state -> "City, ST".
+    for (i = 0; i < words.length; i++) {
+      w = words[i]; if (!w) continue;
+      lw = w.toLowerCase().replace(/[^a-z]/g, "");
+      var st = "";
+      if (STATEWORDS[lw]) st = STATEWORDS[lw];
+      else if (w.length === 2 && STATES.indexOf(w.toUpperCase()) !== -1) st = w.toUpperCase();
+      if (st) {
+        // walk back over up to 2 capitalised, non-stop words for the city
+        var city = [];
+        var k = i - 1;
+        while (k >= 0 && city.length < 2) {
+          var pw = words[k].replace(/[.,]/g, "");
+          if (!pw) break;
+          var first = pw.charAt(0);
+          var isCap = first >= "A" && first <= "Z";
+          if (isCap && !STOP[pw.toLowerCase()]) { city.unshift(pw); k--; }
+          else break;
+        }
+        if (city.length) return city.join(" ") + ", " + st;
+      }
+    }
+
+    // Pass 2: after in/near/around/by/to/within, take up to 2 capitalised
+    // non-stop words.
+    var PREP = {"in":1,"near":1,"around":1,"by":1,"to":1,"within":1};
+    for (i = 0; i < words.length - 1; i++) {
+      lw = words[i].toLowerCase().replace(/[^a-z]/g, "");
+      if (!PREP[lw]) continue;
+      var got = [];
+      var m = i + 1;
+      while (m < words.length && got.length < 2) {
+        var cand = words[m].replace(/[.,]/g, "");
+        if (!cand) break;
+        var c0 = cand.charAt(0);
+        if (c0 >= "A" && c0 <= "Z" && !STOP[cand.toLowerCase()]) { got.push(cand); m++; }
+        else break;
+      }
+      if (got.length) return got.join(" ");
+    }
+
+    // Pass 3: a 5-digit ZIP.
+    for (i = 0; i < words.length; i++) {
+      var d = words[i].replace(/[^0-9]/g, "");
+      if (d.length === 5 && words[i].replace(/[0-9]/g, "").length <= 1) return d;
+    }
+
+    return "";
+  }
+
   // Map the rich schema down to the teaser fields.
   function seedFormFromVoice(c, transcript, heard) {
     c = c || {};
@@ -395,7 +480,11 @@ const JS = `
     if (c.notes) noteBits.push(c.notes);
     if (transcript) noteBits.push(transcript);
     seed.notes = noteBits.join(" — ").slice(0, 200);
-    seed.where = "";  // renter fills location; it is not reliably in criteria
+    // av-v1 ignores place names, so pull location from the transcript here.
+    // Prefer an explicit criteria.where if a future schema ever provides one.
+    seed.where = (c.where && String(c.where).trim())
+      ? String(c.where).slice(0, 80)
+      : locationFromTranscript(transcript);
     seededFromVoice = true;
   }
 
