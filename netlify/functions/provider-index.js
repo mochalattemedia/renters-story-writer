@@ -1,5 +1,5 @@
 // ============================================================
-//  provider-index.js   ·   VERSION: pi-v2   (2026-08-06, +HUB_ADMIN_KEY gate)
+//  provider-index.js   ·   VERSION: pi-v3   (2026-08-06, live owners only + gentler pacing)
 //
 //  Indexes LISTINGS and the members who own them, so the hub can answer
 //  "who is near this renter, and what have they got".
@@ -31,7 +31,7 @@
 //
 //  ENV  BD_API_KEY, NETLIFY_SITE_ID, NETLIFY_BLOBS_TOKEN
 // ============================================================
-const FN_VERSION = "pi-v2";
+const FN_VERSION = "pi-v3";
 
 const https = require("https");
 // ADMIN GATE. This function returns renter names, emails and phone numbers,
@@ -58,6 +58,10 @@ const DEFAULT_MAX = 400;
 const BATCH = 6;
 const PAUSE_MS = 220;
 const STOP_AFTER_MISSES = 60;
+// Owners are fetched more gently than listings. The first run asked for 67
+// in quick succession and got nothing back, which reads as throttling.
+const OWNER_BATCH = 3;
+const OWNER_PAUSE_MS = 500;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -203,13 +207,29 @@ exports.handler = async function (event) {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ error: "No listings found. Existing index left untouched.", _v: FN_VERSION }) };
   }
 
-  // One member lookup per owner, not per listing.
+  // pi-v3: ONLY look up owners of LIVE listings.
+  // The first run found 79 listings across 67 distinct owners and returned
+  // ZERO providers - 67 rapid /user/get calls straight after 79 listing
+  // calls, which is exactly the shape of BD throttling (the Bible records
+  // byte-identical 400s under load). Only 8 of those 79 listings were live,
+  // so 59 of those lookups were for drafts nobody can be introduced to
+  // anyway. Asking for 8 instead of 67 is both kinder to BD and the only
+  // set the hub actually needs.
+  // ?all=1 restores the full sweep if you ever want draft owners too.
+  var wantAll = q.all === "1";
   var ownerIds = {};
-  listings.forEach(function (l) { if (l.ownerId) ownerIds[l.ownerId] = 1; });
+  listings.forEach(function (l) {
+    if (!l.ownerId || l.ownerId === "0") return;
+    if (!wantAll && !l.live) return;
+    ownerIds[l.ownerId] = 1;
+  });
   var uniq = Object.keys(ownerIds);
   var providers = [];
-  for (var j = 0; j < uniq.length; j += BATCH) {
-    var slice = uniq.slice(j, j + BATCH);
+  // A pause before switching endpoints. The listing walk has just made
+  // dozens of requests and BD does not distinguish between them.
+  if (uniq.length) await sleep(700);
+  for (var j = 0; j < uniq.length; j += OWNER_BATCH) {
+    var slice = uniq.slice(j, j + OWNER_BATCH);
     var members = await Promise.all(slice.map(getMember));
     members.forEach(function (m) {
       if (!m) return;
@@ -233,7 +253,7 @@ exports.handler = async function (event) {
         listingIds: mine.map(function (l) { return l.id; }),
       });
     });
-    if (j + BATCH < uniq.length) await sleep(PAUSE_MS);
+    if (j + OWNER_BATCH < uniq.length) await sleep(OWNER_PAUSE_MS);
   }
 
   var payload = { builtAt: new Date().toISOString(), listings: listings, providers: providers };
@@ -246,7 +266,10 @@ exports.handler = async function (event) {
 
   return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
     ok: true, _v: FN_VERSION, refreshed: true, builtAt: payload.builtAt,
-    listingCount: listings.length, providerCount: providers.length,
+    listingCount: listings.length,
+    liveCount: listings.filter(function (l) { return l.live; }).length,
+    ownersAttempted: uniq.length,
+    providerCount: providers.length,
     listings: listings, providers: providers,
   })};
 };
