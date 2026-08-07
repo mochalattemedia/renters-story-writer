@@ -1,5 +1,5 @@
 // ============================================================
-//  provider-index.js   ·   VERSION: pi-v3   (2026-08-06, live owners only + gentler pacing)
+//  provider-index.js   ·   VERSION: pi-v4   (2026-08-06, diagnostics on every BD failure)
 //
 //  Indexes LISTINGS and the members who own them, so the hub can answer
 //  "who is near this renter, and what have they got".
@@ -31,7 +31,7 @@
 //
 //  ENV  BD_API_KEY, NETLIFY_SITE_ID, NETLIFY_BLOBS_TOKEN
 // ============================================================
-const FN_VERSION = "pi-v3";
+const FN_VERSION = "pi-v4";
 
 const https = require("https");
 // ADMIN GATE. This function returns renter names, emails and phone numbers,
@@ -78,21 +78,37 @@ function store() {
   });
 }
 
+// pi-v4: bdGet reports WHY it failed instead of returning a bare null.
+// The owner pass returned 0 from 8 attempts while the same call worked by
+// hand, so the failure has to be visible rather than inferred. Every reason
+// is captured and surfaced on the response.
+var DIAG = [];
+function note(t) { if (DIAG.length < 30) DIAG.push(t); }
+
 function bdGet(path) {
   return new Promise(function (resolve) {
     var u;
-    try { u = new URL(BD_BASE + path); } catch (e) { return resolve(null); }
+    try { u = new URL(BD_BASE + path); } catch (e) { note(path + " -> bad URL"); return resolve(null); }
     var req = https.request({
       hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search,
       method: "GET", headers: { "X-Api-Key": process.env.BD_API_KEY, Accept: "application/json" },
     }, function (res) {
-      if ([301, 302, 307, 308].includes(res.statusCode)) { res.resume(); return resolve(null); }
+      if ([301, 302, 307, 308].includes(res.statusCode)) {
+        res.resume(); note(path + " -> redirect " + res.statusCode); return resolve(null);
+      }
       var raw = "";
       res.on("data", function (c) { raw += c; });
-      res.on("end", function () { try { resolve(JSON.parse(raw)); } catch (e) { resolve(null); } });
+      res.on("end", function () {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          note(path + " -> HTTP " + res.statusCode + " " + raw.slice(0, 90));
+          return resolve(null);
+        }
+        try { resolve(JSON.parse(raw)); }
+        catch (e) { note(path + " -> unparseable: " + raw.slice(0, 90)); resolve(null); }
+      });
     });
-    req.on("error", function () { resolve(null); });
-    req.setTimeout(9000, function () { req.destroy(); resolve(null); });
+    req.on("error", function (e) { note(path + " -> " + (e && e.message)); resolve(null); });
+    req.setTimeout(9000, function () { req.destroy(); note(path + " -> timeout"); resolve(null); });
     req.end();
   });
 }
@@ -108,8 +124,13 @@ async function getListing(id) {
   return l && l.group_id ? l : null;
 }
 async function getMember(id) {
-  var m = first(await bdGet("/user/get/" + encodeURIComponent(id)));
-  return m && m.user_id ? m : null;
+  var d = await bdGet("/user/get/" + encodeURIComponent(id));
+  if (!d) return null;                                  // bdGet already noted why
+  if (d.status && d.status !== "success") { note("user " + id + " -> status " + d.status); return null; }
+  var m = first(d);
+  if (!m) { note("user " + id + " -> empty message"); return null; }
+  if (!m.user_id) { note("user " + id + " -> no user_id, keys: " + Object.keys(m).slice(0, 6).join(",")); return null; }
+  return m;
 }
 
 // Plan level -> what they actually are. Landlord 17, PM 14, Realtor 18,
@@ -269,6 +290,8 @@ exports.handler = async function (event) {
     listingCount: listings.length,
     liveCount: listings.filter(function (l) { return l.live; }).length,
     ownersAttempted: uniq.length,
+    ownerIdsTried: uniq,
+    diagnostics: DIAG,
     providerCount: providers.length,
     listings: listings, providers: providers,
   })};
