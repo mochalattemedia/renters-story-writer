@@ -1,5 +1,11 @@
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v2   (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v3   (2026-08-07)
+//    hr-v3  THE CONSENT URL IS ABSOLUTE.
+//           hr-v2 returned a relative path. Head code runs on
+//           www.renters.com and resolved it there, so the redirect landed on
+//           renters.com/lead-consent-page.html - which does not exist. That
+//           page is served from Netlify. Anything head code is told to
+//           navigate to must carry its own origin.
 //    hr-v2  THE EMAIL COMES FROM BD, NOT FROM THE PAGE.
 //           hr-v1 required the caller to send name and email, and the head
 //           code scraped them out of the dashboard text. That failed on real
@@ -47,10 +53,15 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v2";
+const FN_VERSION = "hr-v3";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
+
+// The consent page is served from Netlify, NOT from renters.com. Head code
+// runs on renters.com, so a relative path resolves to the wrong host.
+const CONSENT_BASE = process.env.CONSENT_PAGE_URL ||
+  "https://renters-story-writer.netlify.app/lead-consent-page.html";
 
 function bdGet(path) {
   return new Promise(function (resolve) {
@@ -248,7 +259,7 @@ exports.handler = async function (event) {
     areaCount: uniqueZips.length,
     geocoded: !!(lat && lon),
     // Where to send them next, while they are still engaged.
-    consentUrl: "/lead-consent-page.html?id=" + encodeURIComponent(leadId) + "&token=" + encodeURIComponent(token),
+    consentUrl: CONSENT_BASE + "?id=" + encodeURIComponent(leadId) + "&token=" + encodeURIComponent(token),
   });
 };
 
