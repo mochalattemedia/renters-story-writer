@@ -62,6 +62,7 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
     <div class="count">Indexed<b id="cAll">—</b></div>
     <div class="count">Consented<b id="cCon">—</b></div>
     <div class="count">Showing<b id="cShow">—</b></div>
+    <div class="count">Listings<b id="cLst">—</b></div>
     <div class="count">Built<b id="cBuilt" style="font-size:11px;font-weight:400">—</b></div>
   </div>
 </div>
@@ -93,8 +94,19 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 <script>
 var IDX = "/.netlify/functions/lead-index";
 var CON = "/.netlify/functions/lead-consent";
+var PRV = "/.netlify/functions/provider-index";
 var CONSENT_PAGE = "/lead-consent-page.html";
-var LEADS = [], CONSENT = {}, sel = null, builtAt = null;
+/* The admin key travels in the URL: hub.html?key=XXXX. Kept out of the
+   source so the page can be public while the data behind it is not. It is
+   remembered in sessionStorage so a refresh does not lose it, and stripped
+   from the visible address bar so it is not read over a shoulder. */
+var KEY = new URLSearchParams(location.search).get("key") || sessionStorage.getItem("rdcHubKey") || "";
+if (new URLSearchParams(location.search).get("key")) {
+  sessionStorage.setItem("rdcHubKey", KEY);
+  history.replaceState(null, "", location.pathname);
+}
+function k(u){ return KEY ? (u + (u.indexOf("?") === -1 ? "?" : "&") + "key=" + encodeURIComponent(KEY)) : u; }
+var LEADS = [], CONSENT = {}, PROVIDERS = [], LISTINGS = [], sel = null, builtAt = null;
 
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 function el(id){return document.getElementById(id);}
@@ -187,6 +199,22 @@ function drawDetail(){
       (l.income&&l.incomeSource?" &middot; ":"")+
       (l.incomeSource?esc(l.incomeSource):"")+
       "<br>Use this to judge whether an introduction makes sense. Income source is not shareable at all, and the amount only goes out if the renter ticked it.</div>" : "")+
+    (function(){
+      var nb = nearbyFor(l);
+      if (!l.lat || !l.lon) return "<div class='ops' style='background:#f4f7f6;border-color:#e6ebf0;color:#7b8a99'><b>No coordinates</b>This request has no location, so nearby supply cannot be worked out.</div>";
+      if (!nb.length) return "<div class='ops'><b>No live listings within 40 miles</b>A supply gap, not a bad lead. Worth noting where these cluster.</div>";
+      return "<div style='padding:0 15px 10px'><div style='font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#8593a4;margin:0 0 6px'>Live listings within 40 miles &mdash; "+nb.length+"</div>"+
+        nb.map(function(x){
+          var fits = (l.budget && x.rent) ? null : null;
+          return "<div style='display:flex;gap:8px;align-items:center;padding:7px 10px;border:1px solid #e6ebf0;border-radius:8px;margin:0 0 5px;background:#fff;font-size:12px'>"+
+            "<div style='min-width:0;flex:1'><div style='font-weight:600'>"+esc(x.title||("Listing #"+x.id))+"</div>"+
+            "<div style='font-size:11px;color:#7b8a99'>"+(x.owner?esc(x.owner.name||x.owner.company||("Member #"+x.ownerId)):"owner unknown")+
+            (x.owner&&x.owner.plan?" &middot; "+esc(x.owner.plan):"")+
+            (x.rent?" &middot; $"+x.rent.toLocaleString():"")+
+            (x.beds?" &middot; "+esc(x.beds)+" bed":"")+"</div></div>"+
+            "<span style='font-size:11px;color:#7b8a99;white-space:nowrap'>"+x.d.toFixed(1)+" mi</span></div>";
+        }).join("")+"</div>";
+    })()+
     "<div class='msg' id='dmsg'></div>"+
     "<div class='acts'>"+
       "<button class='btn ghost' id='bCopy'>Copy consent link</button>"+
@@ -203,7 +231,7 @@ function drawDetail(){
   var bv = el("bView");
   if (bv) bv.onclick = function(){
     el("dmsg").textContent = "Loading…";
-    fetch(CON+"?leadId="+encodeURIComponent(l.id)).then(function(r){return r.json();}).then(function(x){
+    fetch(k(CON+"?leadId="+encodeURIComponent(l.id))).then(function(r){return r.json();}).then(function(x){
       if (x && x.consented && x.record) {
         el("dmsg").innerHTML = "<div class='words' style='margin:8px 0 0'><b>Approved "+esc(new Date(x.record.consentedAt).toLocaleString())+" &mdash; "+x.record.fields.length+" fields</b>"+esc(x.record.profileText)+"</div>";
       } else { el("dmsg").textContent = "No consent record found."; }
@@ -217,13 +245,36 @@ function render(){
   el("cAll").textContent = LEADS.length;
   el("cCon").textContent = Object.keys(CONSENT).filter(function(k){return CONSENT[k];}).length;
   el("cShow").textContent = list.length;
+  el("cLst").textContent = LISTINGS.filter(function(x){return x.live;}).length;
   el("cBuilt").textContent = builtAt ? ago(builtAt) : "—";
+}
+
+function miles(a,b,c,d){var R=3958.8,p=Math.PI/180;
+  var x=0.5-Math.cos((c-a)*p)/2+Math.cos(a*p)*Math.cos(c*p)*(1-Math.cos((d-b)*p))/2;
+  return R*2*Math.asin(Math.sqrt(x));}
+
+function nearbyFor(l){
+  if (!l.lat || !l.lon) return [];
+  return LISTINGS
+    .filter(function(x){ return x.lat && x.lon && x.live; })
+    .map(function(x){ var o={}; for(var q in x) o[q]=x[q]; o.d=miles(l.lat,l.lon,x.lat,x.lon);
+      o.owner=PROVIDERS.filter(function(p){return String(p.id)===String(x.ownerId);})[0]||null; return o; })
+    .filter(function(x){ return x.d < 40; })
+    .sort(function(a,b){ return a.d-b.d; })
+    .slice(0,8);
+}
+
+function loadProviders(){
+  return fetch(k(PRV))
+    .then(function(r){return r.json();})
+    .then(function(d){ if(d&&d.ok){ PROVIDERS=d.providers||[]; LISTINGS=d.listings||[]; } })
+    .catch(function(){ PROVIDERS=[]; LISTINGS=[]; });
 }
 
 function loadConsent(){
   if (!LEADS.length) return Promise.resolve();
   var ids = LEADS.map(function(l){return l.id;}).join(",");
-  return fetch(CON+"?leadIds="+encodeURIComponent(ids))
+  return fetch(k(CON+"?leadIds="+encodeURIComponent(ids)))
     .then(function(r){return r.json();})
     .then(function(d){ CONSENT = (d && d.consent) || {}; })
     .catch(function(){ CONSENT = {}; });
@@ -232,12 +283,12 @@ function loadConsent(){
 function load(refresh){
   var b = el("bRefresh");
   b.disabled = true; b.textContent = refresh ? "Fetching from BD…" : "Loading…";
-  fetch(IDX + (refresh ? "?refresh=1" : ""))
+  fetch(k(IDX + (refresh ? "?refresh=1" : "")))
     .then(function(r){return r.json();})
     .then(function(d){
       if (!d || !d.ok) { el("queue").innerHTML="<div class='empty'>"+esc((d&&d.error)||"Could not load leads.")+"</div>"; return; }
       LEADS = d.leads || []; builtAt = d.builtAt || null;
-      return loadConsent().then(render);
+      return Promise.all([loadConsent(), loadProviders()]).then(render);
     })
     .catch(function(e){ el("queue").innerHTML="<div class='empty'>"+esc(String(e))+"</div>"; })
     .finally(function(){ b.disabled=false; b.textContent="Refresh from BD"; });
