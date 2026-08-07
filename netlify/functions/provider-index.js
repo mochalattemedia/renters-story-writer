@@ -1,67 +1,64 @@
 // ============================================================
-//  provider-index.js   ·   VERSION: pi-v5   (2026-08-06, listing gaps counted not narrated)
+//  provider-index.js   ·   VERSION: pi-v6   (2026-08-06)
 //
-//  Indexes LISTINGS and the members who own them, so the hub can answer
-//  "who is near this renter, and what have they got".
+//  Indexes LISTINGS and the members who own them, RESUMABLY.
 //
-//  WHY IT WALKS IDS
-//  Same constraint as leads. users_portfolio_groups/get ignores its query
-//  parameters - passing user_id or group_token returned the same first row
-//  both times. Path-segment lookup (/users_portfolio_groups/get/12) filters
-//  correctly, which is the asymmetry the Bible already records for
-//  /user/get. There are only tens of listings, so walking up from id 1 is
-//  cheap and complete.
+//  WHY IT IS RESUMABLE
+//  pi-v5 tried to crawl the whole id range in one call and BD refused:
+//      HTTP 429 {"status":"error","message":"Too many API requests per minute"}
+//  starting around the hundredth request. Slower pacing does not fix a
+//  per-minute limit - a long crawl will always reach it, and Netlify's ~10s
+//  function ceiling means a full sweep was never going to fit anyway.
+//  So each call does a SLICE, merges it into what is already stored, and
+//  records where it stopped. Call it a few times and the index fills in.
+//  Nothing is discarded on a partial run.
 //
-//  TWO HOPS PER LISTING
-//  A listing carries user_id but not the owner's name or plan. Owners are
-//  fetched separately and cached within the run, so a PM with 40 units
-//  costs one member lookup, not 40.
+//  429 ENDS THE RUN IMMEDIATELY. Once BD says slow down, every further
+//  request that minute is wasted AND indistinguishable from a missing
+//  record - which is how pi-v5 reported 79 listings when there may be more.
+//  The run stops, keeps what it has, does not advance the cursor past ids
+//  it never actually saw, and says it was throttled.
 //
-//  THE FIELD TRAPS ARE REAL AND DOCUMENTED
-//    rent lives in post_promo, NOT property_price (which BD syncs itself)
-//    property_beds / property_baths were reversed in BD and later corrected
-//  Read them as they are now and do not "fix" them here - lw-v52 resolves
-//  the form side by label, and this only reads.
+//  WHY IT WALKS IDS AT ALL
+//  users_portfolio_groups/get ignores query parameters - user_id and
+//  group_token both returned the same first row. Path-segment lookup
+//  filters correctly. Same asymmetry the Bible records for /user/get.
+//
+//  FIELD TRAPS, READ ONLY
+//    rent is post_promo, NOT property_price (BD syncs that itself)
+//    beds/baths were reversed in BD and later corrected - read as-is
 //
 //  ENDPOINTS
-//   GET ?version=1        -> config probe
-//   GET                   -> cached index, no BD calls
-//   GET ?refresh=1        -> rebuild, then return
-//   GET ?refresh=1&max=400 -> how far up to walk
+//   GET ?version=1          config probe
+//   GET                     cached index, no BD calls
+//   GET ?scan=1             index the next slice
+//   GET ?scan=1&slice=40    how many ids to try this call
+//   GET ?scan=1&restart=1   begin again from id 1
+//   GET ?owners=1           fetch owners of live listings
+//   GET ?owners=1&all=1     ...including draft-only owners
+//   GET ?reset=1            wipe the index
 //
-//  ENV  BD_API_KEY, NETLIFY_SITE_ID, NETLIFY_BLOBS_TOKEN
+//  TYPICAL USE
+//   ?scan=1 repeatedly until done:true, then ?owners=1
+//
+//  ENV  BD_API_KEY, NETLIFY_SITE_ID, NETLIFY_BLOBS_TOKEN, HUB_ADMIN_KEY
 // ============================================================
-const FN_VERSION = "pi-v5";
+const FN_VERSION = "pi-v6";
 
 const https = require("https");
-// ADMIN GATE. This function returns renter names, emails and phone numbers,
-// so it must not answer an unauthenticated request. Set HUB_ADMIN_KEY in
-// Netlify and pass ?key= on every call. Constant-time compare, so the key
-// cannot be guessed a character at a time from response timings.
-// The renter-facing consent page is deliberately NOT gated by this - it is
-// authorised by the lead's own id+token pair instead.
 const crypto = require("crypto");
-function keyOk(given) {
-  const want = process.env.HUB_ADMIN_KEY || "";
-  if (!want) return true;               // unset means open, so nothing breaks before it is configured
-  const a = Buffer.from(String(given == null ? "" : given));
-  const b = Buffer.from(want);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
-}
-
 const { getStore } = require("@netlify/blobs");
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const INDEX_KEY = "index:providers";
-const DEFAULT_MAX = 400;
-const BATCH = 6;
-const PAUSE_MS = 220;
-const STOP_AFTER_MISSES = 60;
-// Owners are fetched more gently than listings. The first run asked for 67
-// in quick succession and got nothing back, which reads as throttling.
-const OWNER_BATCH = 3;
-const OWNER_PAUSE_MS = 500;
+
+// Deliberately conservative. BD starts refusing around 100 requests a
+// minute, and this is not the only thing talking to that API.
+const DEFAULT_SLICE = 40;
+const BATCH = 4;
+const PAUSE_MS = 320;
+const MAX_ID = 4000;
+const STOP_AFTER_GAPS = 120;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,6 +66,15 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Content-Type": "application/json",
 };
+
+function keyOk(given) {
+  const want = process.env.HUB_ADMIN_KEY || "";
+  if (!want) return true;
+  const a = Buffer.from(String(given == null ? "" : given));
+  const b = Buffer.from(want);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
 function store() {
   return getStore({
@@ -78,50 +84,36 @@ function store() {
   });
 }
 
-// pi-v4: bdGet reports WHY it failed instead of returning a bare null.
-// The owner pass returned 0 from 8 attempts while the same call worked by
-// hand, so the failure has to be visible rather than inferred. Every reason
-// is captured and surfaced on the response.
-// pi-v5: two buckets, because v4's single 30-slot array filled entirely
-// with "listing 3 not found" and left no room for the thing we were
-// actually trying to see. Gaps in the listing id sequence are NORMAL and
-// expected - they are counted, not narrated. Owner failures get their own
-// bucket and are never crowded out.
-var GAPS = 0;
+var THROTTLED = false;
 var DIAG = [];
-function note(t) { if (DIAG.length < 40) DIAG.push(t); }
-function noteGap() { GAPS++; }
+function note(t) { if (DIAG.length < 20) DIAG.push(t); }
 
 function bdGet(path) {
   return new Promise(function (resolve) {
     var u;
-    try { u = new URL(BD_BASE + path); } catch (e) { note(path + " -> bad URL"); return resolve(null); }
+    try { u = new URL(BD_BASE + path); } catch (e) { return resolve(null); }
     var req = https.request({
       hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search,
       method: "GET", headers: { "X-Api-Key": process.env.BD_API_KEY, Accept: "application/json" },
     }, function (res) {
-      if ([301, 302, 307, 308].includes(res.statusCode)) {
-        res.resume(); note(path + " -> redirect " + res.statusCode); return resolve(null);
-      }
+      if ([301, 302, 307, 308].includes(res.statusCode)) { res.resume(); note(path + " -> redirect"); return resolve(null); }
       var raw = "";
       res.on("data", function (c) { raw += c; });
       res.on("end", function () {
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          // An expected hole in the listing id sequence. Count it, do not
-          // narrate it - there are dozens and they drown everything else.
-          if (path.indexOf("/users_portfolio_groups/") === 0 && raw.indexOf("not found") !== -1) {
-            noteGap();
-          } else {
-            note(path + " -> HTTP " + res.statusCode + " " + raw.slice(0, 120).replace(/\s+/g, " "));
-          }
+        if (res.statusCode === 429 || raw.indexOf("Too many API requests") !== -1) {
+          THROTTLED = true;
           return resolve(null);
         }
-        try { resolve(JSON.parse(raw)); }
-        catch (e) { note(path + " -> unparseable: " + raw.slice(0, 90)); resolve(null); }
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          // "not found" is a hole in the id sequence: normal, and silent.
+          if (raw.indexOf("not found") === -1) note(path + " -> HTTP " + res.statusCode + " " + raw.slice(0, 100).replace(/\s+/g, " "));
+          return resolve(null);
+        }
+        try { resolve(JSON.parse(raw)); } catch (e) { note(path + " -> unparseable"); resolve(null); }
       });
     });
     req.on("error", function (e) { note(path + " -> " + (e && e.message)); resolve(null); });
-    req.setTimeout(9000, function () { req.destroy(); note(path + " -> timeout"); resolve(null); });
+    req.setTimeout(8000, function () { req.destroy(); note(path + " -> timeout"); resolve(null); });
     req.end();
   });
 }
@@ -131,27 +123,21 @@ function first(d) {
   var m = d.message;
   return Array.isArray(m) ? m[0] : m;
 }
-
 async function getListing(id) {
   var l = first(await bdGet("/users_portfolio_groups/get/" + encodeURIComponent(id)));
   return l && l.group_id ? l : null;
 }
 async function getMember(id) {
   var d = await bdGet("/user/get/" + encodeURIComponent(id));
-  if (!d) return null;                                  // bdGet already noted why
-  if (d.status && d.status !== "success") { note("user " + id + " -> status " + d.status); return null; }
+  if (!d) return null;
+  if (d.status && d.status !== "success") { note("user " + id + " -> " + d.status); return null; }
   var m = first(d);
-  if (!m) { note("user " + id + " -> empty message"); return null; }
-  if (!m.user_id) { note("user " + id + " -> no user_id, keys: " + Object.keys(m).slice(0, 6).join(",")); return null; }
+  if (!m || !m.user_id) { note("user " + id + " -> no user_id"); return null; }
   return m;
 }
 
-// Plan level -> what they actually are. Landlord 17, PM 14, Realtor 18,
-// Renter 15. A realtor should never appear as a rental provider, so they
-// are indexed but flagged rather than silently included.
 function planOf(m) {
-  var s = m && m.subscription_schema;
-  var name = "";
+  var s = m && m.subscription_schema, name = "";
   try {
     if (s && typeof s === "object") name = s.subscription_name || s.name || "";
     else if (typeof s === "string") name = s;
@@ -163,152 +149,154 @@ function planOf(m) {
   if (t.indexOf("renter") !== -1) return "renter";
   return "";
 }
-
 function num(v) { var n = Number(String(v == null ? "" : v).replace(/[^0-9.]/g, "")); return isFinite(n) && n > 0 ? n : null; }
 
 function shapeListing(l) {
   return {
-    id: l.group_id,
-    ownerId: l.user_id,
-    title: l.group_name || "",
-    location: l.post_location || "",
-    lat: l.lat ? Number(l.lat) : null,
-    lon: l.lon ? Number(l.lon) : null,
+    id: l.group_id, ownerId: l.user_id,
+    title: l.group_name || "", location: l.post_location || "",
+    lat: l.lat ? Number(l.lat) : null, lon: l.lon ? Number(l.lon) : null,
     state: l.state_sn || "",
-    // Rent is post_promo. property_price is BD's own synced field and is
-    // null on every record we have looked at - see the Bible.
     rent: num(l.post_promo),
-    beds: l.property_beds || "",
-    baths: l.property_baths || "",
-    sqft: l.property_sqr_foot || "",
-    type: l.property_type || "",
-    subtype: l.sub_property_type || "",
-    duration: l.property_duration || "",
-    furnished: l.status || "",
-    live: String(l.group_status || "") === "1",
+    beds: l.property_beds || "", baths: l.property_baths || "",
+    sqft: l.property_sqr_foot || "", type: l.property_type || "",
+    subtype: l.sub_property_type || "", duration: l.property_duration || "",
+    furnished: l.status || "", live: String(l.group_status || "") === "1",
     slug: l.group_filename || "",
   };
 }
 
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
+async function load(s) {
+  try {
+    var c = await s.get(INDEX_KEY, { type: "json" });
+    if (c) return c;
+  } catch (e) {}
+  return { builtAt: null, cursor: 1, gaps: 0, done: false, listings: [], providers: [], ownersAt: null };
+}
+
 exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
   var q = event.queryStringParameters || {};
+  var out = function (b, st) { return { statusCode: st || 200, headers: corsHeaders, body: JSON.stringify(b) }; };
 
   if (q.version === "1") {
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
-      ok: true, _v: FN_VERSION,
+    return out({ ok: true, _v: FN_VERSION,
       bdKeyConfigured: !!process.env.BD_API_KEY,
       blobsConfigured: !!process.env.NETLIFY_SITE_ID && !!process.env.NETLIFY_BLOBS_TOKEN,
-    })};
+      defaultSlice: DEFAULT_SLICE });
   }
 
-  if (!keyOk(q.key)) {
-    return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
-  }
+  if (!keyOk(q.key)) return out({ error: "Unauthorized" }, 401);
 
   var s = store();
+  var idx = await load(s);
 
-  if (!q.refresh) {
-    try {
-      var c = await s.get(INDEX_KEY, { type: "json" });
-      if (c) return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ ok: true, _v: FN_VERSION, cached: true, builtAt: c.builtAt, listings: c.listings, providers: c.providers }) };
-    } catch (e) {}
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ ok: true, _v: FN_VERSION, cached: false, listings: [], providers: [], note: "No index yet. Call with ?refresh=1." }) };
+  if (q.reset === "1") {
+    idx = { builtAt: null, cursor: 1, gaps: 0, done: false, listings: [], providers: [], ownersAt: null };
+    await s.setJSON(INDEX_KEY, idx);
+    return out({ ok: true, _v: FN_VERSION, reset: true });
   }
 
-  if (!process.env.BD_API_KEY) {
-    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "BD_API_KEY is not set" }) };
+  if (!q.scan && !q.owners) {
+    return out({ ok: true, _v: FN_VERSION, cached: true,
+      builtAt: idx.builtAt, cursor: idx.cursor, done: idx.done,
+      listingCount: idx.listings.length,
+      liveCount: idx.listings.filter(function (l) { return l.live; }).length,
+      providerCount: idx.providers.length,
+      listings: idx.listings, providers: idx.providers });
   }
 
-  var max = Math.min(Math.max(parseInt(q.max, 10) || DEFAULT_MAX, 10), 2000);
-  var listings = [], misses = 0, id = 1;
+  if (!process.env.BD_API_KEY) return out({ error: "BD_API_KEY is not set" }, 500);
 
-  while (id <= max) {
-    var ids = [];
-    for (var i = 0; i < BATCH && id <= max; i++) { ids.push(id); id++; }
-    var got = await Promise.all(ids.map(getListing));
-    got.forEach(function (l) {
-      if (l) { listings.push(shapeListing(l)); misses = 0; }
-      else { misses++; }
+  if (q.owners === "1") {
+    var wantIds = {};
+    idx.listings.forEach(function (l) {
+      if (!l.ownerId || l.ownerId === "0") return;
+      if (q.all !== "1" && !l.live) return;
+      wantIds[l.ownerId] = 1;
     });
-    if (misses >= STOP_AFTER_MISSES) break;
-    if (id <= max) await sleep(PAUSE_MS);
-  }
+    var ids = Object.keys(wantIds);
+    var have = {};
+    idx.providers.forEach(function (p) { have[p.id] = 1; });
+    var todo = ids.filter(function (i) { return !have[i]; });
 
-  if (!listings.length) {
-    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ error: "No listings found. Existing index left untouched.", _v: FN_VERSION }) };
-  }
-
-  // pi-v3: ONLY look up owners of LIVE listings.
-  // The first run found 79 listings across 67 distinct owners and returned
-  // ZERO providers - 67 rapid /user/get calls straight after 79 listing
-  // calls, which is exactly the shape of BD throttling (the Bible records
-  // byte-identical 400s under load). Only 8 of those 79 listings were live,
-  // so 59 of those lookups were for drafts nobody can be introduced to
-  // anyway. Asking for 8 instead of 67 is both kinder to BD and the only
-  // set the hub actually needs.
-  // ?all=1 restores the full sweep if you ever want draft owners too.
-  var wantAll = q.all === "1";
-  var ownerIds = {};
-  listings.forEach(function (l) {
-    if (!l.ownerId || l.ownerId === "0") return;
-    if (!wantAll && !l.live) return;
-    ownerIds[l.ownerId] = 1;
-  });
-  var uniq = Object.keys(ownerIds);
-  var providers = [];
-  // A pause before switching endpoints. The listing walk has just made
-  // dozens of requests and BD does not distinguish between them.
-  if (uniq.length) await sleep(700);
-  for (var j = 0; j < uniq.length; j += OWNER_BATCH) {
-    var slice = uniq.slice(j, j + OWNER_BATCH);
-    var members = await Promise.all(slice.map(getMember));
-    members.forEach(function (m) {
-      if (!m) return;
-      var mine = listings.filter(function (l) { return String(l.ownerId) === String(m.user_id); });
-      var withGeo = mine.filter(function (l) { return l.lat && l.lon; });
-      providers.push({
-        id: m.user_id,
-        name: (m.full_name || ((m.first_name || "") + " " + (m.last_name || "")).trim() || m.company || "").trim(),
-        company: m.company || "",
-        email: m.email || "",
-        phone: m.phone_number || "",
-        plan: planOf(m),
-        verified: String(m.verified) === "1",
-        location: m.user_location || [m.city, m.state_code].filter(Boolean).join(", "),
-        // Centre of their listings, so proximity works even when the member
-        // record has no coordinates of its own.
-        lat: withGeo.length ? withGeo.reduce(function (a, l) { return a + l.lat; }, 0) / withGeo.length : (m.lat ? Number(m.lat) : null),
-        lon: withGeo.length ? withGeo.reduce(function (a, l) { return a + l.lon; }, 0) / withGeo.length : (m.lon ? Number(m.lon) : null),
-        listingCount: mine.length,
-        liveCount: mine.filter(function (l) { return l.live; }).length,
-        listingIds: mine.map(function (l) { return l.id; }),
+    var added = [];
+    for (var j = 0; j < todo.length && !THROTTLED; j += BATCH) {
+      var got = await Promise.all(todo.slice(j, j + BATCH).map(getMember));
+      got.forEach(function (m) {
+        if (!m) return;
+        var mine = idx.listings.filter(function (l) { return String(l.ownerId) === String(m.user_id); });
+        var geo = mine.filter(function (l) { return l.lat && l.lon; });
+        added.push({
+          id: m.user_id,
+          name: (m.full_name || ((m.first_name || "") + " " + (m.last_name || "")).trim() || m.company || "").trim(),
+          company: m.company || "", email: m.email || "", phone: m.phone_number || "",
+          plan: planOf(m), verified: String(m.verified) === "1",
+          location: m.user_location || [m.city, m.state_code].filter(Boolean).join(", "),
+          lat: geo.length ? geo.reduce(function (a, l) { return a + l.lat; }, 0) / geo.length : (m.lat ? Number(m.lat) : null),
+          lon: geo.length ? geo.reduce(function (a, l) { return a + l.lon; }, 0) / geo.length : (m.lon ? Number(m.lon) : null),
+          listingCount: mine.length,
+          liveCount: mine.filter(function (l) { return l.live; }).length,
+          listingIds: mine.map(function (l) { return l.id; }),
+        });
       });
+      if (j + BATCH < todo.length && !THROTTLED) await sleep(PAUSE_MS);
+    }
+
+    idx.providers = idx.providers.concat(added);
+    idx.ownersAt = new Date().toISOString();
+    idx.builtAt = idx.builtAt || idx.ownersAt;
+    await s.setJSON(INDEX_KEY, idx);
+
+    return out({ ok: true, _v: FN_VERSION, owners: true,
+      wanted: ids.length, alreadyHad: ids.length - todo.length,
+      added: added.length, providerCount: idx.providers.length,
+      throttled: THROTTLED,
+      note: THROTTLED ? "BD rate limit hit. Wait a minute and call ?owners=1 again to pick up the rest." : null,
+      diagnostics: DIAG });
+  }
+
+  if (q.restart === "1") { idx.cursor = 1; idx.gaps = 0; idx.done = false; }
+
+  var slice = Math.min(Math.max(parseInt(q.slice, 10) || DEFAULT_SLICE, 5), 120);
+  var seen = {};
+  idx.listings.forEach(function (l) { seen[l.id] = 1; });
+
+  var id = idx.cursor, tried = 0, found = 0;
+  while (tried < slice && id <= MAX_ID && !THROTTLED) {
+    var batch = [];
+    for (var b = 0; b < BATCH && tried < slice && id <= MAX_ID; b++) { batch.push(id); id++; tried++; }
+    var res = await Promise.all(batch.map(getListing));
+    res.forEach(function (l) {
+      if (l) {
+        idx.gaps = 0;
+        if (!seen[l.group_id]) { idx.listings.push(shapeListing(l)); seen[l.group_id] = 1; found++; }
+      } else if (!THROTTLED) {
+        idx.gaps++;
+      }
     });
-    if (j + OWNER_BATCH < uniq.length) await sleep(OWNER_PAUSE_MS);
+    if (idx.gaps >= STOP_AFTER_GAPS) { idx.done = true; break; }
+    if (tried < slice && !THROTTLED) await sleep(PAUSE_MS);
   }
 
-  var payload = { builtAt: new Date().toISOString(), listings: listings, providers: providers };
-  try { await s.setJSON(INDEX_KEY, payload); }
-  catch (e) {
-    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Indexed but could not cache", detail: e && e.message, listings: listings.length }) };
-  }
+  // A throttled run must not advance past ids it never actually saw.
+  idx.cursor = THROTTLED ? Math.max(idx.cursor, id - BATCH) : id;
+  if (idx.cursor > MAX_ID) idx.done = true;
+  idx.builtAt = new Date().toISOString();
+  await s.setJSON(INDEX_KEY, idx);
 
-  console.log("[provider-index] " + listings.length + " listings, " + providers.length + " providers");
-
-  return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
-    ok: true, _v: FN_VERSION, refreshed: true, builtAt: payload.builtAt,
-    listingCount: listings.length,
-    liveCount: listings.filter(function (l) { return l.live; }).length,
-    ownersAttempted: uniq.length,
-    ownerIdsTried: uniq,
-    listingGaps: GAPS,
-    diagnostics: DIAG,
-    providerCount: providers.length,
-    listings: listings, providers: providers,
-  })};
+  return out({ ok: true, _v: FN_VERSION, scanned: true,
+    triedThisRun: tried, foundThisRun: found,
+    cursor: idx.cursor, done: idx.done, throttled: THROTTLED,
+    listingCount: idx.listings.length,
+    liveCount: idx.listings.filter(function (l) { return l.live; }).length,
+    consecutiveGaps: idx.gaps,
+    note: THROTTLED
+      ? "BD rate limit hit. Wait a minute, then call ?scan=1 again - it resumes where it stopped."
+      : (idx.done ? "Scan complete. Now call ?owners=1." : "Call ?scan=1 again to continue."),
+    diagnostics: DIAG });
 };
 
 module.exports._internal = { shapeListing, planOf, num, FN_VERSION };
