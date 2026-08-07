@@ -1,5 +1,14 @@
 // ============================================================
-//  lead-consent.js   ·   VERSION: lc-v5   (2026-08-06, +HUB_ADMIN_KEY on operator reads)
+//  lead-consent.js   ·   VERSION: lc-v6   (2026-08-07, decode member-shaped values too)
+//    lc-v6  The decode table was built from GET MATCHED lead values. Requests
+//           created from the dashboard carry the MEMBER record's spellings,
+//           which differ, so they came through raw:
+//             "Budget is 30004000"          (member stores a digit run)
+//             "a long term rental rental"   (long_term_rental_ vs longterm_)
+//             "Has dog, service animal"
+//           Both vocabularies are now mapped, budget falls back to the same
+//           band reader income already used, and pet and property values read
+//           as sentences.
 //    lc-v4  INCOME AMOUNT IS NOW SHAREABLE, WITH CONSENT. INCOME SOURCE IS
 //           STILL NOT, AND THE DISTINCTION IS DELIBERATE.
 //           Consent makes disclosure lawful, so a renter CAN authorise their
@@ -72,7 +81,7 @@
 //   NETLIFY_BLOBS_TOKEN  REQUIRED. Same.
 //   CONSENT_ADMIN_KEY    optional. If set, POST requires it.
 // ============================================================
-const FN_VERSION = "lc-v5";
+const FN_VERSION = "lc-v6";
 
 const { getStore } = require("@netlify/blobs");
 const https = require("https");
@@ -156,6 +165,23 @@ const DECODE = {
   yes: "Yes",
   no: "No",
   not_sure: "Not sure",
+
+  // lc-v6: the MEMBER record's spellings. Same answers, different slugs -
+  // a dashboard request carries these, a Get Matched lead carries the ones
+  // above, and both have to read the same to a renter.
+  long_term_rental_: "Long-term",
+  mid_term_rental_: "Mid-term",
+  short_term_rental_: "Short-term",
+  "36_months": "3 to 6 months",
+  "612_months": "6 to 12 months",
+  single_family: "a single family home",
+  townhome: "a townhome",
+  condo: "a condo",
+  apartment: "an apartment",
+  any: "any kind of place",
+  service_animal: "a service animal",
+  dog: "a dog",
+  cat: "a cat",
 };
 
 // BD squashes the income band into a single run of digits ("30004000" is
@@ -172,15 +198,32 @@ function incomeBand(v) {
   }
   return "$" + Number(s).toLocaleString() + " a month";
 }
+// A bare run of digits is a band: "30004000" is 3000-4000. The member record
+// stores budget that way while a Get Matched lead stores a slug, so anything
+// numeric goes through the band reader rather than being printed raw.
+function looksNumericBand(s) {
+  return /^[0-9]{6,8}$/.test(String(s).replace(/[^0-9]/g, "")) &&
+         String(s).replace(/[0-9]/g, "").trim() === "";
+}
+
 function readable(v) {
   if (v === null || v === undefined) return "";
   var s = String(v).trim();
   if (!s) return "";
-  return s.split(",").map(function (part) {
+  if (looksNumericBand(s)) return incomeBand(s);
+  var parts = s.split(",").map(function (part) {
     var p = part.trim();
     if (DECODE[p]) return DECODE[p];
     return p.replace(/_/g, " ").replace(/\s+/g, " ").trim();
-  }).filter(Boolean).join(", ");
+  }).filter(Boolean);
+  if (parts.length === 1) return parts[0];
+  // A comma is only a separator when EVERY part decoded to something we
+  // know. "Meadow Ranch, UT" is a place name whose comma is punctuation -
+  // joining it with "and" produced "Meadow Ranch and UT". Multi-select
+  // fields like pets decode every part, so they get the sentence join.
+  var allKnown = s.split(",").every(function (part) { return !!DECODE[part.trim()]; });
+  if (!allKnown) return parts.join(", ");
+  return parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];
 }
 
 function bdGet(path) {
@@ -271,7 +314,7 @@ exports.handler = async function (event) {
     var values = {};
     Object.keys(SHAREABLE_FIELDS).forEach(function (k) {
       var raw = lead[SHAREABLE_FIELDS[k].src];
-      var txt = k === "income" ? incomeBand(raw) : readable(raw);
+      var txt = (k === "income" || k === "budget") ? (looksNumericBand(raw) ? incomeBand(raw) : readable(raw)) : readable(raw);
       if (txt) values[k] = txt;
     });
 
