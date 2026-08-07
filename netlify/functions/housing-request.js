@@ -1,5 +1,14 @@
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v4   (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v5   (2026-08-07)
+//    hr-v5  +reset, for testing. Deletes the member->lead pointer so the
+//           dashboard card forgets there was ever a request and shows its
+//           first-time state again. ADMIN GATED - it needs HUB_ADMIN_KEY and
+//           is not reachable from the dashboard, because a renter undoing a
+//           withdrawal should submit a fresh request rather than quietly
+//           reopening a closed one.
+//           It does NOT touch the lead in BD. If the lead was closed it stays
+//           closed; this only clears our own bookkeeping. Deleting the
+//           pointer while leaving a live lead open would orphan it.
 //    hr-v4  THE REQUEST HAS A LIFECYCLE, NOT JUST A CREATE.
 //           A renter who has found a place must be able to STOP being
 //           introduced, and one who has changed their areas should be able
@@ -71,7 +80,7 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v4";
+const FN_VERSION = "hr-v5";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -203,6 +212,16 @@ function bdPut(path, params) {
   });
 }
 
+const crypto = require("crypto");
+function hubKeyOk(given) {
+  const want = process.env.HUB_ADMIN_KEY || "";
+  if (!want) return true;
+  const a = Buffer.from(String(given == null ? "" : given));
+  const b = Buffer.from(want);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 function looksLikeEmail(e) {
   if (typeof e !== "string") return false;
   var v = e.trim();
@@ -249,6 +268,26 @@ exports.handler = async function (event) {
 
   var memberId = String(body.memberId || "").replace(/[^0-9]/g, "");
   if (!memberId) return ok({ error: "memberId is required" }, 400);
+
+  // ---- RESET (admin only) ----
+  // Clears our pointer for this member. The card then shows its first-time
+  // state. Deliberately not exposed to renters: undoing a withdrawal should
+  // mean submitting a fresh request, not silently reviving a closed lead.
+  if (body.action === "reset") {
+    if (!hubKeyOk(body.key)) return ok({ error: "Unauthorized" }, 401);
+    var had = await readRequest(memberId);
+    try {
+      await store().delete(mkey(memberId));
+    } catch (e) {
+      // A missing key throws rather than returning quietly, which is the
+      // normal "nothing to clear" path.
+      return ok({ ok: true, _v: FN_VERSION, reset: true, hadRequest: false, note: "Nothing was stored for that member." });
+    }
+    console.log("[housing-request] reset member " + memberId + (had ? " (had lead " + had.leadId + ")" : " (nothing stored)"));
+    return ok({ ok: true, _v: FN_VERSION, reset: true, hadRequest: !!had,
+      clearedLeadId: had ? had.leadId : null,
+      note: had && had.leadId ? "The lead itself is untouched in BD - close it there if it should not stay open." : null });
+  }
 
   // ---- WITHDRAW ----
   // Closes the lead in BD so it can never be introduced, then records it
