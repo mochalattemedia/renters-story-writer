@@ -1,5 +1,5 @@
 // ============================================================
-//  lead-index.js   ·   VERSION: li-v1   (2026-08-06)
+//  lead-index.js   ·   VERSION: li-v2   (2026-08-06, +HUB_ADMIN_KEY gate)
 //
 //  Fetches the most recent leads from BD and caches them in Blobs so the
 //  hub has something it can actually query.
@@ -35,9 +35,25 @@
 //   NETLIFY_BLOBS_TOKEN  REQUIRED
 //   BD_API_BASE          default https://www.renters.com/api/v2
 // ============================================================
-const FN_VERSION = "li-v1";
+const FN_VERSION = "li-v2";
 
 const https = require("https");
+// ADMIN GATE. This function returns renter names, emails and phone numbers,
+// so it must not answer an unauthenticated request. Set HUB_ADMIN_KEY in
+// Netlify and pass ?key= on every call. Constant-time compare, so the key
+// cannot be guessed a character at a time from response timings.
+// The renter-facing consent page is deliberately NOT gated by this - it is
+// authorised by the lead's own id+token pair instead.
+const crypto = require("crypto");
+function keyOk(given) {
+  const want = process.env.HUB_ADMIN_KEY || "";
+  if (!want) return true;               // unset means open, so nothing breaks before it is configured
+  const a = Buffer.from(String(given == null ? "" : given));
+  const b = Buffer.from(want);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 const { getStore } = require("@netlify/blobs");
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -224,6 +240,7 @@ exports.handler = async function (event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
   var q = event.queryStringParameters || {};
 
+  // Version probe stays open: it reveals nothing and is how you check a deploy.
   if (q.version === "1") {
     return {
       statusCode: 200, headers: corsHeaders,
@@ -234,6 +251,10 @@ exports.handler = async function (event) {
         defaultCount: DEFAULT_N,
       }),
     };
+  }
+
+  if (!keyOk(q.key)) {
+    return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
   }
 
   var s = store();

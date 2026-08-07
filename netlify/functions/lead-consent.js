@@ -1,5 +1,5 @@
 // ============================================================
-//  lead-consent.js   ·   VERSION: lc-v4   (2026-08-06)
+//  lead-consent.js   ·   VERSION: lc-v5   (2026-08-06, +HUB_ADMIN_KEY on operator reads)
 //    lc-v4  INCOME AMOUNT IS NOW SHAREABLE, WITH CONSENT. INCOME SOURCE IS
 //           STILL NOT, AND THE DISTINCTION IS DELIBERATE.
 //           Consent makes disclosure lawful, so a renter CAN authorise their
@@ -72,10 +72,24 @@
 //   NETLIFY_BLOBS_TOKEN  REQUIRED. Same.
 //   CONSENT_ADMIN_KEY    optional. If set, POST requires it.
 // ============================================================
-const FN_VERSION = "lc-v4";
+const FN_VERSION = "lc-v5";
 
 const { getStore } = require("@netlify/blobs");
 const https = require("https");
+// The bulk check is an OPERATOR call - it reveals which lead ids exist -
+// so it is gated. The renter's own token-scoped view and their consent POST
+// are deliberately NOT gated: a renter has no admin key, and the id+token
+// pair is what authorises them.
+const crypto = require("crypto");
+function hubKeyOk(given) {
+  const want = process.env.HUB_ADMIN_KEY || "";
+  if (!want) return true;
+  const a = Buffer.from(String(given == null ? "" : given));
+  const b = Buffer.from(want);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 
@@ -279,6 +293,7 @@ exports.handler = async function (event) {
   // Bulk status check. The hub calls this once for a page of leads rather
   // than making one request per row.
   if (event.httpMethod === "GET" && q.leadIds) {
+    if (!hubKeyOk(q.key)) return ok({ error: "Unauthorized" }, 401);
     const ids = String(q.leadIds).split(",").map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 500);
     const out = {};
     const s = store();
@@ -294,6 +309,7 @@ exports.handler = async function (event) {
   }
 
   if (event.httpMethod === "GET" && q.leadId) {
+    if (!hubKeyOk(q.key)) return ok({ error: "Unauthorized" }, 401);
     try {
       const rec = await store().get(key(q.leadId), { type: "json" });
       if (!rec) return ok({ ok: true, _v: FN_VERSION, leadId: q.leadId, consented: false });
