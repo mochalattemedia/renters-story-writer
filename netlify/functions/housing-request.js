@@ -1,5 +1,33 @@
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v5   (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v6   (2026-08-07)
+//    hr-v6  THE LEAD NOW CARRIES THE WHOLE PROFILE.
+//           hr-v5 sent only name, email, phone, location and the zips, so a
+//           dashboard request arrived in BD nearly empty next to a Get
+//           Matched lead - and worse, lead-index and the consent page both
+//           READ those columns, so the hub showed almost nothing and a
+//           renter reviewing what we would share had almost nothing to tick.
+//           The member record was already being fetched for the email; now
+//           its answers are mapped onto the lead's columns.
+//
+//           MEMBER FIELD -> LEAD FIELD, confirmed against member 4410:
+//             seeking                  -> select_all_that_des
+//             i_want_to_relocate       -> when_are_you_looki
+//             number_of_peop           -> number_of_people_y
+//             property_type_preference -> property_type
+//             monthly_budget           -> what_is_your_budget
+//             co_signer                -> woulda_cosigner_or
+//             do_you_have_pets         -> do_you_have_pets
+//             my_story                 -> please_describe_the
+//             my_obstacles             -> anything_else_we_sh
+//
+//           type_of_income IS DELIBERATELY NOT MAPPED. It is on the member
+//           record, but it is not shareable through lead-consent, and putting
+//           it somewhere a provider might see defeats the point. Leaving it
+//           out here means it cannot reach a lead either.
+//
+//           HTML IS STRIPPED. BD stores my_story and my_obstacles as rich
+//           text, so an untouched one is "<p><br></p>" - which passes a
+//           truthiness check and then renders as blank markup downstream.
 //    hr-v5  +reset, for testing. Deletes the member->lead pointer so the
 //           dashboard card forgets there was ever a request and shows its
 //           first-time state again. ADMIN GATED - it needs HUB_ADMIN_KEY and
@@ -80,7 +108,7 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v5";
+const FN_VERSION = "hr-v6";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -220,6 +248,39 @@ function hubKeyOk(given) {
   const b = Buffer.from(want);
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
+}
+
+// Confirmed against member 4410. Anything not listed does not travel to the
+// lead, notably type_of_income.
+const PROFILE_TO_LEAD = {
+  seeking: "select_all_that_des",
+  i_want_to_relocate: "when_are_you_looki",
+  number_of_peop: "number_of_people_y",
+  property_type_preference: "property_type",
+  monthly_budget: "what_is_your_budget",
+  co_signer: "woulda_cosigner_or",
+  do_you_have_pets: "do_you_have_pets",
+  my_story: "please_describe_the",
+  my_obstacles: "anything_else_we_sh",
+};
+
+function plain(v) {
+  if (v == null) return "";
+  return String(v)
+    .replace(new RegExp("<[^>]*>", "g"), " ")
+    .replace(new RegExp("&nbsp;", "g"), " ")
+    .replace(new RegExp("[ " + String.fromCharCode(9, 13, 10) + "]+", "g"), " ")
+    .trim();
+}
+
+function profileFields(member) {
+  var out = {};
+  if (!member) return out;
+  Object.keys(PROFILE_TO_LEAD).forEach(function (src) {
+    var v = plain(member[src]);
+    if (v) out[PROFILE_TO_LEAD[src]] = v;
+  });
+  return out;
 }
 
 function looksLikeEmail(e) {
@@ -392,13 +453,17 @@ exports.handler = async function (event) {
   if (labels.length) notes.push("AREAS: " + labels.join(" | "));
   notes.push("Submitted from the member dashboard.");
 
+  var profile = profileFields(member);
+
   var params = {
     lead_name: name || "Member " + memberId,
     lead_email: email,
     lead_location: locationText || "Not specified",
-    url_from: String(body.source || "/account/home"),
+    // BD renders url_from as the source. A path reads as "external source";
+    // this says what it actually is.
+    url_from: "Member dashboard",
     formname: "dashboard_housing_request",
-    flow_source: "dashboard",
+    flow_source: "Member dashboard",
     lead_notes: notes.join("\n"),
     // Locked off. We control the email flow, and matching is a decision.
     send_lead_email_notification: "0",
@@ -407,6 +472,8 @@ exports.handler = async function (event) {
     auto_geocode: "0",
     status: "1",
   };
+  // Everything the member has already told us, onto the lead.
+  Object.keys(profile).forEach(function (k) { params[k] = profile[k]; });
   if (phone) params.lead_phone = phone;
   // Never send zeros. BD accepts them and silently discards the row.
   if (lat && lon) {
