@@ -47,7 +47,11 @@ textarea{width:100%;font:inherit;font-size:14.5px;line-height:1.7;padding:13px 1
 
 <script>
 var FN = "/.netlify/functions/lead-consent";
-var token = new URLSearchParams(location.search).get("token") || "";
+var qs = new URLSearchParams(location.search);
+var token = qs.get("token") || "";
+/* lc-v3: the link carries BOTH. The id fetches the record, the token
+   proves it belongs to whoever opened the link. */
+var leadId = qs.get("id") || "";
 var DATA = null, picked = {};
 
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
@@ -172,10 +176,10 @@ function submit(){
   });
 }
 
-if (!token) {
+if (!token || !leadId) {
   el("app").innerHTML = "<div class='card'><h1>This link is incomplete</h1><p class='lede'>Open the link from the email we sent you and it'll work.</p></div>";
 } else {
-  fetch(FN + "?token=" + encodeURIComponent(token))
+  fetch(FN + "?id=" + encodeURIComponent(leadId) + "&token=" + encodeURIComponent(token))
     .then(function(r){ return r.json(); })
     .then(function(d){
       if (!d || !d.ok) {
