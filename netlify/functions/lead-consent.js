@@ -1,5 +1,18 @@
 // ============================================================
-//  lead-consent.js   ·   VERSION: lc-v2   (2026-08-06)
+//  lead-consent.js   ·   VERSION: lc-v3   (2026-08-06)
+//    lc-v3  LOOK THE LEAD UP BY ID, NOT BY SCANNING.
+//           lc-v2 pulled a page of leads and matched the token client-side.
+//           BD CAPS THAT PAGE AT 100 REGARDLESS OF ?limit, and ?offset is
+//           ignored - both confirmed live: limit=5000 returned 100 rows, and
+//           offset=100 returned the same first id. So the scan could only
+//           ever see the oldest 100 leads and lead 2948 was never in range.
+//           Now: the link carries BOTH id and token. The id fetches that one
+//           record via path-segment lookup (/leads/get/2948), which BD
+//           filters correctly - the Bible already records that query-param
+//           lookup ignores filters while path segments do not. The token is
+//           then compared against the record and must match, so nobody can
+//           read someone else's request by changing the number.
+//           One request instead of thirty, and it cannot miss.
 //    lc-v2  +GET ?token=XXX  reads the renter's own lead from BD and returns
 //           ONLY the shareable fields, decoded to readable text. Keyed on the
 //           lead's own token, not its id: BD already generates one, it is
@@ -45,7 +58,7 @@
 //   NETLIFY_BLOBS_TOKEN  REQUIRED. Same.
 //   CONSENT_ADMIN_KEY    optional. If set, POST requires it.
 // ============================================================
-const FN_VERSION = "lc-v2";
+const FN_VERSION = "lc-v3";
 
 const { getStore } = require("@netlify/blobs");
 const https = require("https");
@@ -183,22 +196,28 @@ exports.handler = async function (event) {
     });
   }
 
-  // lc-v2: the renter's own view of their request. Token-scoped.
-  if (event.httpMethod === "GET" && q.token) {
+  // lc-v3: the renter's own view of their request. Needs BOTH id and token.
+  if (event.httpMethod === "GET" && (q.token || q.id)) {
     if (!process.env.BD_API_KEY) return ok({ error: "BD_API_KEY is not set on this function" }, 500);
-    var tok = String(q.token).replace(/[^a-zA-Z0-9]/g, "");
+    var tok = String(q.token || "").replace(/[^a-zA-Z0-9]/g, "");
+    var lid = String(q.id || "").replace(/[^0-9]/g, "");
+    if (!lid) return ok({ error: "This link is missing its request id" }, 400);
     if (tok.length < 16) return ok({ error: "Invalid token" }, 400);
 
-    // The leads endpoint ignores query filters (same as
-    // users_portfolio_groups), so pull a page and match the token here
-    // rather than trusting a server-side where clause.
-    var data = await bdGet("/leads/get?limit=5000");
+    // Path-segment lookup. BD filters these correctly; query-parameter
+    // lookup does not, and the list endpoint is hard-capped at 100 rows
+    // with ?offset ignored, so scanning is not an option.
+    var data = await bdGet("/leads/get/" + encodeURIComponent(lid));
     var rows = (data && data.message) || [];
-    var lead = null;
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i] && rows[i].token === tok) { lead = rows[i]; break; }
+    var lead = Array.isArray(rows) ? rows[0] : rows;
+    if (!lead || !lead.lead_id) return ok({ error: "That request could not be found" }, 404);
+
+    // The id says WHICH record; the token proves it is theirs. Without this
+    // check the id alone would let anyone read any request by counting up.
+    if (String(lead.token || "") !== tok) {
+      console.warn("[lead-consent] token mismatch for lead " + lid);
+      return ok({ error: "That request could not be found" }, 404);
     }
-    if (!lead) return ok({ error: "That request could not be found" }, 404);
 
     // ONLY the shareable fields, decoded. Income source and amount are not
     // in SHAREABLE_FIELDS, so they are structurally absent from this
