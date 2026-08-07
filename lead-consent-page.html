@@ -61,8 +61,11 @@ function el(id){return document.getElementById(id);}
    deliberately unticked by default: a renter should reach for those, not
    have them pre-given away. Everything else defaults on, because a request
    with nothing attached helps nobody. */
-var ORDER = ["budget","timing","term","location","propertyType","household","pets","petDetails","cosigner","description","obstacles","preferredDay","preferredTime","name","email","phone"];
-var CONTACT = {name:1,email:1,phone:1};
+var ORDER = ["budget","income","timing","term","location","propertyType","household","pets","petDetails","cosigner","description","obstacles","preferredDay","preferredTime","name","email","phone"];
+/* Off by default alongside contact details. Sharing what you earn should
+   be a decision a renter makes, not something already ticked when the
+   page loads. */
+var CONTACT = {name:1,email:1,phone:1,income:1};
 
 /* Template-built summary. Reads only from ticked fields, so it cannot
    describe something the renter did not authorise. This is the fallback
@@ -83,6 +86,7 @@ function buildProfile(){
   bits.push(lead + ".");
 
   if (on("budget")) bits.push("Budget is " + v.budget.toLowerCase() + ".");
+  if (on("income")) bits.push("Earning around " + v.income.toLowerCase() + ".");
   if (on("timing")) bits.push("Looking to move " + v.timing.toLowerCase() + ".");
   if (on("term")) bits.push("Interested in a " + v.term.toLowerCase() + " rental.");
   if (on("pets")) bits.push(v.pets === "No pets" ? "No pets." : ("Has " + v.pets.toLowerCase() + (on("petDetails") ? " \u2014 " + v.petDetails : "") + "."));
@@ -111,7 +115,7 @@ function render(){
       (DATA.alreadyConsented ? "<div class='note'>You've done this before. Your earlier choices are ticked below. Changing them here replaces what we'll share from now on, but we can't unsend anything already passed on.</div>" : "") +
       "<div class='bar'><button id='bAll'>Tick everything</button><button id='bNone'>Untick everything</button><span id='cnt' class='muted'></span></div>" +
       rows +
-      "<div class='privacy'><b>Some things we never share.</b> We don't pass on how you're paid or what you earn, ever, to anyone. Those aren't on this list and can't be.</div>" +
+      
     "</div>" +
     "<div class='card'>" +
       "<h1>How we'll describe you</h1>" +
