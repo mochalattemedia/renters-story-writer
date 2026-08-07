@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v8
+// alerts-teaser-js.js  —  at-v9
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,13 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v9: FIX - on mobile, after tapping Notify, the "Create my free
+// account" wall rendered but the page kept its scroll position, so the
+// renter was looking at a section further down and had to scroll UP to
+// see the confirmation. The wall now scrolls itself into view when it
+// renders, so the call to action is what they see right after submitting.
+// Same for returning to the form via "Edit my search".
 //
 // at-v8: FIX - voice did not fill the LOCATION field. The shared voice
 // backend (av-v1) is deliberately told to IGNORE place names, because on
@@ -93,7 +100,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v8";
+const FN_VERSION = "at-v9";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -562,10 +569,21 @@ const JS = `
         '</div>' +
       '</div>';
 
+    // Bring the wall into view. On mobile the page holds its old scroll
+    // position after submit, leaving the call to action off-screen.
+    try {
+      var card = mount.querySelector("div");
+      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {}
+
     document.getElementById("rt-back").onclick = function () {
       mount.removeAttribute("data-rendered");
       mount.setAttribute("data-rendered", "1");
       renderForm();
+      try {
+        var c = mount.querySelector("div");
+        if (c && c.scrollIntoView) c.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (e) {}
     };
   }
 
