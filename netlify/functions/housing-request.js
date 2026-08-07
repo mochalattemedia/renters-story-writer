@@ -1,5 +1,20 @@
+
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v6   (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v7   (2026-08-07)
+//    hr-v7  THREE FIXES FOUND ON LEAD 2956.
+//           1. status was hardcoded "1". The tested Pending value is 2 - the
+//              numbering starts at 2, not 1 - so every dashboard request was
+//              landing in an undefined status and reading oddly in BD's
+//              admin screen. Now uses STATUS_PENDING, which is the constant
+//              that already held the right value.
+//           2. url_from is OVERWRITTEN by BD. Sending "Member dashboard"
+//              came back as "Received from External Source", so that field
+//              cannot carry the source at all. formname and flow_source
+//              survive, so the source lives there instead.
+//           3. lead_notes listed one AREAS entry per zip, so a single
+//              three-zip zone read as "Meadow Ranch, UT | Meadow Ranch, UT |
+//              Meadow Ranch, UT". Grouped now, the same way the dashboard
+//              card and the location text already were.
 //    hr-v6  THE LEAD NOW CARRIES THE WHOLE PROFILE.
 //           hr-v5 sent only name, email, phone, location and the zips, so a
 //           dashboard request arrived in BD nearly empty next to a Get
@@ -108,7 +123,7 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v6";
+const FN_VERSION = "hr-v7";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -441,7 +456,18 @@ exports.handler = async function (event) {
   // A readable summary of where they are looking, plus the machine-readable
   // zip list. The hub reads ZIPS: from notes to match every area, not just
   // the pin.
-  var labels = areas.map(function (a) { return String(a.label || a.zip).trim(); }).filter(Boolean);
+  // BD stores one service area per zip, so a zone spanning three zips
+  // arrives as three identical labels. Collapse for the notes, or a single
+  // zone reads as three places.
+  var rawLabels = areas.map(function (a) { return String(a.label || a.zip).trim(); }).filter(Boolean);
+  var seenLabel = {}, labels = [];
+  rawLabels.forEach(function (l) {
+    if (seenLabel[l] === undefined) { seenLabel[l] = 0; labels.push(l); }
+    seenLabel[l]++;
+  });
+  var labelsWithCounts = labels.map(function (l) {
+    return seenLabel[l] > 1 ? (l + " (" + seenLabel[l] + " zipcodes)") : l;
+  });
   var zips = areas.map(function (a) { return String(a.zip).replace(/[^0-9]/g, ""); }).filter(Boolean);
   var uniqueZips = zips.filter(function (z, i) { return zips.indexOf(z) === i; });
 
@@ -450,8 +476,8 @@ exports.handler = async function (event) {
 
   var notes = [];
   if (uniqueZips.length) notes.push("ZIPS: " + uniqueZips.join(","));
-  if (labels.length) notes.push("AREAS: " + labels.join(" | "));
-  notes.push("Submitted from the member dashboard.");
+  if (labelsWithCounts.length) notes.push("AREAS: " + labelsWithCounts.join(" | "));
+  notes.push("Submitted from the member dashboard by member " + memberId + ".");
 
   var profile = profileFields(member);
 
@@ -459,9 +485,9 @@ exports.handler = async function (event) {
     lead_name: name || "Member " + memberId,
     lead_email: email,
     lead_location: locationText || "Not specified",
-    // BD renders url_from as the source. A path reads as "external source";
-    // this says what it actually is.
-    url_from: "Member dashboard",
+    // url_from is NOT ours to set - BD overwrites it with "Received from
+    // External Source" no matter what is sent. formname and flow_source do
+    // survive, so the source is recorded there and in the notes.
     formname: "dashboard_housing_request",
     flow_source: "Member dashboard",
     lead_notes: notes.join("\n"),
@@ -470,7 +496,7 @@ exports.handler = async function (event) {
     auto_match: "0",
     // BD's auto_geocode did nothing on create, so coordinates are supplied.
     auto_geocode: "0",
-    status: "1",
+    status: STATUS_PENDING,
   };
   // Everything the member has already told us, onto the lead.
   Object.keys(profile).forEach(function (k) { params[k] = profile[k]; });
