@@ -1,5 +1,23 @@
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v3   (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v4   (2026-08-07)
+//    hr-v4  THE REQUEST HAS A LIFECYCLE, NOT JUST A CREATE.
+//           A renter who has found a place must be able to STOP being
+//           introduced, and one who has changed their areas should be able
+//           to refresh rather than stack up duplicates. Three new actions:
+//             GET  ?memberId=NNNN     what is their current request
+//             POST { action:"withdraw", memberId, leadId, reason? }
+//             POST { action:"update",   memberId, leadId, areas[] }
+//           Status is kept in BD - a lead has a status field and the hub
+//           already reads it - while Blobs holds the member->lead pointer
+//           so the dashboard can answer "do you have an open request"
+//           without a BD lookup on every page load. One place per fact.
+//
+//           BD STATUS NUMBERS, CONFIRMED BY TESTING, NOT ASSUMED:
+//             2 Pending (what a new lead gets)   5 Sold Out
+//             6 Closed                            
+//           The numbering does NOT start at 1. Setting 5 for "closed" was
+//           tried first and filed the lead as SOLD OUT, which would have
+//           mislabelled every renter who simply found a place.
 //    hr-v3  THE CONSENT URL IS ABSOLUTE.
 //           hr-v2 returned a relative path. Head code runs on
 //           www.renters.com and resolved it there, so the redirect landed on
@@ -53,7 +71,7 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v3";
+const FN_VERSION = "hr-v4";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -133,6 +151,58 @@ function bdPost(path, params) {
   });
 }
 
+// Confirmed live against lead 2951. Do not guess at these.
+const STATUS_PENDING = "2";
+const STATUS_CLOSED = "6";
+
+const { getStore } = require("@netlify/blobs");
+function store() {
+  return getStore({
+    name: "housing-requests",
+    siteID: process.env.NETLIFY_SITE_ID,
+    token: process.env.NETLIFY_BLOBS_TOKEN,
+  });
+}
+function mkey(memberId) { return "member:" + String(memberId).replace(/[^0-9]/g, ""); }
+
+async function readRequest(memberId) {
+  try { return await store().get(mkey(memberId), { type: "json" }); }
+  catch (e) { return null; }
+}
+async function writeRequest(memberId, rec) {
+  await store().setJSON(mkey(memberId), rec);
+}
+
+function bdPut(path, params) {
+  return new Promise(function (resolve) {
+    var body = new URLSearchParams(params).toString();
+    var u;
+    try { u = new URL(BD_BASE + path); } catch (e) { return resolve({ ok: false, error: "bad URL" }); }
+    var req = https.request({
+      hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search, method: "PUT",
+      headers: {
+        "X-Api-Key": process.env.BD_API_KEY,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": Buffer.byteLength(body),
+        Accept: "application/json",
+      },
+    }, function (res) {
+      var raw = "";
+      res.on("data", function (c) { raw += c; });
+      res.on("end", function () {
+        var d = null;
+        try { d = JSON.parse(raw); } catch (e) {}
+        if (!d || d.status !== "success") return resolve({ ok: false, error: (d && String(d.message)) || raw.slice(0, 150) });
+        resolve({ ok: true, data: d.message });
+      });
+    });
+    req.on("error", function (e) { resolve({ ok: false, error: e && e.message }); });
+    req.setTimeout(10000, function () { req.destroy(); resolve({ ok: false, error: "timeout" }); });
+    req.write(body);
+    req.end();
+  });
+}
+
 function looksLikeEmail(e) {
   if (typeof e !== "string") return false;
   var v = e.trim();
@@ -156,7 +226,19 @@ exports.handler = async function (event) {
   var q = event.queryStringParameters || {};
 
   if (event.httpMethod === "GET" && q.version === "1") {
-    return ok({ ok: true, _v: FN_VERSION, bdKeyConfigured: !!process.env.BD_API_KEY });
+    return ok({ ok: true, _v: FN_VERSION,
+      bdKeyConfigured: !!process.env.BD_API_KEY,
+      blobsConfigured: !!process.env.NETLIFY_SITE_ID && !!process.env.NETLIFY_BLOBS_TOKEN });
+  }
+
+  // The dashboard card asks this on every load. It reads Blobs only - no BD
+  // call - so it costs nothing against the rate limit.
+  if (event.httpMethod === "GET" && q.memberId) {
+    var rec = await readRequest(q.memberId);
+    if (!rec || rec.status === "withdrawn") {
+      return ok({ ok: true, _v: FN_VERSION, hasRequest: false, previous: rec || null });
+    }
+    return ok({ ok: true, _v: FN_VERSION, hasRequest: true, request: rec });
   }
   if (event.httpMethod !== "POST") return ok({ error: "POST a housing request" }, 405);
   if (!process.env.BD_API_KEY) return ok({ error: "BD_API_KEY is not set" }, 500);
@@ -167,6 +249,68 @@ exports.handler = async function (event) {
 
   var memberId = String(body.memberId || "").replace(/[^0-9]/g, "");
   if (!memberId) return ok({ error: "memberId is required" }, 400);
+
+  // ---- WITHDRAW ----
+  // Closes the lead in BD so it can never be introduced, then records it
+  // locally. BD first: if that write fails we must not tell a renter they
+  // have stopped being introduced when they have not.
+  if (body.action === "withdraw") {
+    var cur = await readRequest(memberId);
+    var leadId = String(body.leadId || (cur && cur.leadId) || "").replace(/[^0-9]/g, "");
+    if (!leadId) return ok({ error: "No open request to withdraw" }, 400);
+
+    var closed = await bdPut("/leads/update", { lead_id: leadId, status: STATUS_CLOSED });
+    if (!closed.ok) {
+      console.error("[housing-request] withdraw failed for lead " + leadId + ": " + closed.error);
+      return ok({ error: "Could not close that request", detail: closed.error, _v: FN_VERSION }, 502);
+    }
+
+    var rec = Object.assign({}, cur || {}, {
+      leadId: leadId,
+      status: "withdrawn",
+      withdrawnAt: new Date().toISOString(),
+      // The only moment a renter will ever tell us how it went. "Found a
+      // place" is worth knowing even when the match happened elsewhere.
+      withdrawReason: body.reason ? String(body.reason).slice(0, 200) : null,
+    });
+    await writeRequest(memberId, rec);
+    console.log("[housing-request] member " + memberId + " withdrew lead " + leadId + " (" + (rec.withdrawReason || "no reason") + ")");
+    return ok({ ok: true, _v: FN_VERSION, withdrawn: true, leadId: leadId });
+  }
+
+  // ---- UPDATE ----
+  // Refreshes the areas on an existing request. A renter tweaking where they
+  // are looking has not made a new ask, so this must not create a second lead.
+  if (body.action === "update") {
+    var curU = await readRequest(memberId);
+    var lid = String(body.leadId || (curU && curU.leadId) || "").replace(/[^0-9]/g, "");
+    if (!lid) return ok({ error: "No open request to update" }, 400);
+
+    var uAreas = Array.isArray(body.areas) ? body.areas.filter(function (a) { return a && a.zip; }) : [];
+    var uMid = centre(uAreas);
+    var uZips = uAreas.map(function (a) { return String(a.zip).replace(/[^0-9]/g, ""); }).filter(Boolean);
+    var uUniq = uZips.filter(function (z, i) { return uZips.indexOf(z) === i; });
+    var uLabels = uAreas.map(function (a) { return String(a.label || a.zip).trim(); }).filter(Boolean);
+
+    var uParams = { lead_id: lid, status: STATUS_PENDING };
+    if (body.locationText) uParams.lead_location = String(body.locationText);
+    var uNotes = [];
+    if (uUniq.length) uNotes.push("ZIPS: " + uUniq.join(","));
+    if (uLabels.length) uNotes.push("AREAS: " + uLabels.join(" | "));
+    uNotes.push("Updated from the member dashboard.");
+    uParams.lead_notes = uNotes.join("\n");
+    if (uMid) { uParams.lat = String(uMid.lat); uParams.lng = String(uMid.lon); }
+
+    var upd = await bdPut("/leads/update", uParams);
+    if (!upd.ok) return ok({ error: "Could not update that request", detail: upd.error, _v: FN_VERSION }, 502);
+
+    var recU = Object.assign({}, curU || {}, {
+      leadId: lid, status: "open", updatedAt: new Date().toISOString(),
+      areaCount: uUniq.length, areaLabels: uLabels,
+    });
+    await writeRequest(memberId, recU);
+    return ok({ ok: true, _v: FN_VERSION, updated: true, leadId: lid, areaCount: uUniq.length });
+  }
 
   // hr-v2: BD is the source of truth for who this member is. Whatever the
   // caller sent is a hint; the member record wins. A dashboard that does not
@@ -250,6 +394,16 @@ exports.handler = async function (event) {
     // without both, so say so rather than returning a half-usable result.
     return ok({ error: "BD created the request but returned no id or token", raw: lead, _v: FN_VERSION }, 502);
   }
+
+  // Remember it, so the dashboard can show status without asking BD.
+  try {
+    await writeRequest(memberId, {
+      leadId: leadId, token: token, status: "open",
+      createdAt: new Date().toISOString(),
+      areaCount: uniqueZips.length, areaLabels: labels,
+      locationText: locationText,
+    });
+  } catch (e) { console.error("[housing-request] could not record request:", e && e.message); }
 
   console.log("[housing-request] member " + memberId + " -> lead " + leadId + ", " + uniqueZips.length + " areas");
 
