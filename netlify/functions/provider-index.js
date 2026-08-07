@@ -1,5 +1,5 @@
 // ============================================================
-//  provider-index.js   ·   VERSION: pi-v4   (2026-08-06, diagnostics on every BD failure)
+//  provider-index.js   ·   VERSION: pi-v5   (2026-08-06, listing gaps counted not narrated)
 //
 //  Indexes LISTINGS and the members who own them, so the hub can answer
 //  "who is near this renter, and what have they got".
@@ -31,7 +31,7 @@
 //
 //  ENV  BD_API_KEY, NETLIFY_SITE_ID, NETLIFY_BLOBS_TOKEN
 // ============================================================
-const FN_VERSION = "pi-v4";
+const FN_VERSION = "pi-v5";
 
 const https = require("https");
 // ADMIN GATE. This function returns renter names, emails and phone numbers,
@@ -82,8 +82,15 @@ function store() {
 // The owner pass returned 0 from 8 attempts while the same call worked by
 // hand, so the failure has to be visible rather than inferred. Every reason
 // is captured and surfaced on the response.
+// pi-v5: two buckets, because v4's single 30-slot array filled entirely
+// with "listing 3 not found" and left no room for the thing we were
+// actually trying to see. Gaps in the listing id sequence are NORMAL and
+// expected - they are counted, not narrated. Owner failures get their own
+// bucket and are never crowded out.
+var GAPS = 0;
 var DIAG = [];
-function note(t) { if (DIAG.length < 30) DIAG.push(t); }
+function note(t) { if (DIAG.length < 40) DIAG.push(t); }
+function noteGap() { GAPS++; }
 
 function bdGet(path) {
   return new Promise(function (resolve) {
@@ -100,7 +107,13 @@ function bdGet(path) {
       res.on("data", function (c) { raw += c; });
       res.on("end", function () {
         if (res.statusCode < 200 || res.statusCode >= 300) {
-          note(path + " -> HTTP " + res.statusCode + " " + raw.slice(0, 90));
+          // An expected hole in the listing id sequence. Count it, do not
+          // narrate it - there are dozens and they drown everything else.
+          if (path.indexOf("/users_portfolio_groups/") === 0 && raw.indexOf("not found") !== -1) {
+            noteGap();
+          } else {
+            note(path + " -> HTTP " + res.statusCode + " " + raw.slice(0, 120).replace(/\s+/g, " "));
+          }
           return resolve(null);
         }
         try { resolve(JSON.parse(raw)); }
@@ -291,6 +304,7 @@ exports.handler = async function (event) {
     liveCount: listings.filter(function (l) { return l.live; }).length,
     ownersAttempted: uniq.length,
     ownerIdsTried: uniq,
+    listingGaps: GAPS,
     diagnostics: DIAG,
     providerCount: providers.length,
     listings: listings, providers: providers,
