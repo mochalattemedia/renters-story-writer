@@ -1,5 +1,19 @@
 // ============================================================
-//  lead-consent.js   ·   VERSION: lc-v3   (2026-08-06)
+//  lead-consent.js   ·   VERSION: lc-v4   (2026-08-06)
+//    lc-v4  INCOME AMOUNT IS NOW SHAREABLE, WITH CONSENT. INCOME SOURCE IS
+//           STILL NOT, AND THE DISTINCTION IS DELIBERATE.
+//           Consent makes disclosure lawful, so a renter CAN authorise their
+//           income to be shared - and landlords legitimately need to know
+//           someone can afford the rent. That is approximate_gross_m, and it
+//           is now on the list.
+//           what_type_of_income (W-2 / self-employed / benefits / fixed
+//           income) stays off it. The problem there is not privacy, which
+//           consent solves. It is that source-of-income discrimination is
+//           unlawful in a growing number of states and cities, and handing a
+//           landlord the field those laws are written about makes us the
+//           mechanism. It also tells a landlord almost nothing the amount
+//           does not. Moving it here needs a Fair Housing review, not a
+//           code change.
 //    lc-v3  LOOK THE LEAD UP BY ID, NOT BY SCANNING.
 //           lc-v2 pulled a page of leads and matched the token client-side.
 //           BD CAPS THAT PAGE AT 100 REGARDLESS OF ?limit, and ?offset is
@@ -58,7 +72,7 @@
 //   NETLIFY_BLOBS_TOKEN  REQUIRED. Same.
 //   CONSENT_ADMIN_KEY    optional. If set, POST requires it.
 // ============================================================
-const FN_VERSION = "lc-v3";
+const FN_VERSION = "lc-v4";
 
 const { getStore } = require("@netlify/blobs");
 const https = require("https");
@@ -85,6 +99,7 @@ const SHAREABLE_FIELDS = {
   pets:          { label: "Pets",                      src: "do_you_have_pets" },
   petDetails:    { label: "Details about my pets",     src: "if_yes_type_size_br" },
   cosigner:      { label: "Whether I have a co-signer", src: "woulda_cosigner_or" },
+  income:        { label: "Roughly what I earn each month", src: "approximate_gross_m" },
   description:   { label: "What I am looking for, in my own words", src: "please_describe_the" },
   obstacles:     { label: "Anything you should know upfront", src: "anything_else_we_sh" },
   preferredDay:  { label: "Best day to reach me",      src: "lead_preferred_day" },
@@ -96,7 +111,9 @@ const SHAREABLE_FIELDS = {
 
 // Named so the reason travels with the code. Do not move these into
 // SHAREABLE_FIELDS without a Fair Housing review.
-const NEVER_SHAREABLE = ["what_type_of_income", "approximate_gross_m", "optional_age_and_ge"];
+// Income AMOUNT moved to SHAREABLE_FIELDS in lc-v4. Income SOURCE did not,
+// and should not without a Fair Housing review - see the header.
+const NEVER_SHAREABLE = ["what_type_of_income", "optional_age_and_ge"];
 
 // BD stores questionnaire answers as slugs. These make them readable, both
 // for the renter reviewing what will be shared and for the provider who
@@ -126,6 +143,21 @@ const DECODE = {
   no: "No",
   not_sure: "Not sure",
 };
+
+// BD squashes the income band into a single run of digits ("30004000" is
+// 3000-4000). Rendered as a range so a renter reviewing what will be shared
+// sees something they recognise rather than an eight-digit number.
+function incomeBand(v) {
+  var s = String(v == null ? "" : v).replace(/[^0-9]/g, "");
+  if (!s) return "";
+  if (s.length === 8) {
+    return "$" + Number(s.slice(0, 4)).toLocaleString() + " to $" + Number(s.slice(4)).toLocaleString() + " a month";
+  }
+  if (s.length === 7) {
+    return "$" + Number(s.slice(0, 3)).toLocaleString() + " to $" + Number(s.slice(3)).toLocaleString() + " a month";
+  }
+  return "$" + Number(s).toLocaleString() + " a month";
+}
 function readable(v) {
   if (v === null || v === undefined) return "";
   var s = String(v).trim();
@@ -225,7 +257,7 @@ exports.handler = async function (event) {
     var values = {};
     Object.keys(SHAREABLE_FIELDS).forEach(function (k) {
       var raw = lead[SHAREABLE_FIELDS[k].src];
-      var txt = readable(raw);
+      var txt = k === "income" ? incomeBand(raw) : readable(raw);
       if (txt) values[k] = txt;
     });
 
