@@ -1,5 +1,15 @@
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v1   (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v2   (2026-08-07)
+//    hr-v2  THE EMAIL COMES FROM BD, NOT FROM THE PAGE.
+//           hr-v1 required the caller to send name and email, and the head
+//           code scraped them out of the dashboard text. That failed on real
+//           accounts - "A valid email is required" on a member with a
+//           perfectly good address - because the dashboard does not reliably
+//           render it anywhere scrapeable.
+//           This function already holds BD_API_KEY and is given the member
+//           id, so it reads the member record itself. Anything the caller
+//           sends is treated as a hint, not a requirement. Scraping page
+//           text for identity was the wrong shape from the start.
 //
 //  Creates a housing request from a member's own dashboard, using the
 //  profile and search areas they have already set. One click, no form.
@@ -37,10 +47,37 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v1";
+const FN_VERSION = "hr-v2";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
+
+function bdGet(path) {
+  return new Promise(function (resolve) {
+    var u;
+    try { u = new URL(BD_BASE + path); } catch (e) { return resolve(null); }
+    var req = https.request({
+      hostname: u.hostname, port: u.port || 443, path: u.pathname + u.search,
+      method: "GET", headers: { "X-Api-Key": process.env.BD_API_KEY, Accept: "application/json" },
+    }, function (res) {
+      var raw = "";
+      res.on("data", function (c) { raw += c; });
+      res.on("end", function () {
+        try { resolve(JSON.parse(raw)); } catch (e) { resolve(null); }
+      });
+    });
+    req.on("error", function () { resolve(null); });
+    req.setTimeout(9000, function () { req.destroy(); resolve(null); });
+    req.end();
+  });
+}
+
+async function getMember(id) {
+  var d = await bdGet("/user/get/" + encodeURIComponent(id));
+  if (!d || d.status !== "success") return null;
+  var m = Array.isArray(d.message) ? d.message[0] : d.message;
+  return m && m.user_id ? m : null;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -118,10 +155,28 @@ exports.handler = async function (event) {
   catch (e) { return ok({ error: "Invalid JSON" }, 400); }
 
   var memberId = String(body.memberId || "").replace(/[^0-9]/g, "");
-  var email = String(body.email || "").trim();
-  var name = String(body.name || "").trim();
   if (!memberId) return ok({ error: "memberId is required" }, 400);
-  if (!looksLikeEmail(email)) return ok({ error: "A valid email is required" }, 400);
+
+  // hr-v2: BD is the source of truth for who this member is. Whatever the
+  // caller sent is a hint; the member record wins. A dashboard that does not
+  // happen to render an email must not stop a renter asking for help.
+  var member = await getMember(memberId);
+  var email = String((member && member.email) || body.email || "").trim();
+  var name = String(
+    (member && (member.full_name || ((member.first_name || "") + " " + (member.last_name || "")).trim())) ||
+    body.name || ""
+  ).trim();
+  var phone = String((member && member.phone_number) || body.phone || "").trim();
+
+  if (!looksLikeEmail(email)) {
+    return ok({
+      error: member
+        ? "That account has no email address on file, so we cannot create a request for it."
+        : "Could not read that member from BD. Try again in a moment.",
+      memberFound: !!member,
+      _v: FN_VERSION,
+    }, 400);
+  }
 
   var areas = Array.isArray(body.areas) ? body.areas.filter(function (a) { return a && a.zip; }) : [];
   var mid = centre(areas);
@@ -158,7 +213,7 @@ exports.handler = async function (event) {
     auto_geocode: "0",
     status: "1",
   };
-  if (body.phone) params.lead_phone = String(body.phone).trim();
+  if (phone) params.lead_phone = phone;
   // Never send zeros. BD accepts them and silently discards the row.
   if (lat && lon) {
     params.lat = String(lat);
