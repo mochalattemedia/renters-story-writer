@@ -1,6 +1,13 @@
-
 // ============================================================
-//  listing-contact-js.js   ·   VERSION: lcj-v3   (2026-08-07)
+//  listing-contact-js.js   ·   VERSION: lcj-v4   (2026-08-07)
+//    lcj-v4  THE SUBMIT BUTTON WAS BEING HIDDEN. rowOf walks up to a wrapper,
+//            and on this form that wrapper also holds the submit control - so
+//            hiding a field took the button with it, leaving a form that
+//            could be filled in and captcha-solved but never sent.
+//            Now: a row containing a submit control or the captcha is never
+//            hidden, and anything that submits is explicitly restored
+//            afterwards. Two guards, because a form you cannot send is worse
+//            than one that is too long.
 //    lcj-v3  HIDING IS AN ALLOWLIST NOW. lcj-v2 hid only the fields it had
 //            filled, which left dozens on screen - the modal carries the
 //            whole 99-field form and no list of ours will keep up with it.
@@ -41,7 +48,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script
 // ============================================================
-const FN_VERSION = "lcj-v3";
+const FN_VERSION = "lcj-v4";
 
 const SCRIPT = `
 (function () {
@@ -157,9 +164,26 @@ const SCRIPT = `
       var row = rowOf(el);
       if (!row || !row.style) return;
       if (row.style.display === "none") return;
+      // NEVER hide a row that contains the submit button or the captcha.
+      // rowOf walks up to a wrapper, and on this form that wrapper can hold
+      // the submit control too - which hid the button and left a form that
+      // could be filled in but not sent.
+      if (row.querySelector("[type=submit],button,.g-recaptcha,[name*=recaptcha]")) return;
       row.style.display = "none";
       if (!seen[n]) { seen[n] = 1; hidden++; }
     });
+
+    // Belt and braces: whatever happened above, the renter must be able to
+    // send. Anything that submits is put back.
+    Array.prototype.forEach.call(form.querySelectorAll("[type=submit],button"), function (b) {
+      var n = b;
+      for (var i = 0; i < 6 && n; i++) {
+        if (n.style && n.style.display === "none") n.style.display = "";
+        n = n.parentNode;
+        if (n === form) break;
+      }
+    });
+
     return hidden;
   }
 
