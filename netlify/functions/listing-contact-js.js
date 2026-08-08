@@ -1,5 +1,17 @@
+
 // ============================================================
-//  listing-contact-js.js   ·   VERSION: lcj-v6   (2026-08-07)
+//  listing-contact-js.js   ·   VERSION: lcj-v7   (2026-08-07)
+//    lcj-v7  HIDDEN REQUIRED FIELDS ARE NO LONGER REQUIRED. top_id, the
+//            category dropdown, is required by the form and hidden by us - so
+//            the browser refused to submit and displayed nothing, because the
+//            message it wanted to show belonged to a field nobody could see.
+//            Clicking Send did exactly nothing, with no error anywhere.
+//            Anything hidden now has its required flag dropped. This is the
+//            THIRD failure today caused by validation against something
+//            invisible: the location field, the removed reCAPTCHA, and now
+//            this. When a BD form silently refuses, look for a hidden field
+//            before looking anywhere else.
+//    lcj-v6  (previous)
 //    lcj-v6  Hides BD's "Required fields are marked with (*)" line. It has no
 //            name attribute so the field hiding never reached it, and with
 //            one message box and nothing required it refers to nothing. It
@@ -58,7 +70,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script
 // ============================================================
-const FN_VERSION = "lcj-v6";
+const FN_VERSION = "lcj-v7";
 
 const SCRIPT = `
 (function () {
@@ -181,6 +193,23 @@ const SCRIPT = `
       if (row.querySelector("[type=submit],button,.g-recaptcha,[name*=recaptcha]")) return;
       row.style.display = "none";
       if (!seen[n]) { seen[n] = 1; hidden++; }
+    });
+
+    // A HIDDEN REQUIRED FIELD IS UNANSWERABLE. top_id - the category
+    // dropdown - is required and now hidden, so the browser refused to submit
+    // and showed nothing: the message it wanted to display was attached to a
+    // field nobody could see. Clicking Send did precisely nothing.
+    // Anything hidden has its required flag dropped. Filling it instead would
+    // mean choosing a category on the renter's behalf, which is worse than
+    // leaving it empty.
+    Array.prototype.forEach.call(form.querySelectorAll("[required],[aria-required=true]"), function (el) {
+      var r = rowOf(el);
+      var isHidden = (el.style && el.style.display === "none") ||
+                     (r && r.style && r.style.display === "none") ||
+                     (el.offsetParent === null && el.type !== "hidden");
+      if (!isHidden) return;
+      el.removeAttribute("required");
+      el.removeAttribute("aria-required");
     });
 
     // The renter must be able to send. Restore the button and AT MOST its
