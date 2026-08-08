@@ -1,5 +1,21 @@
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v10  (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v11  (2026-08-07)
+//    hr-v11 link now WRITES THE SEARCH AREAS ONTO THE LEAD.
+//           BD's form captures one location - "Your Current Location" - so a
+//           lead created through it says where the renter LIVES. The hub was
+//           matching listings against that, which for anyone relocating is
+//           the wrong city entirely: an Ohio renter searching Utah was shown
+//           Ohio listings.
+//           Their real search areas come from the zone picker, are geocoded
+//           in the browser, and now land in lead_notes as:
+//             ZIPS: 84005,84043,84045
+//             GEO: 40.3769,-111.7963|40.3916,-111.8508|40.3413,-111.9099
+//           The hub reads GEO and matches a listing when it is near ANY of
+//           them. Coordinates rather than zips because BD does not store a
+//           postal code on listings - confirmed on listing 31, which shows
+//           an address on the page but returns none through the API - and
+//           because a listing one street outside a zip line is still a good
+//           match.
 //    hr-v10 +action:"link", which recovers a lead created by BD'S OWN FORM.
 //           The API cannot write the questionnaire columns, so requests now
 //           go through the Get Matched form - which means we never see the
@@ -158,7 +174,7 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v10";
+const FN_VERSION = "hr-v11";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -446,17 +462,44 @@ exports.handler = async function (event) {
         searchedFrom: from, searchedTo: id - 1 }, 404);
     }
 
+    // Write the search areas onto the lead. BD's form only captured where
+    // they live; this is where they are looking.
+    var lAreas = Array.isArray(body.areas) ? body.areas.filter(function (a) { return a && a.zip; }) : [];
+    var lZips = [], lGeo = [], lLabels = [];
+    lAreas.forEach(function (a) {
+      var z = String(a.zip).replace(/[^0-9]/g, "");
+      if (z && lZips.indexOf(z) === -1) lZips.push(z);
+      if (a.lat && a.lon) lGeo.push(Number(a.lat).toFixed(4) + "," + Number(a.lon).toFixed(4));
+      var lb = String(a.label || z).trim();
+      if (lb && lLabels.indexOf(lb) === -1) lLabels.push(lb);
+    });
+
+    if (lZips.length) {
+      var keep = String(best.lead_notes || "").split("\n")
+        .filter(function (line) { return line && line.indexOf("ZIPS:") !== 0 && line.indexOf("GEO:") !== 0 && line.indexOf("AREAS:") !== 0; });
+      var newNotes = ["ZIPS: " + lZips.join(",")];
+      if (lGeo.length) newNotes.push("GEO: " + lGeo.join("|"));
+      if (lLabels.length) newNotes.push("AREAS: " + lLabels.join(" | "));
+      newNotes.push("Searching from the member dashboard.");
+      var noteRes = await bdPut("/leads/update", {
+        lead_id: best.lead_id,
+        lead_notes: keep.concat(newNotes).join("\n"),
+      });
+      if (!noteRes.ok) console.error("[housing-request] could not write areas to lead " + best.lead_id + ": " + noteRes.error);
+    }
+
     var linkRec = {
       leadId: best.lead_id, token: best.token || null, status: "open",
       createdAt: best.date_added || new Date().toISOString(),
-      areaCount: 0, areaLabels: [], locationText: best.lead_location || "",
+      areaCount: lZips.length, areaLabels: lLabels,
+      areaGeo: lGeo, locationText: best.lead_location || "",
       via: "getmatched-form",
     };
     await writeRequest(memberId, linkRec);
     console.log("[housing-request] linked member " + memberId + " -> lead " + best.lead_id);
 
     return ok({ ok: true, _v: FN_VERSION, linked: true,
-      leadId: best.lead_id, token: best.token || null,
+      leadId: best.lead_id, token: best.token || null, areaCount: lZips.length,
       consentUrl: best.token
         ? (CONSENT_BASE + "?id=" + encodeURIComponent(best.lead_id) + "&token=" + encodeURIComponent(best.token))
         : null });

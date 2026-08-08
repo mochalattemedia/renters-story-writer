@@ -1,5 +1,19 @@
 // ============================================================
-//  getmatched-prefill-js.js   ·   VERSION: gmp-v3   (2026-08-07)
+//  getmatched-prefill-js.js   ·   VERSION: gmp-v5   (2026-08-07)
+//    gmp-v5  The geocoded search areas now travel to the LEAD, not just into
+//            BD's hidden location fields. Without them the hub can only match
+//            on the lead's single location - which is where a renter LIVES.
+//            An Ohio renter searching Utah was being shown Ohio listings.
+//    gmp-v4  LOCATION NOW ACTUALLY FILLS. Two bugs, both mine:
+//            1. BD renders lead_location TWICE - hidden and visible - and
+//               querySelector took the hidden one, so the box stayed empty
+//               and the form refused to submit for want of a location it had
+//               already been given. setText now fills every match.
+//            2. BD validates location against its HIDDEN companions - lat,
+//               lng, country_sn and the rest - not the visible box. So the
+//               zips are geocoded and those are populated too. Same trap the
+//               Bible records on add_service_area, where zeroed coordinates
+//               were silently discarded.
 //    gmp-v3  +claim and redirect. BD's form submits and the page changes, so
 //            the lead id is never seen - which means no member pointer, so
 //            withdraw and the card's open state would silently stop working.
@@ -55,7 +69,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script, as application/javascript
 // ============================================================
-const FN_VERSION = "gmp-v3";
+const FN_VERSION = "gmp-v5";
 
 const SCRIPT = `
 (function () {
@@ -147,14 +161,49 @@ const SCRIPT = `
       .trim();
   }
 
+  // EVERY matching field, not the first. BD renders lead_location TWICE - a
+  // hidden one and the visible text box - and querySelector took the hidden
+  // one, so the box stayed empty and the form refused to submit for want of
+  // a location it had actually been given.
   function setText(name, value) {
     if (!value) return false;
-    var el = document.querySelector("[name='" + name + "']");
-    if (!el) return false;
-    el.value = value;
-    try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
-    try { el.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {}
+    var els = document.querySelectorAll("[name='" + name + "']");
+    if (!els.length) return false;
+    Array.prototype.forEach.call(els, function (el) {
+      el.value = value;
+      try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
+      try { el.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {}
+    });
     return true;
+  }
+
+  // BD's location widget validates against its HIDDEN companions, not the
+  // visible box. Typing a value without the geocode leaves lat, lng and the
+  // rest empty, which reads as "no location given" no matter what is on
+  // screen. The Bible records the same trap on add_service_area, where zeroed
+  // coordinates were silently discarded.
+  function setHidden(name, value) {
+    if (value === undefined || value === null || value === "") return;
+    var els = document.querySelectorAll("[name='" + name + "']");
+    Array.prototype.forEach.call(els, function (el) { el.value = String(value); });
+  }
+
+  function setLocationProperly(text, areas) {
+    setText("lead_location", text);
+    var withGeo = (areas || []).filter(function (a) { return a.lat && a.lon; });
+    if (!withGeo.length) return;
+    var lat = withGeo.reduce(function (s, a) { return s + a.lat; }, 0) / withGeo.length;
+    var lon = withGeo.reduce(function (s, a) { return s + a.lon; }, 0) / withGeo.length;
+    setHidden("lat", lat);
+    setHidden("lng", lon);
+    setHidden("location_type", "locality");
+    setHidden("country_sn", "US");
+    if (areas[0] && areas[0].state) setHidden("adm_lvl_1_sn", areas[0].state);
+    if (areas[0] && areas[0].city) setHidden("city", areas[0].city);
+    // A viewport, since BD stores one. A tenth of a degree either way is
+    // roughly a town, which is the right scale for a zip cluster.
+    setHidden("swlat", lat - 0.1); setHidden("swlng", lon - 0.1);
+    setHidden("nelat", lat + 0.1); setHidden("nelng", lon + 0.1);
   }
 
   function setChoice(name, value) {
@@ -179,6 +228,34 @@ const SCRIPT = `
     var hit = 0;
     (values || []).forEach(function (v) { if (v && setChoice(name, v)) hit++; });
     return hit;
+  }
+
+  // The zips need real coordinates or BD's location validation fails. The
+  // Maps API is already on the page for the zone picker, so nothing extra is
+  // loaded. A zip that will not resolve is kept for the label and simply
+  // contributes no coordinates.
+  function geocodeZips(areas) {
+    if (!window.google || !google.maps || !google.maps.Geocoder) {
+      log("Google Maps not on this page, location will have no coordinates");
+      return Promise.resolve(areas);
+    }
+    var gc = new google.maps.Geocoder();
+    return Promise.all(areas.map(function (a) {
+      return new Promise(function (resolve) {
+        gc.geocode({ address: a.zip, componentRestrictions: { country: "US" } }, function (res, status) {
+          if (status === "OK" && res && res[0]) {
+            var g = res[0];
+            a.lat = g.geometry.location.lat();
+            a.lon = g.geometry.location.lng();
+            (g.address_components || []).forEach(function (c) {
+              if (c.types.indexOf("administrative_area_level_1") !== -1) a.state = c.short_name;
+              if (c.types.indexOf("locality") !== -1) a.city = c.long_name;
+            });
+          } else { log("zip", a.zip, "did not geocode:", status); }
+          resolve(a);
+        });
+      });
+    }));
   }
 
   function parseAreas(json) {
@@ -254,31 +331,46 @@ const SCRIPT = `
     fetch(AREAS_URL + encodeURIComponent(member.user_id), { credentials: "same-origin" })
       .then(function (r) { return r.json(); })
       .then(parseAreas)
+      .then(geocodeZips)
       .then(function (areas) {
         var text = "";
         if (areas.length) {
           var g = groupLabels(areas);
           text = g.slice(0, 3).join(" / ") + (g.length > 3 ? " and " + (g.length - 3) + " more" : "");
-          setText("lead_location", text);
+          setLocationProperly(text, areas);
         }
+        watchSubmit(member.user_id, plain(member.email), areas);
         banner(filled, total, text);
       })
-      .catch(function () { banner(filled, total, ""); });
+      .catch(function () {
+        watchSubmit(member.user_id, plain(member.email), []);
+        banner(filled, total, "");
+      });
 
-    watchSubmit(member.user_id, plain(member.email));
+    // areas are resolved asynchronously above; watchSubmit is wired inside
+    // that chain so it always has them.
   }
 
   // After BD's form submits, the page changes and we never see the lead id.
   // So: remember who submitted, and on the confirmation page ask our own
   // function to find the lead that was just created and hand back a consent
   // link. Chasing consent by email days later is how it does not get done.
-  function watchSubmit(mid, email) {
+  function watchSubmit(mid, email, areas) {
     var f = document.querySelector("form [name=formname]");
     var form = f ? f.form : null;
     if (!form) return;
     form.addEventListener("submit", function () {
       try {
-        sessionStorage.setItem("rdcGmPending", JSON.stringify({ mid: mid, email: email, at: Date.now() }));
+        // The geocoded areas travel with the pending record. Without them the
+        // hub can only match on the lead's single location, which for anyone
+        // relocating is where they LIVE, not where they are looking - an Ohio
+        // renter searching Utah would be shown Ohio listings.
+        sessionStorage.setItem("rdcGmPending", JSON.stringify({
+          mid: mid, email: email, at: Date.now(),
+          areas: (areas || []).map(function (a) {
+            return { zip: a.zip, label: a.label, lat: a.lat || null, lon: a.lon || null };
+          })
+        }));
       } catch (e) {}
     });
   }
@@ -301,7 +393,7 @@ const SCRIPT = `
     fetch(FN_BASE + "/housing-request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "link", memberId: p.mid, email: p.email })
+      body: JSON.stringify({ action: "link", memberId: p.mid, email: p.email, areas: p.areas || [] })
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {

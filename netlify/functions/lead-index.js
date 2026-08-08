@@ -1,5 +1,19 @@
 // ============================================================
-//  lead-index.js   ·   VERSION: li-v2   (2026-08-06, +HUB_ADMIN_KEY gate)
+//  lead-index.js   ·   VERSION: li-v3   (2026-08-07, +search areas)
+//    li-v3  Parses the search areas out of lead_notes so the hub can match
+//           on WHERE A RENTER IS LOOKING rather than where they live.
+//           BD's form captures one location, labelled "Your Current
+//           Location". Matching listings against it meant an Ohio renter
+//           searching Utah was shown Ohio listings.
+//           The notes carry:
+//             ZIPS: 84005,84043,84045
+//             GEO: 40.3769,-111.7963|40.3916,-111.8508
+//           Coordinates rather than zips because BD stores no postal code on
+//           listings - listing 31 shows an address on the page and returns
+//           none through the API - and because a listing one street outside
+//           a zip line is still a good match.
+//           Leads with no GEO fall back to their own lat/lon, which is the
+//           old behaviour and correct for anyone searching locally.
 //
 //  Fetches the most recent leads from BD and caches them in Blobs so the
 //  hub has something it can actually query.
@@ -35,7 +49,7 @@
 //   NETLIFY_BLOBS_TOKEN  REQUIRED
 //   BD_API_BASE          default https://www.renters.com/api/v2
 // ============================================================
-const FN_VERSION = "li-v2";
+const FN_VERSION = "li-v3";
 
 const https = require("https");
 // ADMIN GATE. This function returns renter names, emails and phone numbers,
@@ -166,6 +180,28 @@ function readable(v) {
 // income and incomeSource ARE indexed - the operator needs both to judge
 // whether an introduction makes sense. What goes to a PROVIDER is decided
 // by lead-consent, not here, and income source is not shareable there.
+// "GEO: 40.3769,-111.7963|40.3916,-111.8508" -> [{lat,lon},...]
+function parseGeo(notes) {
+  var m = String(notes || "").match(/GEO:\s*([^\n\r]+)/);
+  if (!m) return [];
+  return m[1].split("|").map(function (p) {
+    var xy = p.split(",");
+    var lat = Number(xy[0]), lon = Number(xy[1]);
+    return (isFinite(lat) && isFinite(lon) && lat && lon) ? { lat: lat, lon: lon } : null;
+  }).filter(Boolean);
+}
+
+function parseZips(notes) {
+  var m = String(notes || "").match(/ZIPS:\s*([0-9,\s]+)/);
+  if (!m) return [];
+  return m[1].split(",").map(function (z) { return z.trim(); }).filter(Boolean);
+}
+
+function parseAreaLabels(notes) {
+  var m = String(notes || "").match(/AREAS:\s*([^\n\r]+)/);
+  return m ? m[1].split("|").map(function (x) { return x.trim(); }).filter(Boolean) : [];
+}
+
 function shape(l) {
   return {
     id: l.lead_id,
@@ -195,6 +231,12 @@ function shape(l) {
     preferredTime: l.lead_preferred_time || "",
     income: incomeBand(l.approximate_gross_m),
     incomeSource: readable(l.what_type_of_income),
+    notes: l.lead_notes || "",
+    // Where they are LOOKING. Empty for leads that predate this, which then
+    // fall back to lat/lon - their current location - as before.
+    searchGeo: parseGeo(l.lead_notes),
+    searchZips: parseZips(l.lead_notes),
+    searchAreas: parseAreaLabels(l.lead_notes),
     searchingOn: readable(l.how_are_you_searchi),
     rentingFor: readable(l.how_long_have_you_b),
     insurance: readable(l.Insureance_options),
