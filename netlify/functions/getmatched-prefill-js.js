@@ -1,5 +1,12 @@
 // ============================================================
-//  getmatched-prefill-js.js   ·   VERSION: gmp-v9   (2026-08-07)
+//  getmatched-prefill-js.js   ·   VERSION: gmp-v10  (2026-08-07)
+//    gmp-v10 The confirmation page is now a DESTINATION, not a waypoint.
+//            It used to redirect to the dashboard the moment the claim
+//            finished, so a renter saw it for a second and was moved on -
+//            and while the claim was still probing, the page just sat there
+//            looking stalled. Now they land, read what happens next, and
+//            choose when to go to the dashboard. The button appears only
+//            once the request has actually been linked.
 //    gmp-v9  After claiming the lead, go to the DASHBOARD, not to consent.
 //            The claim was written when consent came last, and was never
 //            changed when the order was reversed - so a renter consented,
@@ -101,7 +108,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script, as application/javascript
 // ============================================================
-const FN_VERSION = "gmp-v9";
+const FN_VERSION = "gmp-v10";
 
 const SCRIPT = `
 (function () {
@@ -469,6 +476,32 @@ const SCRIPT = `
   // Runs on any renters.com page load. If a submission just happened, link it
   // and send them to consent. Kept separate from the prefill so it fires on
   // whatever page BD lands them on.
+  // The confirmation page is BD's, so its content is set in their editor.
+  // This only adds the way onward - and only once the request has actually
+  // been linked, so the button never appears before there is anything to see.
+  function confirmReady(leadId) {
+    if (document.getElementById("rdc-confirm-next")) return;
+    var host = document.querySelector(".container, .main-content, main, body");
+    if (!host) return;
+
+    var box = document.createElement("div");
+    box.id = "rdc-confirm-next";
+    box.style.cssText = "max-width:560px;margin:22px auto;padding:20px 22px;background:#f0faf6;border:1px solid #cceee2;border-radius:12px;text-align:center;font-family:inherit;";
+    // Single quotes throughout: this whole script lives inside a template
+    // literal in the function that serves it, so escaped double quotes get
+    // eaten before the browser ever sees them.
+    box.innerHTML = ''
+      + '<p style="font-size:15px;color:#1e8449;margin:0 0 4px;font-weight:700">Your request is in.</p>'
+      + '<p style="font-size:13.5px;color:#4a5a6a;line-height:1.6;margin:0 0 16px">'
+      + 'We will start looking in the areas you gave us, and we will only share what you approved. '
+      + 'You can change or withdraw this at any time from your dashboard.</p>'
+      + '<a href="/account/home" style="display:inline-block;background:#0d2d4e;color:#fff;text-decoration:none;font-size:14px;font-weight:700;padding:11px 22px;border-radius:9px">Back to my dashboard</a>';
+
+    // Below whatever BD renders, not instead of it.
+    host.appendChild(box);
+    try { box.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
+  }
+
   function claimPending() {
     var raw = null;
     try { raw = sessionStorage.getItem("rdcGmPending"); } catch (e) { return; }
@@ -489,14 +522,15 @@ const SCRIPT = `
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (d && d.ok) {
-          // Straight to the dashboard. Consent happened BEFORE the form, so
-          // sending them back to it here produced a loop: consent, submit,
-          // consent again. The card there shows their open request, which is
-          // the confirmation that actually means something.
-          log("linked lead", d.leadId, "- back to the dashboard");
-          window.location.href = "/account/home";
+          // No redirect. A renter who has just submitted something wants to
+          // know what happens next, and a page that vanishes underneath them
+          // gives them nothing. The claim runs invisibly; they stay put and
+          // choose when to move on.
+          log("linked lead", d.leadId, "- staying on the confirmation page");
+          confirmReady(d.leadId);
         } else {
           log("could not link the request", d && d.error);
+          confirmReady(null);
         }
       })
       .catch(function (e) { log("link failed", e); });
