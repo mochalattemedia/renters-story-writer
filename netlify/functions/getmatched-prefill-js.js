@@ -1,5 +1,22 @@
+
 // ============================================================
-//  getmatched-prefill-js.js   ·   VERSION: gmp-v5   (2026-08-07)
+//  getmatched-prefill-js.js   ·   VERSION: gmp-v7   (2026-08-07)
+//    gmp-v7  +areas_you_are_searc. The form now has BOTH fields, so a renter
+//            can see and correct each: where they live, and where they are
+//            looking. Until now the second was invisible - it travelled to
+//            the lead but never appeared on screen, so a renter had no way to
+//            check we had understood it.
+//    gmp-v6  THE LOCATION FIELD MEANS "Your Current Location", so it is now
+//            filled from the profile address rather than from search areas.
+//            Writing "Meadow Ranch, UT (3 zipcodes)" into a Google
+//            autocomplete was never going to work - it is not a place Google
+//            recognises, so the geocode never fired and the hidden
+//            companions BD validates against stayed empty. That is why the
+//            form refused to submit for want of a location it appeared to
+//            have.
+//            The profile already carries a geocoded address, so no geocoding
+//            is needed here at all. Search areas still reach the lead
+//            through the link step, and the hub matches on those.
 //    gmp-v5  The geocoded search areas now travel to the LEAD, not just into
 //            BD's hidden location fields. Without them the hub can only match
 //            on the lead's single location - which is where a renter LIVES.
@@ -69,7 +86,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script, as application/javascript
 // ============================================================
-const FN_VERSION = "gmp-v5";
+const FN_VERSION = "gmp-v7";
 
 const SCRIPT = `
 (function () {
@@ -95,6 +112,12 @@ const SCRIPT = `
 
   // This one IS relative, and must be: the service areas widget is session
   // authenticated on renters.com and unreachable from anywhere else.
+  // The form field holding where they are LOOKING, as distinct from
+  // lead_location which is where they live. BD named it from the label and
+  // truncated at 19 characters - note how close it is to when_are_you_looki,
+  // which is the timing question and a genuinely easy confusion in code.
+  var AREAS_FIELD = "areas_you_are_searc";
+
   var AREAS_URL = "/api/widget/get/json/Bootstrap%20Theme%20-%20Account%20-%20Select%20Locations?action=get_services_areas&user_id=";
 
   // About Me value -> Get Matched value. Anything absent is left blank so the
@@ -188,20 +211,30 @@ const SCRIPT = `
     Array.prototype.forEach.call(els, function (el) { el.value = String(value); });
   }
 
-  function setLocationProperly(text, areas) {
-    setText("lead_location", text);
-    var withGeo = (areas || []).filter(function (a) { return a.lat && a.lon; });
-    if (!withGeo.length) return;
-    var lat = withGeo.reduce(function (s, a) { return s + a.lat; }, 0) / withGeo.length;
-    var lon = withGeo.reduce(function (s, a) { return s + a.lon; }, 0) / withGeo.length;
+  // Their CURRENT location, from the profile. The member record already
+  // carries a geocoded address - city, state, zip, lat and lon - because BD
+  // resolved it when they signed up. So this needs no geocoding: the values
+  // are copied straight into the widget's hidden companions, which is what
+  // BD validates against rather than the visible box.
+  function setCurrentLocation(m) {
+    var city = plain(m.city), state = plain(m.state_code || m.state_sn), zip = plain(m.zip_code);
+    var label = [city, state].filter(Boolean).join(", ") + (zip ? " " + zip : "");
+    if (!label.trim()) { log("no address on the profile, leaving location blank"); return; }
+
+    setText("lead_location", label.trim());
+    var lat = Number(m.lat), lon = Number(m.lon);
+    if (!isFinite(lat) || !isFinite(lon) || !lat || !lon) {
+      log("profile has no coordinates - the renter will need to pick the location themselves");
+      return;
+    }
     setHidden("lat", lat);
     setHidden("lng", lon);
     setHidden("location_type", "locality");
-    setHidden("country_sn", "US");
-    if (areas[0] && areas[0].state) setHidden("adm_lvl_1_sn", areas[0].state);
-    if (areas[0] && areas[0].city) setHidden("city", areas[0].city);
-    // A viewport, since BD stores one. A tenth of a degree either way is
-    // roughly a town, which is the right scale for a zip cluster.
+    setHidden("country_sn", plain(m.country_code) || "US");
+    if (state) setHidden("adm_lvl_1_sn", state);
+    if (city) setHidden("city", city);
+    // BD stores a viewport. A tenth of a degree is roughly a town, which is
+    // the right scale for a city-level location.
     setHidden("swlat", lat - 0.1); setHidden("swlng", lon - 0.1);
     setHidden("nelat", lat + 0.1); setHidden("nelng", lon + 0.1);
   }
@@ -286,7 +319,7 @@ const SCRIPT = `
     b.style.cssText = "background:#f0faf6;border-left:3px solid #3a9e8f;color:#1e8449;padding:12px 15px;border-radius:0 8px 8px 0;font-size:14px;line-height:1.6;margin:0 0 18px;";
     b.innerHTML = "<b>We have filled this in from your profile.</b> " +
       "Check it over, change anything that has moved on, and press the button at the bottom. " +
-      (areaText ? "We are looking in " + areaText + "." : "Add where you are looking below.");
+      (areaText ? "" : "You have no search areas saved yet - add where you are looking below, or set them in your dashboard.");
     form.insertBefore(b, form.firstChild);
     try { b.scrollIntoView({ block: "center" }); } catch (e) {}
     log("version:", GMP, "filled", filled, "of", total, "fields");
@@ -333,16 +366,29 @@ const SCRIPT = `
       .then(parseAreas)
       .then(geocodeZips)
       .then(function (areas) {
-        var text = "";
+        // THE LOCATION FIELD IS "Your Current Location". It is filled from
+        // their address, not their search areas - which is why writing the
+        // grouped area labels into it fought BD's Google widget: "Meadow
+        // Ranch, UT (3 zipcodes)" is not a place Google recognises, so the
+        // geocode never fired and the hidden companions stayed empty.
+        // The search areas still reach the lead, via watchSubmit and the
+        // link step, and the hub matches on those.
+        setCurrentLocation(member);
+
+        var areaText = "";
         if (areas.length) {
           var g = groupLabels(areas);
-          text = g.slice(0, 3).join(" / ") + (g.length > 3 ? " and " + (g.length - 3) + " more" : "");
-          setLocationProperly(text, areas);
+          // The FULL list here, not a truncated summary. This is the field a
+          // renter reads to check we understood where they are looking, so
+          // "and 4 more" would hide the thing they came to verify.
+          areaText = g.join(" / ");
+          setText(AREAS_FIELD, areaText);
         }
         watchSubmit(member.user_id, plain(member.email), areas);
-        banner(filled, total, text);
+        banner(filled, total, areaText);
       })
       .catch(function () {
+        setCurrentLocation(member);
         watchSubmit(member.user_id, plain(member.email), []);
         banner(filled, total, "");
       });
