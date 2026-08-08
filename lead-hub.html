@@ -198,7 +198,8 @@ function drawDetail(){
       "<span class='tag' style='margin-left:auto'>#"+esc(l.id)+"</span></div>"+
     "<dl class='kv'>"+
       kv("Submitted", ago(l.submitted))+
-      kv("Looking in", l.location)+
+      kv("Looking in", (l.searchAreas && l.searchAreas.length) ? l.searchAreas.join(" &middot; ") : null)+
+      kv("Current location", l.location)+
       kv("Budget", l.budget)+
       kv("Move by", l.timing)+
       kv("Term", l.term)+
@@ -220,9 +221,13 @@ function drawDetail(){
       "<br>Use this to judge whether an introduction makes sense. Income source is not shareable at all, and the amount only goes out if the renter ticked it.</div>" : "")+
     (function(){
       var nb = nearbyFor(l);
-      if (!l.lat || !l.lon) return "<div class='ops' style='background:#f4f7f6;border-color:#e6ebf0;color:#7b8a99'><b>No coordinates</b>This request has no location, so nearby supply cannot be worked out.</div>";
+      var pts = searchPoints(l);
+      if (!pts.length) return "<div class='ops' style='background:#f4f7f6;border-color:#e6ebf0;color:#7b8a99'><b>No coordinates</b>This request has no location, so nearby supply cannot be worked out.</div>";
+      var basis = (l.searchGeo && l.searchGeo.length)
+        ? ("their " + l.searchGeo.length + " search area" + (l.searchGeo.length===1?"":"s"))
+        : "their current location, as no search areas were set";
       if (!nb.length) return "<div class='ops'><b>No live listings within 40 miles</b>A supply gap, not a bad lead. Worth noting where these cluster.</div>";
-      return "<div style='padding:0 15px 10px'><div style='font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#8593a4;margin:0 0 6px'>Live listings within 40 miles &mdash; "+nb.length+"</div>"+
+      return "<div style='padding:0 15px 10px'><div style='font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#8593a4;margin:0 0 6px'>Live listings within 40 miles of "+esc(basis)+" &mdash; "+nb.length+"</div>"+
         nb.map(function(x){
           var fits = (l.budget && x.rent) ? null : null;
           return "<div style='display:flex;gap:8px;align-items:center;padding:7px 10px;border:1px solid #e6ebf0;border-radius:8px;margin:0 0 5px;background:#fff;font-size:12px'>"+
@@ -272,12 +277,33 @@ function miles(a,b,c,d){var R=3958.8,p=Math.PI/180;
   var x=0.5-Math.cos((c-a)*p)/2+Math.cos(a*p)*Math.cos(c*p)*(1-Math.cos((d-b)*p))/2;
   return R*2*Math.asin(Math.sqrt(x));}
 
+/* Match against WHERE THEY ARE LOOKING, not where they live.
+   BD's form captures one location, labelled "Your Current Location", so
+   matching on it meant an Ohio renter searching Utah was shown Ohio
+   listings. searchGeo holds their zone-picker areas, geocoded. A listing is
+   near them if it is near ANY of those areas.
+   Leads without searchGeo predate this and fall back to their own
+   coordinates, which is correct for anyone searching locally. */
+function searchPoints(l){
+  if (l.searchGeo && l.searchGeo.length) return l.searchGeo;
+  if (l.lat && l.lon) return [{ lat: l.lat, lon: l.lon }];
+  return [];
+}
+
 function nearbyFor(l){
-  if (!l.lat || !l.lon) return [];
+  var pts = searchPoints(l);
+  if (!pts.length) return [];
   return LISTINGS
     .filter(function(x){ return x.lat && x.lon && x.live; })
-    .map(function(x){ var o={}; for(var q in x) o[q]=x[q]; o.d=miles(l.lat,l.lon,x.lat,x.lon);
-      o.owner=PROVIDERS.filter(function(p){return String(p.id)===String(x.ownerId);})[0]||null; return o; })
+    .map(function(x){
+      var o={}; for(var q in x) o[q]=x[q];
+      /* Distance to the CLOSEST of their areas. A renter watching two
+         neighbourhoods should see listings near either, not near the point
+         between them. */
+      o.d = Math.min.apply(null, pts.map(function(p){ return miles(p.lat,p.lon,x.lat,x.lon); }));
+      o.owner = PROVIDERS.filter(function(p){return String(p.id)===String(x.ownerId);})[0]||null;
+      return o;
+    })
     .filter(function(x){ return x.d < 40; })
     .sort(function(a,b){ return a.d-b.d; })
     .slice(0,8);
