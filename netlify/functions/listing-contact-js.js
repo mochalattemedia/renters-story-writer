@@ -1,5 +1,14 @@
+
 // ============================================================
-//  listing-contact-js.js   ·   VERSION: lcj-v8   (2026-08-07)
+//  listing-contact-js.js   ·   VERSION: lcj-v9   (2026-08-07)
+//    lcj-v9  The location row was never being hidden. The v4 guard skipped
+//            any row containing a <button>, and BD's location widget has its
+//            own locate control - so the whole row was spared, leaving a
+//            renter asked where they live while enquiring about a specific
+//            address. The guard now looks for SUBMIT controls: an explicit
+//            type="button" or "reset" no longer counts, while a <button> with
+//            no type still does, because that submits by default.
+//    lcj-v8  (previous)
 //    lcj-v8  Notes the property on submit, in sessionStorage, for the
 //            confirmation page to record. It cannot be recorded here: the
 //            page is unloading and an in-flight request would be cancelled.
@@ -73,7 +82,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script
 // ============================================================
-const FN_VERSION = "lcj-v8";
+const FN_VERSION = "lcj-v9";
 
 const SCRIPT = `
 (function () {
@@ -189,11 +198,24 @@ const SCRIPT = `
       var row = rowOf(el);
       if (!row || !row.style) return;
       if (row.style.display === "none") return;
-      // NEVER hide a row that contains the submit button or the captcha.
-      // rowOf walks up to a wrapper, and on this form that wrapper can hold
-      // the submit control too - which hid the button and left a form that
-      // could be filled in but not sent.
-      if (row.querySelector("[type=submit],button,.g-recaptcha,[name*=recaptcha]")) return;
+      // Never hide a row containing a SUBMIT control or the captcha - rowOf
+      // walks up to a wrapper, and on this form that wrapper can hold the
+      // submit button, which hid it and left a form that could be filled in
+      // but not sent.
+      // Deliberately NOT any <button>: BD's location widget has its own
+      // locate control, so the broader test spared the whole location row and
+      // left it on screen asking a renter where they live while they are
+      // enquiring about a specific address.
+      if (row.querySelector("[type=submit],[type=image],.g-recaptcha,[name*=recaptcha]")) return;
+      var btns = row.querySelectorAll("button");
+      var hasSubmit = false;
+      Array.prototype.forEach.call(btns, function (b) {
+        var t = (b.getAttribute("type") || "").toLowerCase();
+        // A <button> with no type submits by default, so only an explicit
+        // button or reset is safe to hide alongside.
+        if (t !== "button" && t !== "reset") hasSubmit = true;
+      });
+      if (hasSubmit) return;
       row.style.display = "none";
       if (!seen[n]) { seen[n] = 1; hidden++; }
     });
