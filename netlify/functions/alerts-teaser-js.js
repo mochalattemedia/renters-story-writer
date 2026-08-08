@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v10
+// alerts-teaser-js.js  —  at-v11
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -23,7 +23,15 @@
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
 //
-// at-v10: the wall now scrolls to CENTER the card in the viewport rather
+// at-v11: scroll so the TOP of the wall clears the fixed nav bar. v10
+// centered the card, but the wall is taller than the phone screen, so
+// centering pushed the "Your search is ready" title up under the nav.
+// Now we compute the card's absolute top, subtract a nav-height offset,
+// and scroll there with window.scrollTo - so the title is always the
+// first thing in view. Falls back to scrollIntoView if geometry is
+// unavailable.
+//
+// PRIOR - at-v10: the wall scrolled to CENTER the card in the viewport rather
 // than aligning its top under the nav bar - so "Create my free account"
 // sits in the middle of the screen, the natural place to look after
 // submitting. Targets the signup button specifically when present.
@@ -105,7 +113,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v10";
+const FN_VERSION = "at-v11";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -551,6 +559,37 @@ const JS = `
     '</div>';
   }
 
+  // Scroll so the top of the card sits just below the fixed nav bar, so
+  // the title is always visible even when the card is taller than the
+  // screen. Guesses the nav height from any fixed/sticky header, defaults
+  // to a safe 80px.
+  function scrollWallIntoView() {
+    try {
+      var card = mount.querySelector("div");
+      if (!card) return;
+      var navH = 80;
+      var heads = document.querySelectorAll("header, nav, .navbar, .site-header");
+      for (var i = 0; i < heads.length; i++) {
+        var cs = window.getComputedStyle(heads[i]);
+        if ((cs.position === "fixed" || cs.position === "sticky") && heads[i].offsetHeight) {
+          navH = Math.max(navH, heads[i].offsetHeight);
+          break;
+        }
+      }
+      var rect = card.getBoundingClientRect();
+      var top = rect.top + (window.pageYOffset || document.documentElement.scrollTop || 0);
+      var target = top - navH - 12;
+      if (target < 0) target = 0;
+      if (window.scrollTo) window.scrollTo({ top: target, behavior: "smooth" });
+      else if (card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {
+      try {
+        var c2 = mount.querySelector("div");
+        if (c2 && c2.scrollIntoView) c2.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (e2) {}
+    }
+  }
+
   function renderWall(f, token) {
     // Robust handoff: stash the token same-origin so it survives BD's
     // signup redirects even if the query param is dropped.
@@ -577,8 +616,7 @@ const JS = `
     // Bring the wall into view. On mobile the page holds its old scroll
     // position after submit, leaving the call to action off-screen.
     try {
-      var cta = mount.querySelector("a") || mount.querySelector("div");
-      if (cta && cta.scrollIntoView) cta.scrollIntoView({ behavior: "smooth", block: "center" });
+      scrollWallIntoView();
     } catch (e) {}
 
     document.getElementById("rt-back").onclick = function () {
@@ -586,8 +624,7 @@ const JS = `
       mount.setAttribute("data-rendered", "1");
       renderForm();
       try {
-        var c = mount.querySelector("div");
-        if (c && c.scrollIntoView) c.scrollIntoView({ behavior: "smooth", block: "center" });
+        scrollWallIntoView();
       } catch (e) {}
     };
   }
