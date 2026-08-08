@@ -1,5 +1,12 @@
 // ============================================================
-//  getmatched-prefill-js.js   ·   VERSION: gmp-v8   (2026-08-07)
+//  getmatched-prefill-js.js   ·   VERSION: gmp-v9   (2026-08-07)
+//    gmp-v9  After claiming the lead, go to the DASHBOARD, not to consent.
+//            The claim was written when consent came last, and was never
+//            changed when the order was reversed - so a renter consented,
+//            submitted the form, and was sent straight back to the consent
+//            page. A loop with no way out.
+//            The dashboard card shows their open request, which is the
+//            confirmation that actually means something.
 //    gmp-v8  Relabels the location field to "Where you live now".
 //            lead_location is BD's own field - Form Manager governs neither
 //            its label, its help text, nor its view toggles, all of which
@@ -94,7 +101,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script, as application/javascript
 // ============================================================
-const FN_VERSION = "gmp-v8";
+const FN_VERSION = "gmp-v9";
 
 const SCRIPT = `
 (function () {
@@ -481,9 +488,13 @@ const SCRIPT = `
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d && d.ok && d.consentUrl) {
-          log("linked lead", d.leadId, "- going to consent");
-          window.location.href = d.consentUrl;
+        if (d && d.ok) {
+          // Straight to the dashboard. Consent happened BEFORE the form, so
+          // sending them back to it here produced a loop: consent, submit,
+          // consent again. The card there shows their open request, which is
+          // the confirmation that actually means something.
+          log("linked lead", d.leadId, "- back to the dashboard");
+          window.location.href = "/account/home";
         } else {
           log("could not link the request", d && d.error);
         }
