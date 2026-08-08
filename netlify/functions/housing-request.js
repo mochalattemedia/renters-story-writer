@@ -1,5 +1,14 @@
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v12  (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v13  (2026-08-07)
+//    hr-v13 +listing inquiries. A renter contacting a landlord about one
+//           property is NOT an open search request, and it must not overwrite
+//           one - the dashboard card would then claim they are looking in
+//           areas they never mentioned.
+//           Stored separately, keyed by member, newest first:
+//             POST { action:"inquiry", memberId, slug, title?, leadId?, message? }
+//             GET  ?inquiries=NNNN   the list, for the dashboard
+//           Capped at 50: a renter wants to see what they have sent recently,
+//           and an unbounded list would grow without limit in one blob.
 //    hr-v12 The profile endpoint now returns the member's geocoded address -
 //           city, state, zip, country and coordinates - so the Get Matched
 //           location field can be filled from where they LIVE. Still a
@@ -178,7 +187,7 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v12";
+const FN_VERSION = "hr-v13";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -281,6 +290,9 @@ function store() {
   });
 }
 function mkey(memberId) { return "member:" + String(memberId).replace(/[^0-9]/g, ""); }
+// Separate from the search request. A message about one property and an open
+// search are different things and must not overwrite each other.
+function inqKey(memberId) { return "inquiries:" + String(memberId).replace(/[^0-9]/g, ""); }
 
 async function readRequest(memberId) {
   try { return await store().get(mkey(memberId), { type: "json" }); }
@@ -413,6 +425,13 @@ exports.handler = async function (event) {
     return ok({ ok: true, _v: FN_VERSION, profile: out });
   }
 
+  // The properties a renter has asked about. Blobs only, no BD call.
+  if (event.httpMethod === "GET" && q.inquiries) {
+    var iList = [];
+    try { iList = (await store().get(inqKey(q.inquiries), { type: "json" })) || []; } catch (e) { iList = []; }
+    return ok({ ok: true, _v: FN_VERSION, count: Array.isArray(iList) ? iList.length : 0, inquiries: Array.isArray(iList) ? iList : [] });
+  }
+
   // The dashboard card asks this on every load. It reads Blobs only - no BD
   // call - so it costs nothing against the rate limit.
   if (event.httpMethod === "GET" && q.memberId) {
@@ -431,6 +450,42 @@ exports.handler = async function (event) {
 
   var memberId = String(body.memberId || "").replace(/[^0-9]/g, "");
   if (!memberId) return ok({ error: "memberId is required" }, 400);
+
+  // ---- INQUIRY ----
+  if (body.action === "inquiry") {
+    var slug = String(body.slug || "").trim().slice(0, 200);
+    if (!slug) return ok({ error: "slug is required" }, 400);
+
+    var list = [];
+    try { list = (await store().get(inqKey(memberId), { type: "json" })) || []; } catch (e) { list = []; }
+    if (!Array.isArray(list)) list = [];
+
+    // The same property twice in five minutes is a double submit, not a
+    // second inquiry.
+    var nowMs = Date.now();
+    var dupe = list.some(function (x) {
+      return x.slug === slug && (nowMs - new Date(x.sentAt).getTime()) < 300000;
+    });
+    if (dupe) return ok({ ok: true, _v: FN_VERSION, recorded: false, note: "Already recorded a moment ago.", count: list.length });
+
+    list.unshift({
+      slug: slug,
+      title: body.title ? String(body.title).slice(0, 120) : "",
+      leadId: body.leadId ? String(body.leadId).replace(/[^0-9]/g, "") : null,
+      message: body.message ? String(body.message).slice(0, 400) : "",
+      sentAt: new Date().toISOString(),
+    });
+    if (list.length > 50) list = list.slice(0, 50);
+
+    try { await store().setJSON(inqKey(memberId), list); }
+    catch (e) {
+      console.error("[housing-request] could not record inquiry:", e && e.message);
+      return ok({ error: "Could not record that", detail: e && e.message }, 500);
+    }
+
+    console.log("[housing-request] member " + memberId + " asked about " + slug);
+    return ok({ ok: true, _v: FN_VERSION, recorded: true, count: list.length });
+  }
 
   // ---- LINK ----
   // Called right after BD's form has been submitted. Finds the lead that

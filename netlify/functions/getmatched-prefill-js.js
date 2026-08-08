@@ -1,5 +1,13 @@
 // ============================================================
-//  getmatched-prefill-js.js   ·   VERSION: gmp-v10  (2026-08-07)
+//  getmatched-prefill-js.js   ·   VERSION: gmp-v11  (2026-08-07)
+//    gmp-v11 Handles LISTING INQUIRIES on the confirmation page too. Both a
+//            search request and a message about one property land there, and
+//            the page was written for the first - so someone who asked about
+//            a single listing was told we had started looking in the areas
+//            they gave us, which they never gave.
+//            An inquiry now replaces that copy, is recorded against the
+//            member separately from any open search, and never overwrites
+//            one.
 //    gmp-v10 The confirmation page is now a DESTINATION, not a waypoint.
 //            It used to redirect to the dashboard the moment the claim
 //            finished, so a renter saw it for a second and was moved on -
@@ -108,7 +116,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script, as application/javascript
 // ============================================================
-const FN_VERSION = "gmp-v10";
+const FN_VERSION = "gmp-v11";
 
 const SCRIPT = `
 (function () {
@@ -502,6 +510,67 @@ const SCRIPT = `
     try { box.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
   }
 
+  // A listing inquiry, not a search request. Recorded separately so it never
+  // overwrites an open search - and the confirmation page says something
+  // appropriate rather than claiming we have started looking in areas the
+  // renter never gave us.
+  function claimInquiry() {
+    var raw = null;
+    try { raw = sessionStorage.getItem("rdcListingInquiry"); } catch (e) { return false; }
+    if (!raw) return false;
+    var p = null;
+    try { p = JSON.parse(raw); } catch (e) {}
+    try { sessionStorage.removeItem("rdcListingInquiry"); } catch (e) {}
+    if (!p || !p.mid || !p.slug) return false;
+    if (Date.now() - (p.at || 0) > 300000) return false;
+
+    log("recording an inquiry about", p.slug);
+    confirmInquiry(p.title);
+
+    fetch(FN_BASE + "/housing-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "inquiry", memberId: p.mid, slug: p.slug, title: p.title, message: p.message })
+    }).then(function (r) { return r.json(); })
+      .then(function (d) { log("inquiry recorded:", d && d.recorded, "| total:", d && d.count); })
+      .catch(function (e) { log("could not record the inquiry", e); });
+
+    return true;
+  }
+
+  // The confirmation page is written for a SEARCH request - "we have started
+  // looking in the areas you gave us" - which is wrong for someone who asked
+  // about one property. Replace it.
+  function confirmInquiry(title) {
+    if (document.getElementById("rdc-confirm-next")) return;
+    var host = document.querySelector(".container, .main-content, main, body");
+    if (!host) return;
+
+    // Hide the search-request copy rather than leaving both on screen.
+    Array.prototype.forEach.call(document.querySelectorAll("h1, h2, p"), function (n) {
+      if (n.children.length) return;
+      var t = (n.textContent || "").trim();
+      if (!t) return;
+      if (t.indexOf("started looking") !== -1 || t.indexOf("housing request") !== -1 ||
+          t.indexOf("We're on it") !== -1 || t.indexOf("areas you gave us") !== -1) {
+        n.style.display = "none";
+      }
+    });
+
+    var box = document.createElement("div");
+    box.id = "rdc-confirm-next";
+    box.style.cssText = "max-width:560px;margin:22px auto;padding:22px 24px;background:#f0faf6;border:1px solid #cceee2;border-radius:12px;text-align:center;font-family:inherit;";
+    box.innerHTML = ''
+      + '<p style="font-size:17px;color:#1e8449;margin:0 0 6px;font-weight:700">'
+      + (title ? ('Your message about ' + title + ' is on its way.') : 'Your message is on its way.') + '</p>'
+      + '<p style="font-size:13.5px;color:#4a5a6a;line-height:1.65;margin:0 0 16px">'
+      + 'We check every message before it reaches a landlord, so you only hear back about places that '
+      + 'genuinely fit. You can see everything you have asked about from your dashboard.</p>'
+      + '<a href="/account/home" style="display:inline-block;background:#0d2d4e;color:#fff;text-decoration:none;font-size:14px;font-weight:700;padding:11px 22px;border-radius:9px">Back to my dashboard</a>';
+    host.appendChild(box);
+    try { box.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
+  }
+
   function claimPending() {
     var raw = null;
     try { raw = sessionStorage.getItem("rdcGmPending"); } catch (e) { return; }
@@ -545,7 +614,11 @@ const SCRIPT = `
   }
 
   function boot() {
-    // Always first: a submission may have just completed on another page.
+    // A listing inquiry and a search request land on the same confirmation
+    // page. Check for the inquiry first: it is the more specific case, and
+    // claiming a search request that does not exist would probe BD for
+    // nothing.
+    if (claimInquiry()) return;
     claimPending();
     if (!WANT_PREFILL) { log("version:", GMP, "no prefill flag"); return; }
     var mid = memberId();

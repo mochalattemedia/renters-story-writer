@@ -1,6 +1,9 @@
-
 // ============================================================
-//  listing-contact-js.js   ·   VERSION: lcj-v7   (2026-08-07)
+//  listing-contact-js.js   ·   VERSION: lcj-v8   (2026-08-07)
+//    lcj-v8  Notes the property on submit, in sessionStorage, for the
+//            confirmation page to record. It cannot be recorded here: the
+//            page is unloading and an in-flight request would be cancelled.
+//    lcj-v7  (previous)
 //    lcj-v7  HIDDEN REQUIRED FIELDS ARE NO LONGER REQUIRED. top_id, the
 //            category dropdown, is required by the form and hidden by us - so
 //            the browser refused to submit and displayed nothing, because the
@@ -70,7 +73,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script
 // ============================================================
-const FN_VERSION = "lcj-v7";
+const FN_VERSION = "lcj-v8";
 
 const SCRIPT = `
 (function () {
@@ -362,6 +365,26 @@ const SCRIPT = `
     var n = hideEverythingElse();
     openers();
     intro(propertyName(), n);
+    watchSend(mid);
+  }
+
+  // On submit, note what was asked about. The confirmation page picks this up
+  // and records it - we cannot record here, because the page is unloading and
+  // an in-flight request would be cancelled.
+  function watchSend(memberId) {
+    form.addEventListener("submit", function () {
+      var u = form.querySelector("[name=url_origin_pars]");
+      var msgEl = form.querySelector("[name=anything_else_we_sh]");
+      try {
+        sessionStorage.setItem("rdcListingInquiry", JSON.stringify({
+          mid: memberId,
+          slug: u ? String(u.value || "") : (window.location.pathname || ""),
+          title: propertyName(),
+          message: msgEl ? String(msgEl.value || "").slice(0, 400) : "",
+          at: Date.now()
+        }));
+      } catch (e) {}
+    });
   }
 
   // Fill when the modal opens, not on page load - the fields may not be
