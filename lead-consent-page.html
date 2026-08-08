@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -49,9 +50,16 @@ textarea{width:100%;font:inherit;font-size:14.5px;line-height:1.7;padding:13px 1
 var FN = "/.netlify/functions/lead-consent";
 var qs = new URLSearchParams(location.search);
 var token = qs.get("token") || "";
-/* lc-v3: the link carries BOTH. The id fetches the record, the token
-   proves it belongs to whoever opened the link. */
+/* lc-v3: a LEAD link carries both. The id fetches the record, the token
+   proves it belongs to whoever opened it. */
 var leadId = qs.get("id") || "";
+/* lc-v7: a MEMBER link needs neither. Consent now happens BEFORE a request
+   exists - it belongs to the person, not to one form submission - and this
+   page is reached from inside their own logged-in dashboard. */
+var memberId = qs.get("member") || "";
+/* Where to send them once they have chosen. The dashboard button passes the
+   form, so consent leads into the request rather than trailing after it. */
+var nextUrl = qs.get("next") || "";
 var DATA = null, picked = {};
 
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
@@ -120,7 +128,9 @@ function render(){
   el("app").innerHTML =
     "<div class='card'>" +
       "<h1>What should we share?</h1>" +
-      "<p class='lede'>Before we introduce you to anyone, tell us what you're happy for them to see. Nothing is shared unless you tick it.</p>" +
+      "<p class='lede'>" + (nextUrl
+        ? "Before we start looking, tell us what you're happy for a landlord to see. Nothing is shared unless you tick it, and you can change this any time."
+        : "Before we introduce you to anyone, tell us what you're happy for them to see. Nothing is shared unless you tick it.") + "</p>" +
       (DATA.alreadyConsented ? "<div class='note'>You've done this before. Your earlier choices are ticked below. Changing them here replaces what we'll share from now on, but we can't unsend anything already passed on.</div>" : "") +
       "<div class='bar'><button id='bAll'>Tick everything</button><button id='bNone'>Untick everything</button><span id='cnt' class='muted'></span></div>" +
       rows +
@@ -130,7 +140,8 @@ function render(){
       "<h1>How we'll describe you</h1>" +
       "<p class='lede'>This is exactly what a landlord or property manager will read. Edit it however you like \u2014 it's your introduction.</p>" +
       "<textarea id='prof'></textarea>" +
-      "<button class='btn go' id='bGo' style='margin-top:14px'>Approve and share this</button>" +
+      "<button class='btn go' id='bGo' style='margin-top:14px'>" +
+        (nextUrl ? "Approve and continue" : "Approve and share this") + "</button>" +
       "<p class='msg' id='msg'></p>" +
     "</div>";
 
@@ -170,11 +181,21 @@ function submit(){
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      leadId: DATA.leadId, fields: fields, snapshot: snap, profileText: text,
+      leadId: DATA.leadId || null, memberId: DATA.memberId || null,
+      fields: fields, snapshot: snap, profileText: text,
       renterName: DATA.values.name || null, renterEmail: DATA.values.email || null
     })
   }).then(function(r){ return r.json(); }).then(function(d){
     if (d && d.ok) {
+      if (nextUrl) {
+        /* Consent came first, so this is the middle of a journey rather than
+           the end of one. Say so briefly and carry on to the request. */
+        el("app").innerHTML = "<div class='card done'><div class='tick'>\u2713</div>" +
+          "<h1>Saved</h1><p class='lede'>Now let's tell us where you're looking.</p></div>";
+        window.scrollTo(0,0);
+        setTimeout(function(){ window.location.href = nextUrl; }, 900);
+        return;
+      }
       el("app").innerHTML = "<div class='card done'><div class='tick'>\u2713</div>" +
         "<h1>Thank you</h1><p class='lede'>We'll only share what you've approved. When we find somewhere that fits, we'll introduce you.</p>" +
         "<p class='muted'>Recorded " + new Date(d.consentedAt).toLocaleString() + ". You can change this any time by opening this page again.</p></div>";
@@ -189,10 +210,12 @@ function submit(){
   });
 }
 
-if (!token || !leadId) {
+if (!memberId && (!token || !leadId)) {
   el("app").innerHTML = "<div class='card'><h1>This link is incomplete</h1><p class='lede'>Open the link from the email we sent you and it'll work.</p></div>";
 } else {
-  fetch(FN + "?id=" + encodeURIComponent(leadId) + "&token=" + encodeURIComponent(token))
+  fetch(memberId
+        ? (FN + "?member=" + encodeURIComponent(memberId))
+        : (FN + "?id=" + encodeURIComponent(leadId) + "&token=" + encodeURIComponent(token)))
     .then(function(r){ return r.json(); })
     .then(function(d){
       if (!d || !d.ok) {
