@@ -1,5 +1,9 @@
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v11  (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v12  (2026-08-07)
+//    hr-v12 The profile endpoint now returns the member's geocoded address -
+//           city, state, zip, country and coordinates - so the Get Matched
+//           location field can be filled from where they LIVE. Still a
+//           whitelist; type_of_income remains absent and stays that way.
 //    hr-v11 link now WRITES THE SEARCH AREAS ONTO THE LEAD.
 //           BD's form captures one location - "Your Current Location" - so a
 //           lead created through it says where the renter LIVES. The hub was
@@ -174,7 +178,7 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v11";
+const FN_VERSION = "hr-v12";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -398,6 +402,11 @@ exports.handler = async function (event) {
       "seeking", "i_want_to_relocate", "number_of_peop", "property_type_preference",
       "monthly_budget", "co_signer", "do_you_have_pets", "ideal_rental",
       "how_are_you_searchi", "if_other_elaborate",
+      // hr-v12: their CURRENT location, already geocoded by BD at signup.
+      // The Get Matched form's location field means "Your Current Location",
+      // so it fills from these - not from search areas, which are a different
+      // question and are not a place Google's autocomplete recognises.
+      "city", "state_code", "state_sn", "zip_code", "country_code", "lat", "lon",
     ];
     var out = {};
     allow.forEach(function (k) { if (pm[k] !== undefined && pm[k] !== null && pm[k] !== "") out[k] = pm[k]; });
