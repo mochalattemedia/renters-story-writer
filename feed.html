@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Send us your listings — Renters.com for property managers</title>
+<meta name="description" content="Send Renters.com your property feed. Ingestion is free and stays free. You pay only when we introduce a verified renter who fits what you have published.">
+<link href="https://fonts.googleapis.com/css?family=Red+Hat+Display:600,700,800|Open+Sans:400,600,700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Open Sans',sans-serif;color:#0d2d4e;background:#fff;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:680px;margin:0 auto;padding:0 20px}
+h1,h2,h3{font-family:'Red Hat Display',sans-serif;line-height:1.25}
+
+.hero{background:#0d2d4e;color:#fff;padding:56px 0 52px;margin:0 0 44px}
+.hero h1{font-size:36px;font-weight:800;margin:0 0 14px}
+.hero p{font-size:17px;color:#c5d5e4;max-width:540px}
+.hero .kicker{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:#8dc63f;font-weight:700;margin:0 0 12px}
+
+section{margin:0 0 44px}
+h2{font-size:24px;font-weight:700;margin:0 0 14px}
+p{font-size:16px;color:#4a5a6a;margin:0 0 14px}
+p strong{color:#0d2d4e}
+
+.points{list-style:none;margin:18px 0 0}
+.points li{position:relative;padding:0 0 0 28px;margin:0 0 12px;font-size:15.5px;color:#4a5a6a}
+.points li:before{content:"";position:absolute;left:0;top:8px;width:8px;height:8px;border-radius:50%;background:#3a9e8f}
+.points li b{color:#0d2d4e}
+
+.steps{counter-reset:s;list-style:none;margin:20px 0 0}
+.steps li{counter-increment:s;position:relative;padding:0 0 0 44px;margin:0 0 22px}
+.steps li:before{content:counter(s);position:absolute;left:0;top:0;width:29px;height:29px;border-radius:50%;background:#0d2d4e;color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Red Hat Display',sans-serif}
+.steps h3{font-size:16.5px;font-weight:700;margin:3px 0 4px}
+.steps p{font-size:15px;margin:0}
+
+.note{background:#f0faf6;border-left:3px solid #3a9e8f;padding:18px 22px;border-radius:0 10px 10px 0;margin:0 0 44px}
+.note h3{font-size:16.5px;font-weight:700;color:#1e8449;margin:0 0 6px}
+.note p{color:#1e8449;font-size:15px;margin:0}
+
+.form{background:#f7fafc;border:1px solid #e6ebf0;border-radius:14px;padding:30px;margin:0 0 44px}
+.form h2{margin:0 0 6px}
+.form .lede{font-size:15.5px;color:#4a5a6a;margin:0 0 24px}
+.row{margin:0 0 17px}
+.row.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:560px){.row.two{grid-template-columns:1fr}.hero h1{font-size:29px}}
+label{display:block;font-size:13.5px;font-weight:700;color:#0d2d4e;margin:0 0 6px}
+label .opt{font-weight:400;color:#8593a4}
+input,select,textarea{width:100%;font-family:inherit;font-size:15px;padding:12px 14px;border:1px solid #dde3ea;border-radius:9px;background:#fff;color:#0d2d4e}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#3a9e8f;box-shadow:0 0 0 3px rgba(58,158,143,.13)}
+textarea{min-height:104px;resize:vertical;line-height:1.6}
+.help{font-size:12.5px;color:#8593a4;margin:6px 0 0}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+
+button{width:100%;font-family:'Red Hat Display',sans-serif;font-size:16px;font-weight:700;padding:15px;border:none;border-radius:10px;background:#0d2d4e;color:#fff;cursor:pointer}
+button:hover{background:#081f38}
+button:disabled{opacity:.55;cursor:default}
+.msg{font-size:14px;margin:14px 0 0;min-height:20px;line-height:1.6}
+.msg.err{color:#c0392b}
+.done{text-align:center;padding:34px 20px}
+.done .tick{width:52px;height:52px;border-radius:50%;background:#3a9e8f;color:#fff;font-size:26px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+.done h2{color:#1e8449}
+
+footer{border-top:1px solid #eef2f5;padding:26px 0 50px;font-size:13.5px;color:#8593a4}
+footer a{color:#3a9e8f}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="wrap">
+    <p class="kicker">For property managers</p>
+    <h1>Send us your listings.</h1>
+    <p>Ingestion is free and stays free. You pay only when we introduce a verified renter who fits what you have published.</p>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <section>
+    <h2>What we do with them</h2>
+    <p>Your listings sit alongside every other property on Renters.com. There is nothing to pay to appear, no featured tiers, and nothing you can buy to rank higher — because a renter looking for a home is badly served by a search result that was sold rather than matched.</p>
+    <ul class="points">
+      <li><b>Free to list, however many units.</b> Ingestion costs nothing and always will.</li>
+      <li><b>Feed or manual entry.</b> Whichever suits how you already work.</li>
+      <li><b>Never ranked below someone who paid more.</b> There is no such thing here.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Who you will hear from</h2>
+    <p>Renters come to us first and tell us what they are looking for. Before anyone reaches you, we check the basics line up: their budget against what you are asking, when they need to move against when it is available, the kind of place they want and where, pets, and anything else you have specified.</p>
+    <p><strong>You still screen your own applicants.</strong> What we prevent is both of you spending an afternoon on a place that was never going to work.</p>
+  </section>
+
+  <section>
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li>
+        <h3>Send us your feed</h3>
+        <p>An XML or JSON feed URL, a CSV, or a note about whatever system you use. We will work out the rest.</p>
+      </li>
+      <li>
+        <h3>We map it and check it</h3>
+        <p>We normalise your fields to ours and come back to you with anything that does not line up. Nothing goes live until you have seen it.</p>
+      </li>
+      <li>
+        <h3>Your listings go live</h3>
+        <p>They stay in sync from then on. Update a property in your system and it updates here.</p>
+      </li>
+      <li>
+        <h3>We introduce renters who fit</h3>
+        <p>Only then does anything cost you. We will go over the fee before you are charged, and nothing is billed until you have agreed to it.</p>
+      </li>
+    </ol>
+  </section>
+
+  <div class="note">
+    <h3>We onboard one company at a time</h3>
+    <p>We do not take aggregator feeds and we are not trying to ingest the whole market. Every company we bring on gets mapped properly and checked by a person, which means we would rather do a handful well than a hundred badly.</p>
+  </div>
+
+  <div class="form" id="formCard">
+    <h2>Tell us about your listings</h2>
+    <p class="lede">Send what you have. If you are not sure what format your feed is in, say so and we will take a look.</p>
+
+    <div class="row two">
+      <div>
+        <label for="company">Company</label>
+        <input type="text" id="company" autocomplete="organization" placeholder="Cascade Property Group">
+      </div>
+      <div>
+        <label for="units">Roughly how many units <span class="opt">optional</span></label>
+        <input type="text" id="units" placeholder="34">
+      </div>
+    </div>
+
+    <div class="row two">
+      <div>
+        <label for="name">Your name</label>
+        <input type="text" id="name" autocomplete="name" placeholder="Dana Reyes">
+      </div>
+      <div>
+        <label for="phone">Phone <span class="opt">optional</span></label>
+        <input type="tel" id="phone" autocomplete="tel" placeholder="503 555 0134">
+      </div>
+    </div>
+
+    <div class="row">
+      <label for="email">Email</label>
+      <input type="email" id="email" autocomplete="email" placeholder="dana@cascade.com">
+      <p class="help">We will reply here. This is where we come back with anything that needs mapping.</p>
+    </div>
+
+    <div class="row">
+      <label for="feedUrl">Feed URL <span class="opt">if you have one</span></label>
+      <input type="url" id="feedUrl" placeholder="https://cascade.com/listings/feed.xml">
+    </div>
+
+    <div class="row">
+      <label for="format">What format are your listings in?</label>
+      <select id="format">
+        <option value="">Not sure — take a look and tell me</option>
+        <option>XML feed</option>
+        <option>JSON feed</option>
+        <option>CSV export</option>
+        <option>Spreadsheet</option>
+        <option>In a property management system</option>
+        <option>Something else</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label for="notes">Anything else we should know <span class="opt">optional</span></label>
+      <textarea id="notes" placeholder="How often it updates, which markets you cover, anything unusual about how your data is organised."></textarea>
+    </div>
+
+    <!-- A honeypot. Nobody real sees this; anything filling it is a bot. -->
+    <div class="hp" aria-hidden="true">
+      <label for="website">Website</label>
+      <input type="text" id="website" tabindex="-1" autocomplete="off">
+    </div>
+
+    <button type="button" id="send">Send this to Renters.com</button>
+    <p class="msg" id="msg"></p>
+  </div>
+
+  <footer>
+    Would rather just email? <a href="mailto:kenny@renters.com">kenny@renters.com</a>.
+    Either way a person reads it.
+  </footer>
+
+</div>
+
+<script>
+var FN = "https://renters-story-writer.netlify.app/.netlify/functions/feed-request";
+
+function el(id){ return document.getElementById(id); }
+function val(id){ var e = el(id); return e ? e.value.trim() : ""; }
+
+el("send").addEventListener("click", function () {
+  var btn = el("send"), msg = el("msg");
+  msg.className = "msg"; msg.textContent = "";
+
+  /* Checked here as well as server-side, so a mistake is caught before a
+     round trip rather than after one. */
+  if (!val("name")) { msg.className = "msg err"; msg.textContent = "Please tell us your name."; el("name").focus(); return; }
+  if (!val("email")) { msg.className = "msg err"; msg.textContent = "We need an email to reply to."; el("email").focus(); return; }
+  if (!val("feedUrl") && !val("notes") && !val("format")) {
+    msg.className = "msg err";
+    msg.textContent = "Send us a feed URL, pick a format, or tell us what you have — otherwise we have nothing to go on.";
+    el("feedUrl").focus();
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Sending\u2026";
+
+  fetch(FN, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      company: val("company"), name: val("name"), email: val("email"),
+      phone: val("phone"), feedUrl: val("feedUrl"), format: val("format"),
+      units: val("units"), notes: val("notes"),
+      website: val("website")   /* honeypot */
+    })
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d && d.ok) {
+        el("formCard").innerHTML =
+          '<div class="done"><div class="tick">\u2713</div>' +
+          '<h2>Got it.</h2>' +
+          '<p>We will look at what you have sent and come back to you, usually within a day. ' +
+          'If anything needs mapping we will ask before we do it.</p></div>';
+        window.scrollTo({ top: el("formCard").offsetTop - 40, behavior: "smooth" });
+      } else {
+        btn.disabled = false; btn.textContent = "Send this to Renters.com";
+        msg.className = "msg err";
+        msg.textContent = (d && d.error) || "That did not go through. Try again, or email kenny@renters.com.";
+      }
+    })
+    .catch(function () {
+      btn.disabled = false; btn.textContent = "Send this to Renters.com";
+      msg.className = "msg err";
+      msg.textContent = "That did not go through. Email kenny@renters.com and we will pick it up.";
+    });
+});
+</script>
+</body>
+</html>
