@@ -1,5 +1,17 @@
 // ============================================================
-//  lead-consent.js   ·   VERSION: lc-v6   (2026-08-07, decode member-shaped values too)
+//  lead-consent.js   ·   VERSION: lc-v7   (2026-08-07, consent belongs to the MEMBER)
+//    lc-v7  CONSENT IS NOW KEYED TO THE MEMBER, NOT THE LEAD.
+//           It was captured after a request existed, which left a window
+//           where a lead was live and nothing about the renter was
+//           shareable. And a renter who consented once was asked again on
+//           every subsequent request - consent belongs to the person, not to
+//           one form submission.
+//           Now they consent from the dashboard BEFORE any lead exists, and
+//           those choices decide what populates the request.
+//           Lead-keyed records from lc-v1 to lc-v6 still read, and a lead
+//           lookup carrying a memberId checks the member record first.
+//   GET  ?member=NNNN   profile fields + any consent on record
+//   POST { memberId, fields[], snapshot{}, profileText }
 //    lc-v6  The decode table was built from GET MATCHED lead values. Requests
 //           created from the dashboard carry the MEMBER record's spellings,
 //           which differ, so they came through raw:
@@ -81,7 +93,7 @@
 //   NETLIFY_BLOBS_TOKEN  REQUIRED. Same.
 //   CONSENT_ADMIN_KEY    optional. If set, POST requires it.
 // ============================================================
-const FN_VERSION = "lc-v6";
+const FN_VERSION = "lc-v7";
 
 const { getStore } = require("@netlify/blobs");
 const https = require("https");
@@ -259,6 +271,10 @@ function store() {
   });
 }
 
+function memberKey(memberId) {
+  return "member:" + String(memberId).replace(/[^0-9]/g, "");
+}
+
 function key(leadId) {
   return "consent:" + String(leadId).replace(/[^0-9]/g, "");
 }
@@ -282,6 +298,60 @@ exports.handler = async function (event) {
         return { id: k, label: SHAREABLE_FIELDS[k].label, source: SHAREABLE_FIELDS[k].src };
       }),
       neverShareable: NEVER_SHAREABLE,
+    });
+  }
+
+  // lc-v7: the member's own view, before any request exists. No token needed
+  // - it returns what is already on their profile plus what they have
+  // consented to, and it is reached from inside their logged-in dashboard.
+  if (event.httpMethod === "GET" && q.member) {
+    if (!process.env.BD_API_KEY) return ok({ error: "BD_API_KEY is not set" }, 500);
+    var mid = String(q.member).replace(/[^0-9]/g, "");
+    if (!mid) return ok({ error: "member is required" }, 400);
+
+    var mData = await bdGet("/user/get/" + encodeURIComponent(mid));
+    var mem = mData && mData.message ? (Array.isArray(mData.message) ? mData.message[0] : mData.message) : null;
+    if (!mem || !mem.user_id) return ok({ error: "Could not read that member" }, 404);
+
+    // The member record spells these differently from a lead. Map first,
+    // then decode, so both routes describe a value identically.
+    var FROM_MEMBER = {
+      budget: "monthly_budget",
+      timing: "i_want_to_relocate",
+      term: "seeking",
+      propertyType: "property_type_preference",
+      household: "number_of_peop",
+      pets: "do_you_have_pets",
+      cosigner: "co_signer",
+      description: "ideal_rental",
+      name: "full_name",
+      email: "email",
+      phone: "phone_number",
+    };
+
+    var mVals = {};
+    Object.keys(FROM_MEMBER).forEach(function (k) {
+      var raw = mem[FROM_MEMBER[k]];
+      var txt = (k === "budget" && looksNumericBand(raw)) ? incomeBand(raw) : readable(raw);
+      if (txt) mVals[k] = txt;
+    });
+    if (!mVals.name) {
+      var nm = ((mem.first_name || "") + " " + (mem.last_name || "")).trim();
+      if (nm) mVals.name = nm;
+    }
+    var loc = [mem.city, mem.state_code].filter(Boolean).join(", ");
+    if (loc) mVals.location = loc;
+
+    var mExisting = null;
+    try { mExisting = await store().get(memberKey(mid), { type: "json" }); } catch (e) { mExisting = null; }
+
+    return ok({
+      ok: true, _v: FN_VERSION, memberId: mid,
+      values: mVals,
+      labels: Object.keys(SHAREABLE_FIELDS).reduce(function (a, k) { a[k] = SHAREABLE_FIELDS[k].label; return a; }, {}),
+      alreadyConsented: !!(mExisting && mExisting.consentedAt),
+      previousFields: mExisting ? mExisting.fields : null,
+      previousText: mExisting ? mExisting.profileText : null,
     });
   }
 
@@ -353,6 +423,18 @@ exports.handler = async function (event) {
 
   if (event.httpMethod === "GET" && q.leadId) {
     if (!hubKeyOk(q.key)) return ok({ error: "Unauthorized" }, 401);
+    // The hub may ask by lead while consent is now stored by member. If a
+    // memberId is supplied, check there first - otherwise a member-keyed
+    // record would read as "no consent" and the hub would refuse to
+    // introduce someone who has plainly agreed.
+    if (q.memberId) {
+      try {
+        var byMember = await store().get(memberKey(q.memberId), { type: "json" });
+        if (byMember && byMember.consentedAt) {
+          return ok({ ok: true, _v: FN_VERSION, consented: true, via: "member", record: byMember });
+        }
+      } catch (e) { /* fall through to the lead-keyed record */ }
+    }
     try {
       const rec = await store().get(key(q.leadId), { type: "json" });
       if (!rec) return ok({ ok: true, _v: FN_VERSION, leadId: q.leadId, consented: false });
@@ -378,7 +460,8 @@ exports.handler = async function (event) {
   }
 
   const leadId = String(body.leadId || "").replace(/[^0-9]/g, "");
-  if (!leadId) return ok({ error: "leadId is required" }, 400);
+  const bMemberId = String(body.memberId || "").replace(/[^0-9]/g, "");
+  if (!leadId && !bMemberId) return ok({ error: "leadId or memberId is required" }, 400);
 
   // Whitelist the ticked fields. Anything not in SHAREABLE_FIELDS is
   // dropped silently rather than rejected, so a stale client cannot break
@@ -405,7 +488,8 @@ exports.handler = async function (event) {
 
   const record = {
     _v: FN_VERSION,
-    leadId: leadId,
+    leadId: leadId || null,
+    memberId: bMemberId || null,
     consentedAt: new Date().toISOString(),
     fields: fields,
     snapshot: snapshot,
@@ -418,8 +502,11 @@ exports.handler = async function (event) {
     neverShareable: NEVER_SHAREABLE,
   };
 
+  // Member-keyed when we have one: consent belongs to the person, so a
+  // renter who has already chosen is never asked again on their next request.
+  const writeKey = bMemberId ? memberKey(bMemberId) : key(leadId);
   try {
-    await store().setJSON(key(leadId), record);
+    await store().setJSON(writeKey, record);
   } catch (e) {
     console.error("[lead-consent] blob write failed:", e && e.message);
     return ok({ error: "Could not save consent", detail: e && e.message, _v: FN_VERSION }, 500);
@@ -429,16 +516,17 @@ exports.handler = async function (event) {
   // the value landed; the same discipline applies here.
   let verified = false;
   try {
-    const back = await store().get(key(leadId), { type: "json" });
+    const back = await store().get(writeKey, { type: "json" });
     verified = !!(back && back.consentedAt === record.consentedAt);
   } catch (e) { verified = false; }
 
-  console.log("[lead-consent] lead " + leadId + " consented to " + fields.length + " fields, verified=" + verified);
+  console.log("[lead-consent] " + (bMemberId ? "member " + bMemberId : "lead " + leadId) + " consented to " + fields.length + " fields, verified=" + verified);
 
   return ok({
     ok: true,
     _v: FN_VERSION,
-    leadId: leadId,
+    leadId: leadId || null,
+    memberId: bMemberId || null,
     consented: true,
     verified: verified,
     fieldsRecorded: fields.length,
