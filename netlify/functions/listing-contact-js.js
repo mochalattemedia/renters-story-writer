@@ -1,5 +1,18 @@
+
 // ============================================================
-//  listing-contact-js.js   ·   VERSION: lcj-v1   (2026-08-07)
+//  listing-contact-js.js   ·   VERSION: lcj-v3   (2026-08-07)
+//    lcj-v3  HIDING IS AN ALLOWLIST NOW. lcj-v2 hid only the fields it had
+//            filled, which left dozens on screen - the modal carries the
+//            whole 99-field form and no list of ours will keep up with it.
+//            Everything is hidden except the message box and the reCAPTCHA,
+//            so a field BD adds tomorrow is hidden by default.
+//            The message is anything_else_we_sh, relabelled - it reads as a
+//            message where please_describe_the asks about an ideal rental,
+//            which is a profile question rather than an inquiry.
+//    lcj-v2  Waits for the DOM. This is injected from head code, so it could
+//            run before the body was parsed - it would then find no modal and
+//            stand down silently. The loader had the same fault in w160,
+//            where an element check in head code could never pass.
 //
 //  Turns the listing Contact modal from a 99-field questionnaire into a
 //  message box.
@@ -28,7 +41,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script
 // ============================================================
-const FN_VERSION = "lcj-v1";
+const FN_VERSION = "lcj-v3";
 
 const SCRIPT = `
 (function () {
@@ -39,8 +52,19 @@ const SCRIPT = `
     try { console.log.apply(console, ["[Listing contact]"].concat([].slice.call(arguments))); } catch (e) {}
   }
 
+  // Everything below needs the body. This script is injected from head code,
+  // so it can run before the body is parsed - the same trap that stopped the
+  // loader firing at all in w160. Wait for the DOM, then start.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start);
+  } else {
+    start();
+  }
+
+  function start() {
+
   var modal = document.querySelector("#contactModal");
-  if (!modal) return;
+  if (!modal) { log("version:", LCJ, "no contact modal on this page"); return; }
   var form = modal.querySelector("form");
   if (!form) { log("version:", LCJ, "no form in the modal"); return; }
 
@@ -110,19 +134,31 @@ const SCRIPT = `
     return el.parentNode;
   }
 
-  // Everything the profile answered is hidden. reCAPTCHA and the submit
-  // button stay - the form must still submit itself, because BD checks the
-  // token server-side and a missing one fails with a misleading error.
-  var KEEP_VISIBLE = { please_describe_the: 1, "g-recaptcha-response": 1, recaptcha: 1 };
+  // AN ALLOWLIST, NOT A BLOCKLIST. Hiding only the fields we happened to fill
+  // left dozens on screen, because the modal carries the whole 99-field form
+  // and no list of ours will ever keep up with it. Everything is hidden
+  // except the few things that must stay - so a field BD adds tomorrow is
+  // hidden by default rather than appearing unannounced.
+  // Same reasoning as SHAREABLE_FIELDS in lead-consent.
+  var VISIBLE = {
+    anything_else_we_sh: 1,      // the message
+    "g-recaptcha-response": 1,   // BD checks the token SERVER-SIDE. Removing
+    recaptcha: 1                 // this field breaks every submission, and
+                                 // the error blames the location field.
+  };
 
-  function hideAnswered(answered) {
-    var hidden = 0;
-    Object.keys(answered).forEach(function (name) {
-      if (KEEP_VISIBLE[name]) return;
-      Array.prototype.forEach.call(q(name), function (el) {
-        var row = rowOf(el);
-        if (row && row.style && row.style.display !== "none") { row.style.display = "none"; hidden++; }
-      });
+  function hideEverythingElse() {
+    var hidden = 0, seen = {};
+    Array.prototype.forEach.call(form.querySelectorAll("[name]"), function (el) {
+      var n = String(el.name || "").replace("[]", "");
+      if (!n || VISIBLE[n]) return;
+      // Hidden inputs carry the payload and have no row to hide.
+      if (el.type === "hidden") return;
+      var row = rowOf(el);
+      if (!row || !row.style) return;
+      if (row.style.display === "none") return;
+      row.style.display = "none";
+      if (!seen[n]) { seen[n] = 1; hidden++; }
     });
     return hidden;
   }
@@ -159,11 +195,11 @@ const SCRIPT = `
   ];
 
   function openers() {
-    var box = form.querySelector("[name=please_describe_the]");
+    var box = form.querySelector("[name=anything_else_we_sh]");
     if (!box || modal.querySelector("#rdc-lc-openers")) return;
 
-    // This field asks about their ideal rental on the long form. Here it is
-    // the message, so it needs relabelling.
+    // On the long form this asks "anything else we should know". Here it is
+    // the whole message, so it needs relabelling.
     var row = rowOf(box), lab = row ? row.querySelector("label") : null;
     if (lab) lab.textContent = "Your message";
     box.setAttribute("placeholder", "Anything you would like to ask or mention");
@@ -190,6 +226,8 @@ const SCRIPT = `
   }
 
   function fill(member) {
+    // Still tracked, but only so the log says what was filled. Hiding is an
+    // allowlist now and does not depend on it.
     var answered = {};
 
     var full = [plain(member.first_name), plain(member.last_name)].filter(Boolean).join(" ") || plain(member.full_name);
@@ -241,7 +279,7 @@ const SCRIPT = `
       }
     }
 
-    var n = hideAnswered(answered);
+    var n = hideEverythingElse();
     openers();
     intro(propertyName(), n);
   }
@@ -270,6 +308,8 @@ const SCRIPT = `
   } catch (e) {}
 
   log("version:", LCJ, "armed for member", mid);
+
+  } // start
 })();
 `;
 
