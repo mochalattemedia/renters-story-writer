@@ -1,6 +1,14 @@
-
 // ============================================================
-//  listing-contact-js.js   ·   VERSION: lcj-v9   (2026-08-07)
+//  listing-contact-js.js   ·   VERSION: lcj-v10  (2026-08-07)
+//    lcj-v10 The inquiry note was never written. watchSend listened for the
+//            form's submit event, and BD submits programmatically - a
+//            form.submit() call fires NO submit event - so nothing was
+//            stored and the confirmation page had nothing to recognise. It
+//            showed the search-request copy to someone who had asked about
+//            one property.
+//            Now listens for the button click as well. Writing the note
+//            twice is harmless: the record is keyed and deduped server-side.
+//    lcj-v9  (previous)
 //    lcj-v9  The location row was never being hidden. The v4 guard skipped
 //            any row containing a <button>, and BD's location widget has its
 //            own locate control - so the whole row was spared, leaving a
@@ -82,7 +90,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script
 // ============================================================
-const FN_VERSION = "lcj-v9";
+const FN_VERSION = "lcj-v10";
 
 const SCRIPT = `
 (function () {
@@ -394,7 +402,7 @@ const SCRIPT = `
   // and records it - we cannot record here, because the page is unloading and
   // an in-flight request would be cancelled.
   function watchSend(memberId) {
-    form.addEventListener("submit", function () {
+    function note() {
       var u = form.querySelector("[name=url_origin_pars]");
       var msgEl = form.querySelector("[name=anything_else_we_sh]");
       try {
@@ -406,6 +414,18 @@ const SCRIPT = `
           at: Date.now()
         }));
       } catch (e) {}
+    }
+
+    // BOTH the submit event and the button click. Listening only for submit
+    // was not enough: BD submits the form programmatically, and a
+    // form.submit() call fires no submit event at all - so the note was never
+    // written and the confirmation page had nothing to recognise.
+    // Writing it twice is harmless; the record is keyed and deduped.
+    form.addEventListener("submit", note);
+    Array.prototype.forEach.call(form.querySelectorAll("[type=submit],button"), function (b) {
+      var t = (b.getAttribute("type") || "").toLowerCase();
+      if (t === "button" || t === "reset") return;
+      b.addEventListener("click", note);
     });
   }
 
