@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v9
+// alerts-teaser-js.js  —  at-v10
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,11 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v10: the wall now scrolls to CENTER the card in the viewport rather
+// than aligning its top under the nav bar - so "Create my free account"
+// sits in the middle of the screen, the natural place to look after
+// submitting. Targets the signup button specifically when present.
 //
 // at-v9: FIX - on mobile, after tapping Notify, the "Create my free
 // account" wall rendered but the page kept its scroll position, so the
@@ -100,7 +105,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v9";
+const FN_VERSION = "at-v10";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -572,8 +577,8 @@ const JS = `
     // Bring the wall into view. On mobile the page holds its old scroll
     // position after submit, leaving the call to action off-screen.
     try {
-      var card = mount.querySelector("div");
-      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
+      var cta = mount.querySelector("a") || mount.querySelector("div");
+      if (cta && cta.scrollIntoView) cta.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch (e) {}
 
     document.getElementById("rt-back").onclick = function () {
@@ -582,7 +587,7 @@ const JS = `
       renderForm();
       try {
         var c = mount.querySelector("div");
-        if (c && c.scrollIntoView) c.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (c && c.scrollIntoView) c.scrollIntoView({ behavior: "smooth", block: "center" });
       } catch (e) {}
     };
   }
