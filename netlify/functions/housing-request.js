@@ -1,5 +1,19 @@
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v9   (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v10  (2026-08-07)
+//    hr-v10 +action:"link", which recovers a lead created by BD'S OWN FORM.
+//           The API cannot write the questionnaire columns, so requests now
+//           go through the Get Matched form - which means we never see the
+//           lead id at creation, and without it the member pointer is not
+//           written, so withdraw and the card's open state stop working.
+//           This finds the lead afterwards: probe UP from the highest id we
+//           have seen, take the newest one whose email matches, store the
+//           pointer, and hand back the token so the renter can be sent
+//           straight to consent.
+//           WHY PROBING UP AND NOT SEARCHING: the leads list endpoint is
+//           hard-capped at 100 rows, ignores ?offset, and returns the OLDEST
+//           hundred - so it can never see a lead created a second ago.
+//           Single-id lookup by path segment does work. A high-water mark is
+//           kept so this costs a handful of requests, not a crawl.
 //    hr-v9  +GET ?profile=NNNN, for the Get Matched prefill.
 //           Head code cannot read a member record - that needs BD_API_KEY,
 //           which must never be in a public file. This returns the fields
@@ -144,7 +158,7 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v9";
+const FN_VERSION = "hr-v10";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -172,6 +186,13 @@ function bdGet(path) {
     req.setTimeout(9000, function () { req.destroy(); resolve(null); });
     req.end();
   });
+}
+
+async function getLead(id) {
+  var d = await bdGet("/leads/get/" + encodeURIComponent(id));
+  if (!d || d.status !== "success") return null;
+  var l = Array.isArray(d.message) ? d.message[0] : d.message;
+  return l && l.lead_id ? l : null;
 }
 
 async function getMember(id) {
@@ -385,6 +406,61 @@ exports.handler = async function (event) {
 
   var memberId = String(body.memberId || "").replace(/[^0-9]/g, "");
   if (!memberId) return ok({ error: "memberId is required" }, 400);
+
+  // ---- LINK ----
+  // Called right after BD's form has been submitted. Finds the lead that
+  // was just created and records it against the member.
+  if (body.action === "link") {
+    var linkEmail = String(body.email || "").trim().toLowerCase();
+    if (!looksLikeEmail(linkEmail)) {
+      // Fall back to the member record rather than failing - the caller may
+      // not have the email to hand.
+      var lm = await getMember(memberId);
+      linkEmail = String((lm && lm.email) || "").trim().toLowerCase();
+    }
+    if (!looksLikeEmail(linkEmail)) return ok({ error: "No email to match against" }, 400);
+
+    var markRec = null;
+    try { markRec = await store().get("index:leadtop", { type: "json" }); } catch (e) { markRec = null; }
+    var from = parseInt(String(body.fromId || (markRec && markRec.top) || 2900).replace(/[^0-9]/g, ""), 10) || 2900;
+
+    // Climb until nothing is there. A lead created seconds ago is at or just
+    // above the mark; PROBE_GAP is how many empty ids we tolerate before
+    // deciding we are past the end.
+    var PROBE_GAP = 12, MAX_PROBE = 200;
+    var best = null, gap = 0, id = from, seenTop = from;
+    while (gap < PROBE_GAP && id - from < MAX_PROBE) {
+      var cand = await getLead(id);
+      if (cand && cand.lead_id) {
+        seenTop = id; gap = 0;
+        if (String(cand.lead_email || "").trim().toLowerCase() === linkEmail) best = cand;
+      } else { gap++; }
+      id++;
+    }
+
+    try { await store().setJSON("index:leadtop", { top: seenTop, at: new Date().toISOString() }); } catch (e) {}
+
+    if (!best) {
+      return ok({ ok: false, _v: FN_VERSION, linked: false,
+        error: "Could not find a new request for that member. It may still have been created.",
+        searchedFrom: from, searchedTo: id - 1 }, 404);
+    }
+
+    var linkRec = {
+      leadId: best.lead_id, token: best.token || null, status: "open",
+      createdAt: best.date_added || new Date().toISOString(),
+      areaCount: 0, areaLabels: [], locationText: best.lead_location || "",
+      via: "getmatched-form",
+    };
+    await writeRequest(memberId, linkRec);
+    console.log("[housing-request] linked member " + memberId + " -> lead " + best.lead_id);
+
+    return ok({ ok: true, _v: FN_VERSION, linked: true,
+      leadId: best.lead_id, token: best.token || null,
+      consentUrl: best.token
+        ? (CONSENT_BASE + "?id=" + encodeURIComponent(best.lead_id) + "&token=" + encodeURIComponent(best.token))
+        : null });
+  }
 
   // ---- RESET (admin only) ----
   // Clears our pointer for this member. The card then shows its first-time

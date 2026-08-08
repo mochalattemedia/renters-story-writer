@@ -1,5 +1,12 @@
 // ============================================================
-//  getmatched-prefill-js.js   ·   VERSION: gmp-v2   (2026-08-07)
+//  getmatched-prefill-js.js   ·   VERSION: gmp-v3   (2026-08-07)
+//    gmp-v3  +claim and redirect. BD's form submits and the page changes, so
+//            the lead id is never seen - which means no member pointer, so
+//            withdraw and the card's open state would silently stop working.
+//            Now: note who submitted in sessionStorage, and on the next page
+//            load ask housing-request to find the lead and hand back a
+//            consent link. The claim runs on EVERY page, not just the form,
+//            because BD chooses where to land them.
 //    gmp-v2  The profile fetch was a RELATIVE path. This script runs on
 //            www.renters.com, where /.netlify/functions does not exist, so it
 //            would have 404'd and filled nothing. Same mistake as the consent
@@ -48,7 +55,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script, as application/javascript
 // ============================================================
-const FN_VERSION = "gmp-v2";
+const FN_VERSION = "gmp-v3";
 
 const SCRIPT = `
 (function () {
@@ -57,13 +64,14 @@ const SCRIPT = `
     try { console.log.apply(console, ["[GetMatched prefill]"].concat([].slice.call(arguments))); } catch (e) {}
   }
 
+  var FN_BASE_EARLY = "https://renters-story-writer.netlify.app/.netlify/functions";
   var PATH = window.location.pathname || "";
-  if (PATH.indexOf("/getmatched") === -1 && PATH.indexOf("/find-housing") === -1) return;
+  var ON_FORM = PATH.indexOf("/getmatched") !== -1 || PATH.indexOf("/find-housing") !== -1;
 
   // Only prefill when we were sent here deliberately. A renter who navigated
   // to this form themselves should find it empty, not silently populated.
   var qs = new URLSearchParams(window.location.search);
-  if (qs.get("prefill") !== "1") { log("version:", GMP, "no prefill flag, standing down"); return; }
+  var WANT_PREFILL = ON_FORM && qs.get("prefill") === "1";
 
   // ABSOLUTE. This runs on www.renters.com, where /.netlify/functions does
   // not exist - the same mistake that sent the consent redirect to
@@ -256,6 +264,55 @@ const SCRIPT = `
         banner(filled, total, text);
       })
       .catch(function () { banner(filled, total, ""); });
+
+    watchSubmit(member.user_id, plain(member.email));
+  }
+
+  // After BD's form submits, the page changes and we never see the lead id.
+  // So: remember who submitted, and on the confirmation page ask our own
+  // function to find the lead that was just created and hand back a consent
+  // link. Chasing consent by email days later is how it does not get done.
+  function watchSubmit(mid, email) {
+    var f = document.querySelector("form [name=formname]");
+    var form = f ? f.form : null;
+    if (!form) return;
+    form.addEventListener("submit", function () {
+      try {
+        sessionStorage.setItem("rdcGmPending", JSON.stringify({ mid: mid, email: email, at: Date.now() }));
+      } catch (e) {}
+    });
+  }
+
+  // Runs on any renters.com page load. If a submission just happened, link it
+  // and send them to consent. Kept separate from the prefill so it fires on
+  // whatever page BD lands them on.
+  function claimPending() {
+    var raw = null;
+    try { raw = sessionStorage.getItem("rdcGmPending"); } catch (e) { return; }
+    if (!raw) return;
+    var p = null;
+    try { p = JSON.parse(raw); } catch (e) {}
+    try { sessionStorage.removeItem("rdcGmPending"); } catch (e) {}
+    if (!p || !p.mid) return;
+    // Anything older than five minutes is a stale tab, not a submission.
+    if (Date.now() - (p.at || 0) > 300000) return;
+
+    log("claiming the request that was just submitted");
+    fetch(FN_BASE + "/housing-request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "link", memberId: p.mid, email: p.email })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.ok && d.consentUrl) {
+          log("linked lead", d.leadId, "- going to consent");
+          window.location.href = d.consentUrl;
+        } else {
+          log("could not link the request", d && d.error);
+        }
+      })
+      .catch(function (e) { log("link failed", e); });
   }
 
   function memberId() {
@@ -267,6 +324,9 @@ const SCRIPT = `
   }
 
   function boot() {
+    // Always first: a submission may have just completed on another page.
+    claimPending();
+    if (!WANT_PREFILL) { log("version:", GMP, "no prefill flag"); return; }
     var mid = memberId();
     if (!mid) { log("not logged in, standing down"); return; }
     // The profile comes from our own function, which holds the BD key. Head
