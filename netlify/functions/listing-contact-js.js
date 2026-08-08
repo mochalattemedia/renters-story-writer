@@ -1,5 +1,10 @@
 // ============================================================
-//  listing-contact-js.js   ·   VERSION: lcj-v5   (2026-08-07)
+//  listing-contact-js.js   ·   VERSION: lcj-v6   (2026-08-07)
+//    lcj-v6  Hides BD's "Required fields are marked with (*)" line. It has no
+//            name attribute so the field hiding never reached it, and with
+//            one message box and nothing required it refers to nothing. It
+//            stays on the full form, where it is true.
+//    lcj-v5  (previous)
 //    lcj-v5  The v4 restore climbed six levels looking for hidden ancestors
 //            and un-hid whole containers on the way, which brought the
 //            location map and the form intro text back. Now it restores the
@@ -53,7 +58,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script
 // ============================================================
-const FN_VERSION = "lcj-v5";
+const FN_VERSION = "lcj-v6";
 
 const SCRIPT = `
 (function () {
@@ -198,7 +203,26 @@ const SCRIPT = `
     return last.split("-").map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(" ");
   }
 
+  // BD's own intro text - "Required fields are marked with (*)" - has no name
+  // attribute, so the field hiding never touched it. It belongs on the full
+  // form, where things genuinely are required. Here there is one message box
+  // and nothing required, so it refers to nothing.
+  // Matched on its text because there is nothing else to match on; if BD
+  // rewords it the line simply stays, which is harmless.
+  function dropBdIntro() {
+    var nodes = form.querySelectorAll("p, div, span, h1, h2, h3, h4, label");
+    Array.prototype.forEach.call(nodes, function (n) {
+      if (n.children.length) return;                 // leaf nodes only
+      var t = (n.textContent || "").trim();
+      if (!t || t.length > 160) return;
+      if (t.indexOf("Required fields") !== -1 || t.indexOf("marked with") !== -1) {
+        n.style.display = "none";
+      }
+    });
+  }
+
   function intro(place, hiddenCount) {
+    dropBdIntro();
     if (modal.querySelector("#rdc-lc-intro")) return;
     var box = document.createElement("div");
     box.id = "rdc-lc-intro";
