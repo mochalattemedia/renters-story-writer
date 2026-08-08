@@ -1,6 +1,14 @@
-
 // ============================================================
-//  getmatched-prefill-js.js   ·   VERSION: gmp-v7   (2026-08-07)
+//  getmatched-prefill-js.js   ·   VERSION: gmp-v8   (2026-08-07)
+//    gmp-v8  Relabels the location field to "Where you live now".
+//            lead_location is BD's own field - Form Manager governs neither
+//            its label, its help text, nor its view toggles, all of which
+//            were tried and had no effect. Lead Settings decides whether it
+//            shows and whether it is required, but not what it says. So the
+//            label is rewritten in the page.
+//            "Location" above "Areas you are searching" reads as two versions
+//            of the same question, which is exactly the confusion this pair
+//            was meant to remove.
 //    gmp-v7  +areas_you_are_searc. The form now has BOTH fields, so a renter
 //            can see and correct each: where they live, and where they are
 //            looking. Until now the second was invisible - it travelled to
@@ -86,7 +94,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script, as application/javascript
 // ============================================================
-const FN_VERSION = "gmp-v7";
+const FN_VERSION = "gmp-v8";
 
 const SCRIPT = `
 (function () {
@@ -216,7 +224,37 @@ const SCRIPT = `
   // resolved it when they signed up. So this needs no geocoding: the values
   // are copied straight into the widget's hidden companions, which is what
   // BD validates against rather than the visible box.
+  // lead_location is BD's own field: Form Manager does not govern its label,
+  // its help text, or its view toggles - all of them were tried and none had
+  // any effect. Lead Settings controls whether it shows and whether it is
+  // required, but not what it says. So the label is rewritten here.
+  // "Location" sitting above "Areas you are searching" reads as two versions
+  // of the same question; "Where you live now" makes the pair obvious.
+  function relabelLocation() {
+    var input = null;
+    var els = document.querySelectorAll("[name='lead_location']");
+    Array.prototype.forEach.call(els, function (e) { if (e.type !== "hidden") input = e; });
+    if (!input) return;
+
+    // Walk up to the field's wrapper, then find the label inside it. Matching
+    // on text would be fragile; the association through the input is not.
+    var node = input, lab = null;
+    for (var i = 0; i < 5 && node && !lab; i++) {
+      node = node.parentNode;
+      if (node && node.querySelector) lab = node.querySelector("label");
+    }
+    if (!lab) return;
+
+    // Keep whatever marks it required - BD renders an asterisk in its own
+    // element and replacing the whole label would drop it.
+    var star = lab.querySelector("span, i, sup, .required");
+    lab.textContent = "Where you live now ";
+    if (star) lab.appendChild(star);
+    log("relabelled the location field");
+  }
+
   function setCurrentLocation(m) {
+    relabelLocation();
     var city = plain(m.city), state = plain(m.state_code || m.state_sn), zip = plain(m.zip_code);
     var label = [city, state].filter(Boolean).join(", ") + (zip ? " " + zip : "");
     if (!label.trim()) { log("no address on the profile, leaving location blank"); return; }
