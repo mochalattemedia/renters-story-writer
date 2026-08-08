@@ -1,5 +1,10 @@
 // ============================================================
-//  listing-contact-js.js   ·   VERSION: lcj-v4   (2026-08-07)
+//  listing-contact-js.js   ·   VERSION: lcj-v5   (2026-08-07)
+//    lcj-v5  The v4 restore climbed six levels looking for hidden ancestors
+//            and un-hid whole containers on the way, which brought the
+//            location map and the form intro text back. Now it restores the
+//            button and at most its immediate parent - enough to make the
+//            form sendable, not enough to undo the hiding.
 //    lcj-v4  THE SUBMIT BUTTON WAS BEING HIDDEN. rowOf walks up to a wrapper,
 //            and on this form that wrapper also holds the submit control - so
 //            hiding a field took the button with it, leaving a form that
@@ -48,7 +53,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script
 // ============================================================
-const FN_VERSION = "lcj-v4";
+const FN_VERSION = "lcj-v5";
 
 const SCRIPT = `
 (function () {
@@ -173,15 +178,13 @@ const SCRIPT = `
       if (!seen[n]) { seen[n] = 1; hidden++; }
     });
 
-    // Belt and braces: whatever happened above, the renter must be able to
-    // send. Anything that submits is put back.
+    // The renter must be able to send. Restore the button and AT MOST its
+    // immediate parent - v4 climbed six levels and un-hid whole containers,
+    // which brought the location map and the form intro back with them.
     Array.prototype.forEach.call(form.querySelectorAll("[type=submit],button"), function (b) {
-      var n = b;
-      for (var i = 0; i < 6 && n; i++) {
-        if (n.style && n.style.display === "none") n.style.display = "";
-        n = n.parentNode;
-        if (n === form) break;
-      }
+      if (b.style && b.style.display === "none") b.style.display = "";
+      var p = b.parentNode;
+      if (p && p !== form && p.style && p.style.display === "none") p.style.display = "";
     });
 
     return hidden;
