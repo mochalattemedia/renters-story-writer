@@ -1,5 +1,11 @@
 // ============================================================
-//  getmatched-prefill-js.js   ·   VERSION: gmp-v1   (2026-08-07)
+//  getmatched-prefill-js.js   ·   VERSION: gmp-v2   (2026-08-07)
+//    gmp-v2  The profile fetch was a RELATIVE path. This script runs on
+//            www.renters.com, where /.netlify/functions does not exist, so it
+//            would have 404'd and filled nothing. Same mistake as the consent
+//            redirect. Netlify-served endpoints need their own origin; the
+//            service areas widget stays relative because it is session
+//            authenticated on renters.com and unreachable from anywhere else.
 //
 //  Serves the JavaScript that fills BD's Get Matched form from a logged-in
 //  member's About Me answers.
@@ -42,7 +48,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script, as application/javascript
 // ============================================================
-const FN_VERSION = "gmp-v1";
+const FN_VERSION = "gmp-v2";
 
 const SCRIPT = `
 (function () {
@@ -59,6 +65,14 @@ const SCRIPT = `
   var qs = new URLSearchParams(window.location.search);
   if (qs.get("prefill") !== "1") { log("version:", GMP, "no prefill flag, standing down"); return; }
 
+  // ABSOLUTE. This runs on www.renters.com, where /.netlify/functions does
+  // not exist - the same mistake that sent the consent redirect to
+  // renters.com/lead-consent-page.html and 404'd. Anything served from
+  // Netlify must carry its own origin.
+  var FN_BASE = "https://renters-story-writer.netlify.app/.netlify/functions";
+
+  // This one IS relative, and must be: the service areas widget is session
+  // authenticated on renters.com and unreachable from anywhere else.
   var AREAS_URL = "/api/widget/get/json/Bootstrap%20Theme%20-%20Account%20-%20Select%20Locations?action=get_services_areas&user_id=";
 
   // About Me value -> Get Matched value. Anything absent is left blank so the
@@ -257,7 +271,7 @@ const SCRIPT = `
     if (!mid) { log("not logged in, standing down"); return; }
     // The profile comes from our own function, which holds the BD key. Head
     // code cannot read a member record directly and should not try.
-    fetch("/.netlify/functions/housing-request?profile=" + encodeURIComponent(mid))
+    fetch(FN_BASE + "/housing-request?profile=" + encodeURIComponent(mid))
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (d && d.ok && d.profile) run(d.profile);
