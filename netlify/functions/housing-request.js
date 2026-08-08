@@ -1,6 +1,17 @@
-
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v7   (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v8   (2026-08-07)
+//    hr-v8  PENDING IS 1. hr-v7 changed it to 2 and made every dashboard
+//           request arrive as MATCHED.
+//           The mistake: the create response returned status 2 and that was
+//           read as "the default BD assigns". It is not - it was the value
+//           being sent. Lead 2948, which reads Pending in BD's admin screen,
+//           carries status 1.
+//           CONFIRMED BY READING REAL LEADS, not by inference:
+//             1 Pending (lead 2948)     2 Matched (lead 2958)
+//             5 Sold Out                6 Closed
+//           A lead arriving as Matched is not cosmetic - the hub and BD both
+//           treat Matched as already introduced, so it would drop out of the
+//           queue of things to work.
 //    hr-v7  THREE FIXES FOUND ON LEAD 2956.
 //           1. status was hardcoded "1". The tested Pending value is 2 - the
 //              numbering starts at 2, not 1 - so every dashboard request was
@@ -65,11 +76,10 @@
 //           without a BD lookup on every page load. One place per fact.
 //
 //           BD STATUS NUMBERS, CONFIRMED BY TESTING, NOT ASSUMED:
-//             2 Pending (what a new lead gets)   5 Sold Out
-//             6 Closed                            
-//           The numbering does NOT start at 1. Setting 5 for "closed" was
-//           tried first and filed the lead as SOLD OUT, which would have
-//           mislabelled every renter who simply found a place.
+//             1 Pending   2 Matched   5 Sold Out   6 Closed
+//           Setting 5 for "closed" was tried first and filed the lead as
+//           SOLD OUT, which would have mislabelled every renter who simply
+//           found a place. Every one of these was read off a real lead.
 //    hr-v3  THE CONSENT URL IS ABSOLUTE.
 //           hr-v2 returned a relative path. Head code runs on
 //           www.renters.com and resolved it there, so the redirect landed on
@@ -123,7 +133,7 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v7";
+const FN_VERSION = "hr-v8";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -204,7 +214,10 @@ function bdPost(path, params) {
 }
 
 // Confirmed live against lead 2951. Do not guess at these.
-const STATUS_PENDING = "2";
+// Read off real leads: 2948 shows Pending in admin and carries 1; sending 2
+// produced a lead that reads Matched. Do not infer these from a create
+// response - that only echoes what was sent.
+const STATUS_PENDING = "1";
 const STATUS_CLOSED = "6";
 
 const { getStore } = require("@netlify/blobs");
