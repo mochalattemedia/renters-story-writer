@@ -1,0 +1,294 @@
+// ============================================================
+//  listing-contact-js.js   ·   VERSION: lcj-v1   (2026-08-07)
+//
+//  Turns the listing Contact modal from a 99-field questionnaire into a
+//  message box.
+//
+//  WHY IT FILLS AND HIDES RATHER THAN REPLACING
+//  The modal contains BD's Get Matched form - confirmed live: formname
+//  bootstrap_get_match, 99 fields, recaptcha true. It cannot be replaced
+//  with our own form, because BD VALIDATES THE RECAPTCHA SERVER-SIDE.
+//  Tested: removing the field made every submission fail, and the error
+//  blamed the location field rather than the missing token, which is how
+//  that test nearly cost an afternoon.
+//  So the real form stays and does the submitting. This fills it from the
+//  member's profile, hides everything already answered, and leaves a short
+//  visible section. The renter sees a message box; BD sees its own form.
+//
+//  THE PROPERTY REFERENCE ALREADY TRAVELS
+//  url_origin_pars and url_from carry the listing slug, and utoken carries
+//  the landlord's member id - both confirmed on a live modal. So a landlord
+//  can tell which unit prompted the inquiry, which is the one thing the old
+//  flow got right.
+//
+//  RENTERS ONLY, AND ONLY WHEN LOGGED IN. A logged-out visitor gets BD's
+//  login prompt instead of this modal, so there is nothing to intercept.
+//
+//  ENDPOINTS
+//   GET ?version=1  -> JSON probe
+//   GET             -> the script
+// ============================================================
+const FN_VERSION = "lcj-v1";
+
+const SCRIPT = `
+(function () {
+  var LCJ = "${FN_VERSION}";
+  var FN_BASE = "https://renters-story-writer.netlify.app/.netlify/functions";
+
+  function log() {
+    try { console.log.apply(console, ["[Listing contact]"].concat([].slice.call(arguments))); } catch (e) {}
+  }
+
+  var modal = document.querySelector("#contactModal");
+  if (!modal) return;
+  var form = modal.querySelector("form");
+  if (!form) { log("version:", LCJ, "no form in the modal"); return; }
+
+  var fn = form.querySelector("[name=formname]");
+  if (!fn || String(fn.value).indexOf("get_match") === -1) {
+    log("version:", LCJ, "modal is not the get-matched form (", fn && fn.value, ") - standing down");
+    return;
+  }
+
+  var loggedUser = form.querySelector("[name=logged_user]");
+  var mid = loggedUser ? String(loggedUser.value || "") : "";
+  if (!mid) { log("version:", LCJ, "not logged in, standing down"); return; }
+
+  // ---- the same two vocabularies as the dashboard prefill ----
+  var MAP = {
+    seeking: { long_term_rental_: "longterm_", mid_term_rental_: "midterm_", short_term_rental: "shortterm", furnished_: "furnished_" },
+    property_type_preference: { apartment: "apartment", townhome: "townhome", condo: "condo", single_family: "single_family_", any: "any_" },
+    i_want_to_relocate: { immediately_: "immediately_", next_month: "in_the_next_month", "36_months": "in_a_couple_months", "612_months": "next_6_months", more_than_a_year: "next_year_" },
+    monthly_budget: { under_1000: "less_than_1k", "10002000_": "1_2k", "20003000": "2_3k", "30004000": "3_4k", "40006000": "4_6k", "60008000": "6_8k", "800010000": "8_10k", over_10000: "more_than_10k", over_6000: "6_8k" }
+  };
+  var DIRECT = { number_of_peop: "number_of_people_y", co_signer: "woulda_cosigner_or", do_you_have_pets: "if_yes_type_size_br", ideal_rental: "please_describe_the", phone_number: "phone" };
+  var MULTI = { seeking: "select_all_that_des", property_type_preference: "property_type", how_are_you_searchi: "how_are_you_searchi" };
+
+  function translate(f, v) {
+    var t = MAP[f];
+    if (!t) return v;
+    return Object.prototype.hasOwnProperty.call(t, v) ? t[v] : null;
+  }
+  function plain(v) {
+    if (v == null) return "";
+    return String(v).replace(new RegExp("<[^>]*>", "g"), " ")
+      .replace(new RegExp("&nbsp;", "g"), " ")
+      .replace(new RegExp("[ " + String.fromCharCode(9, 13, 10) + "]+", "g"), " ").trim();
+  }
+  function q(name) { return form.querySelectorAll("[name='" + name + "'],[name='" + name + "[]']"); }
+  function setText(name, value) {
+    if (!value) return;
+    Array.prototype.forEach.call(q(name), function (el) {
+      el.value = value;
+      try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
+      try { el.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {}
+    });
+  }
+  function setChoice(name, value) {
+    if (!value) return;
+    Array.prototype.forEach.call(q(name), function (el) {
+      if (el.tagName === "SELECT") {
+        var ok = Array.prototype.some.call(el.options, function (o) { return o.value === value; });
+        if (ok) { el.value = value; try { el.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {} }
+        return;
+      }
+      if (el.value === value) { el.checked = true; try { el.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) {} }
+    });
+  }
+  function setHidden(name, value) {
+    if (value === undefined || value === null || value === "") return;
+    Array.prototype.forEach.call(q(name), function (el) { el.value = String(value); });
+  }
+
+  // The field's whole row, so hiding it takes the label with it.
+  function rowOf(el) {
+    var n = el;
+    for (var i = 0; i < 6 && n && n.parentNode; i++) {
+      n = n.parentNode;
+      if (n.className && String(n.className).indexOf("form-group") !== -1) return n;
+    }
+    return el.parentNode;
+  }
+
+  // Everything the profile answered is hidden. reCAPTCHA and the submit
+  // button stay - the form must still submit itself, because BD checks the
+  // token server-side and a missing one fails with a misleading error.
+  var KEEP_VISIBLE = { please_describe_the: 1, "g-recaptcha-response": 1, recaptcha: 1 };
+
+  function hideAnswered(answered) {
+    var hidden = 0;
+    Object.keys(answered).forEach(function (name) {
+      if (KEEP_VISIBLE[name]) return;
+      Array.prototype.forEach.call(q(name), function (el) {
+        var row = rowOf(el);
+        if (row && row.style && row.style.display !== "none") { row.style.display = "none"; hidden++; }
+      });
+    });
+    return hidden;
+  }
+
+  function propertyName() {
+    var u = form.querySelector("[name=url_origin_pars]");
+    var slug = u ? String(u.value || "") : "";
+    var last = slug.split("/").filter(Boolean).pop() || "";
+    if (!last) return "";
+    return last.split("-").map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(" ");
+  }
+
+  function intro(place, hiddenCount) {
+    if (modal.querySelector("#rdc-lc-intro")) return;
+    var box = document.createElement("div");
+    box.id = "rdc-lc-intro";
+    box.style.cssText = "background:#f0faf6;border-left:3px solid #3a9e8f;padding:14px 16px;border-radius:0 9px 9px 0;margin:0 0 18px;font-family:inherit;";
+    box.innerHTML = ''
+      + '<p style="font-size:15px;font-weight:700;color:#1e8449;margin:0 0 5px">'
+      + (place ? ('Ask about ' + place) : 'Send a message') + '</p>'
+      + '<p style="font-size:13.5px;line-height:1.6;color:#1e8449;margin:0">'
+      + 'We will send what you have already told us - your budget, timing and what you are looking for - '
+      + 'so you only need to write the bit that is specific to this place.</p>';
+    form.insertBefore(box, form.firstChild);
+    log("version:", LCJ, "hid", hiddenCount, "answered fields");
+  }
+
+  // Quick openers. Budget, timing and pets already travel with the request,
+  // so these are only the things the profile cannot answer.
+  var OPENERS = [
+    "When could I see it?",
+    "Is it still available?",
+    "Is the rent negotiable for a longer lease?"
+  ];
+
+  function openers() {
+    var box = form.querySelector("[name=please_describe_the]");
+    if (!box || modal.querySelector("#rdc-lc-openers")) return;
+
+    // This field asks about their ideal rental on the long form. Here it is
+    // the message, so it needs relabelling.
+    var row = rowOf(box), lab = row ? row.querySelector("label") : null;
+    if (lab) lab.textContent = "Your message";
+    box.setAttribute("placeholder", "Anything you would like to ask or mention");
+    box.value = "";
+
+    var wrap = document.createElement("div");
+    wrap.id = "rdc-lc-openers";
+    wrap.style.cssText = "margin:0 0 9px;display:flex;gap:7px;flex-wrap:wrap;";
+    OPENERS.forEach(function (t) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = t;
+      b.style.cssText = "font-family:inherit;font-size:12.5px;padding:7px 12px;border:1px solid #dde3ea;border-radius:999px;background:#fff;color:#0d2d4e;cursor:pointer;";
+      b.addEventListener("mouseover", function () { b.style.borderColor = "#3a9e8f"; });
+      b.addEventListener("mouseout", function () { b.style.borderColor = "#dde3ea"; });
+      b.addEventListener("click", function () {
+        box.value = box.value ? (box.value.replace(new RegExp("[ ]+$"), "") + " " + t) : t;
+        box.focus();
+        try { box.dispatchEvent(new Event("input", { bubbles: true })); } catch (e) {}
+      });
+      wrap.appendChild(b);
+    });
+    box.parentNode.insertBefore(wrap, box);
+  }
+
+  function fill(member) {
+    var answered = {};
+
+    var full = [plain(member.first_name), plain(member.last_name)].filter(Boolean).join(" ") || plain(member.full_name);
+    if (full) { setText("lead_name", full); answered.lead_name = 1; }
+    if (plain(member.email)) { setText("lead_email", plain(member.email)); answered.lead_email = 1; }
+
+    Object.keys(DIRECT).forEach(function (src) {
+      var v = plain(member[src]);
+      if (!v) return;
+      if (src === "number_of_peop" || src === "co_signer") setChoice(DIRECT[src], v);
+      else setText(DIRECT[src], v);
+      answered[DIRECT[src]] = 1;
+    });
+
+    [["i_want_to_relocate", "when_are_you_looki"], ["monthly_budget", "what_is_your_budget"]].forEach(function (pair) {
+      var t = translate(pair[0], plain(member[pair[0]]));
+      if (!t) return;
+      setChoice(pair[1], t);
+      answered[pair[1]] = 1;
+    });
+
+    Object.keys(MULTI).forEach(function (src) {
+      var raw = plain(member[src]);
+      if (!raw) return;
+      raw.split(",").map(function (x) { return x.trim(); }).filter(Boolean)
+        .map(function (x) { return MAP[src] ? translate(src, x) : x; })
+        .filter(Boolean)
+        .forEach(function (v) { setChoice(MULTI[src], v); });
+      answered[MULTI[src]] = 1;
+    });
+
+    // Their current location, already geocoded by BD at signup. The form
+    // validates against the hidden companions rather than the visible box,
+    // so those are what matter.
+    var city = plain(member.city), st = plain(member.state_code || member.state_sn), zip = plain(member.zip_code);
+    var label = [city, st].filter(Boolean).join(", ") + (zip ? " " + zip : "");
+    if (label.trim()) {
+      setText("lead_location", label.trim());
+      var lat = Number(member.lat), lon = Number(member.lon);
+      if (isFinite(lat) && isFinite(lon) && lat && lon) {
+        setHidden("lat", lat); setHidden("lng", lon);
+        setHidden("location_type", "locality");
+        setHidden("country_sn", plain(member.country_code) || "US");
+        if (st) setHidden("adm_lvl_1_sn", st);
+        if (city) setHidden("city", city);
+        setHidden("swlat", lat - 0.1); setHidden("swlng", lon - 0.1);
+        setHidden("nelat", lat + 0.1); setHidden("nelng", lon + 0.1);
+        answered.lead_location = 1;
+      }
+    }
+
+    var n = hideAnswered(answered);
+    openers();
+    intro(propertyName(), n);
+  }
+
+  // Fill when the modal opens, not on page load - the fields may not be
+  // rendered until then, and a renter who never clicks Contact should cost
+  // nothing.
+  var done = false;
+  function go() {
+    if (done) return;
+    done = true;
+    fetch(FN_BASE + "/housing-request?profile=" + encodeURIComponent(mid))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.ok && d.profile) fill(d.profile);
+        else log("could not read the profile", d && d.error);
+      })
+      .catch(function (e) { log("profile fetch failed", e); });
+  }
+
+  var triggers = document.querySelectorAll("[data-target='#contactModal']");
+  Array.prototype.forEach.call(triggers, function (t) { t.addEventListener("click", go); });
+  // Bootstrap fires this too, and some themes open the modal without a click.
+  try {
+    if (window.jQuery) window.jQuery(modal).on("show.bs.modal", go);
+  } catch (e) {}
+
+  log("version:", LCJ, "armed for member", mid);
+})();
+`;
+
+exports.handler = async function (event) {
+  var q = (event && event.queryStringParameters) || {};
+  if (q.version === "1") {
+    return {
+      statusCode: 200,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ ok: true, _v: FN_VERSION, bytes: SCRIPT.length }),
+    };
+  }
+  return {
+    statusCode: 200,
+    headers: {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=60",
+      "Access-Control-Allow-Origin": "*",
+    },
+    body: SCRIPT,
+  };
+};
