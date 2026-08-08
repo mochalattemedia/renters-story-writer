@@ -1,5 +1,16 @@
 // ============================================================
-//  housing-request.js   ·   VERSION: hr-v8   (2026-08-07)
+//  housing-request.js   ·   VERSION: hr-v9   (2026-08-07)
+//    hr-v9  +GET ?profile=NNNN, for the Get Matched prefill.
+//           Head code cannot read a member record - that needs BD_API_KEY,
+//           which must never be in a public file. This returns the fields
+//           the prefill needs and NOTHING ELSE: a whitelist, so a new BD
+//           column cannot leak into a page just by existing.
+//           type_of_income is not on the list and must not be added.
+//           NOT GATED by HUB_ADMIN_KEY. It runs on the renter's own page in
+//           their own browser, so it cannot carry an admin key - but that
+//           means it will return any member's profile to anyone who asks.
+//           The whitelist is what makes that acceptable: budget, timing,
+//           property type and the rest are already on a public profile.
 //    hr-v8  PENDING IS 1. hr-v7 changed it to 2 and made every dashboard
 //           request arrive as MATCHED.
 //           The mistake: the create response returned status 2 and that was
@@ -133,7 +144,7 @@
 //
 //  ENV  BD_API_KEY
 // ============================================================
-const FN_VERSION = "hr-v8";
+const FN_VERSION = "hr-v9";
 
 const https = require("https");
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
@@ -337,6 +348,23 @@ exports.handler = async function (event) {
     return ok({ ok: true, _v: FN_VERSION,
       bdKeyConfigured: !!process.env.BD_API_KEY,
       blobsConfigured: !!process.env.NETLIFY_SITE_ID && !!process.env.NETLIFY_BLOBS_TOKEN });
+  }
+
+  // hr-v9: the fields the Get Matched prefill needs, and only those.
+  // Deliberately a whitelist. type_of_income is absent and stays absent.
+  if (event.httpMethod === "GET" && q.profile) {
+    if (!process.env.BD_API_KEY) return ok({ error: "BD_API_KEY is not set" }, 500);
+    var pm = await getMember(String(q.profile).replace(/[^0-9]/g, ""));
+    if (!pm) return ok({ error: "Could not read that member" }, 404);
+    var allow = [
+      "user_id", "first_name", "last_name", "full_name", "email", "phone_number",
+      "seeking", "i_want_to_relocate", "number_of_peop", "property_type_preference",
+      "monthly_budget", "co_signer", "do_you_have_pets", "ideal_rental",
+      "how_are_you_searchi", "if_other_elaborate",
+    ];
+    var out = {};
+    allow.forEach(function (k) { if (pm[k] !== undefined && pm[k] !== null && pm[k] !== "") out[k] = pm[k]; });
+    return ok({ ok: true, _v: FN_VERSION, profile: out });
   }
 
   // The dashboard card asks this on every load. It reads Blobs only - no BD
