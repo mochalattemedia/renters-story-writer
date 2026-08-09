@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css?family=Red+Hat+Display:600,700,800|Open+Sans:400,600,700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{overflow-x:hidden}
+html,body{overflow-x:hidden;height:auto}
 body{font-family:'Open Sans',sans-serif;color:#0d2d4e;background:#fff;line-height:1.65;-webkit-font-smoothing:antialiased}
 .wrap{max-width:680px;margin:0 auto;padding:0 20px}
 h1,h2,h3{font-family:'Red Hat Display',sans-serif;line-height:1.25}
@@ -198,10 +198,14 @@ footer a{color:#3a9e8f}
    the success message is much shorter than the form it replaces. */
 function rdcPostHeight() {
   try {
-    var h = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight
-    );
+    /* Measure the LAST element's bottom edge, not the document height.
+       documentElement.scrollHeight reports at least the viewport height even
+       when the content is shorter, and once the frame has been made tall the
+       measurement inherits that - so the frame grows and never shrinks back,
+       leaving a long white tail below the content. */
+    var last = document.querySelector("footer") || document.body.lastElementChild;
+    var h = last ? Math.ceil(last.getBoundingClientRect().bottom + window.scrollY) : document.body.scrollHeight;
+    if (!h || h < 200) h = document.body.scrollHeight;
     parent.postMessage({ rdcFeedHeight: h }, "*");
   } catch (e) {}
 }
