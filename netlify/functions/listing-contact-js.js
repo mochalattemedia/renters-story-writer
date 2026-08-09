@@ -1,5 +1,23 @@
 // ============================================================
-//  listing-contact-js.js   ·   VERSION: lcj-v10  (2026-08-07)
+//  listing-contact-js.js   ·   VERSION: lcj-v11  (2026-08-08)
+//    lcj-v11 REVEALS THE SHIELD, AND STOPS MAKING THE RENTER WAIT FOR IT.
+//            Head code w177 hides this form until we say we are done, so BD
+//            never paints its 99 fields first. This calls RDC.reveal at every
+//            point where the modal is fit to look at, including the stand-down
+//            paths - a shielded surface whose script stands down silently would
+//            otherwise sit blank until the failsafe fired.
+//            THE PROFILE IS NOW FETCHED AT PAGE LOAD, not on click. The
+//            reshape cannot run without it, so fetching on click meant the
+//            modal opened empty and filled a beat later. One small GET per
+//            listing view buys a modal that is finished the moment it opens.
+//            If it has not returned by the time they click, behaviour is
+//            exactly as before.
+//            REVEALS ON EVERY OPEN, not just the first. The shield re-arms
+//            when the modal closes, so a reveal that only fired once left the
+//            second open waiting on the failsafe.
+//            THE GUARD MATTERS: every call is behind a check for RDC, so this
+//            file still works against a head code with no shield in it.
+//    lcj-v10 (previous)
 //    lcj-v10 The inquiry note was never written. watchSend listened for the
 //            form's submit event, and BD submits programmatically - a
 //            form.submit() call fires NO submit event - so nothing was
@@ -90,7 +108,7 @@
 //   GET ?version=1  -> JSON probe
 //   GET             -> the script
 // ============================================================
-const FN_VERSION = "lcj-v10";
+const FN_VERSION = "lcj-v11";
 
 const SCRIPT = `
 (function () {
@@ -99,6 +117,15 @@ const SCRIPT = `
 
   function log() {
     try { console.log.apply(console, ["[Listing contact]"].concat([].slice.call(arguments))); } catch (e) {}
+  }
+
+  // The shield in head code holds this form hidden until we say the modal is
+  // fit to look at. GUARDED, so this file is unaffected by a head code with no
+  // shield in it - and called on the stand-down paths too, because a surface
+  // that is hidden by a rule and abandoned by its script stays blank until the
+  // failsafe fires.
+  function reveal() {
+    try { if (window.RDC && window.RDC.reveal) window.RDC.reveal("contact"); } catch (e) {}
   }
 
   // Everything below needs the body. This script is injected from head code,
@@ -114,18 +141,20 @@ const SCRIPT = `
 
   var modal = document.querySelector("#contactModal");
   if (!modal) { log("version:", LCJ, "no contact modal on this page"); return; }
+  // From here on there IS a modal, so every exit reveals it.
   var form = modal.querySelector("form");
-  if (!form) { log("version:", LCJ, "no form in the modal"); return; }
+  if (!form) { log("version:", LCJ, "no form in the modal"); reveal(); return; }
 
   var fn = form.querySelector("[name=formname]");
   if (!fn || String(fn.value).indexOf("get_match") === -1) {
     log("version:", LCJ, "modal is not the get-matched form (", fn && fn.value, ") - standing down");
+    reveal();
     return;
   }
 
   var loggedUser = form.querySelector("[name=logged_user]");
   var mid = loggedUser ? String(loggedUser.value || "") : "";
-  if (!mid) { log("version:", LCJ, "not logged in, standing down"); return; }
+  if (!mid) { log("version:", LCJ, "not logged in, standing down"); reveal(); return; }
 
   // ---- the same two vocabularies as the dashboard prefill ----
   var MAP = {
@@ -396,6 +425,11 @@ const SCRIPT = `
     openers();
     intro(propertyName(), n);
     watchSend(mid);
+
+    // The modal is now what a renter should see. Anything earlier would show
+    // them the form mid-reshape, which is the whole thing the shield exists to
+    // prevent.
+    reveal();
   }
 
   // On submit, note what was asked about. The confirmation page picks this up
@@ -429,20 +463,50 @@ const SCRIPT = `
     });
   }
 
-  // Fill when the modal opens, not on page load - the fields may not be
-  // rendered until then, and a renter who never clicks Contact should cost
-  // nothing.
-  var done = false;
-  function go() {
-    if (done) return;
-    done = true;
-    fetch(FN_BASE + "/housing-request?profile=" + encodeURIComponent(mid))
+  // THE PROFILE IS FETCHED AT PAGE LOAD. The reshape cannot run without it,
+  // so fetching on click meant the modal opened as BD built it and became ours
+  // a beat later. One small GET per listing view removes that beat.
+  // The reshape itself still waits for the modal to open: the fields may not be
+  // rendered until then.
+  var profile = null;
+  var pending = null;
+
+  function prefetch() {
+    if (pending) return pending;
+    pending = fetch(FN_BASE + "/housing-request?profile=" + encodeURIComponent(mid))
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d && d.ok && d.profile) fill(d.profile);
-        else log("could not read the profile", d && d.error);
+        if (d && d.ok && d.profile) { profile = d.profile; return d.profile; }
+        log("could not read the profile", d && d.error);
+        return null;
       })
-      .catch(function (e) { log("profile fetch failed", e); });
+      .catch(function (e) { log("profile fetch failed", e); return null; });
+    return pending;
+  }
+
+  var done = false;
+  function go() {
+    // ALREADY RESHAPED. The shield re-arms when the modal closes, so every
+    // open has to reveal, not just the first.
+    if (done) { reveal(); return; }
+    done = true;
+
+    // In hand already: reshape now, so the modal is finished before it paints.
+    if (profile) { fill(profile); return; }
+
+    // Not back yet. This is the old behaviour, and the failsafe covers the
+    // case where it never arrives.
+    prefetch().then(function (p) {
+      if (p) fill(p);
+      else {
+        // NOTHING TO FILL WITH. Leave BD's form exactly as it is rather than
+        // hiding the fields a renter would now have to complete themselves,
+        // and reveal it so they are not looking at nothing.
+        log("standing down, no profile - showing BD's form unchanged");
+        done = false;
+        reveal();
+      }
+    });
   }
 
   var triggers = document.querySelectorAll("[data-target='#contactModal']");
@@ -451,6 +515,8 @@ const SCRIPT = `
   try {
     if (window.jQuery) window.jQuery(modal).on("show.bs.modal", go);
   } catch (e) {}
+
+  prefetch();
 
   log("version:", LCJ, "armed for member", mid);
 
