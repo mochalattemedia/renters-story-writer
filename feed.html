@@ -8,11 +8,12 @@
 <link href="https://fonts.googleapis.com/css?family=Red+Hat+Display:600,700,800|Open+Sans:400,600,700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
 body{font-family:'Open Sans',sans-serif;color:#0d2d4e;background:#fff;line-height:1.65;-webkit-font-smoothing:antialiased}
 .wrap{max-width:680px;margin:0 auto;padding:0 20px}
 h1,h2,h3{font-family:'Red Hat Display',sans-serif;line-height:1.25}
 
-.hero{background:#0d2d4e;color:#fff;padding:56px 0 52px;margin:0 0 44px}
+.hero{background:#0d2d4e;color:#fff;padding:44px 0 40px;margin:0 0 40px}
 .hero h1{font-size:36px;font-weight:800;margin:0 0 14px}
 .hero p{font-size:17px;color:#c5d5e4;max-width:540px}
 .hero .kicker{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:#8dc63f;font-weight:700;margin:0 0 12px}
@@ -60,7 +61,7 @@ button:disabled{opacity:.55;cursor:default}
 .done .tick{width:52px;height:52px;border-radius:50%;background:#3a9e8f;color:#fff;font-size:26px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
 .done h2{color:#1e8449}
 
-footer{border-top:1px solid #eef2f5;padding:26px 0 50px;font-size:13.5px;color:#8593a4}
+footer{border-top:1px solid #eef2f5;padding:24px 0 32px;font-size:13.5px;color:#8593a4}
 footer a{color:#3a9e8f}
 </style>
 </head>
@@ -192,6 +193,22 @@ footer a{color:#3a9e8f}
 </div>
 
 <script>
+/* The parent sizes the frame to our content, so the iframe never scrolls on
+   its own. Sent on load, on resize, and whenever the form changes shape -
+   the success message is much shorter than the form it replaces. */
+function rdcPostHeight() {
+  try {
+    var h = Math.max(
+      document.body.scrollHeight, document.documentElement.scrollHeight,
+      document.body.offsetHeight, document.documentElement.offsetHeight
+    );
+    parent.postMessage({ rdcFeedHeight: h }, "*");
+  } catch (e) {}
+}
+window.addEventListener("load", function () { rdcPostHeight(); setTimeout(rdcPostHeight, 350); });
+window.addEventListener("resize", rdcPostHeight);
+try { new ResizeObserver(rdcPostHeight).observe(document.body); } catch (e) {}
+
 var FN = "https://renters-story-writer.netlify.app/.netlify/functions/feed-request";
 
 function el(id){ return document.getElementById(id); }
@@ -233,7 +250,8 @@ el("send").addEventListener("click", function () {
           '<h2>Got it.</h2>' +
           '<p>We will look at what you have sent and come back to you, usually within a day. ' +
           'If anything needs mapping we will ask before we do it.</p></div>';
-        window.scrollTo({ top: el("formCard").offsetTop - 40, behavior: "smooth" });
+        rdcPostHeight();
+        try { parent.postMessage({ rdcFeedScroll: true }, "*"); } catch (e) {}
       } else {
         btn.disabled = false; btn.textContent = "Send this to Renters.com";
         msg.className = "msg err";
