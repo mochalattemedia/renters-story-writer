@@ -9,7 +9,7 @@
   :root{--navy:#0d2d4e;--deep:#081f38;--teal:#3a9e8f;--lime:#8dc63f;--gold:#e0a92e;--ink:#0d2d4e;--mut:#5a6b7d;--line:#e6ebf0;--land:#f2f5f8;--stroke:#dfe6ee}
   *{box-sizing:border-box}
   body{margin:0;font-family:"Open Sans",system-ui,sans-serif;color:var(--ink);background:#fff}
-  .wrap{max-width:1120px;margin:0 auto;padding:8px 16px 28px}
+  .wrap{max-width:1120px;margin:0 auto;padding:6px 14px 10px}
   h2{font-family:"Red Hat Display",sans-serif;font-weight:800;font-size:clamp(26px,4vw,40px);letter-spacing:-.02em;text-align:center;color:var(--navy);margin:18px 0 4px}
   .sub{text-align:center;color:var(--mut);font-size:15px;margin:0 0 18px}
   .strip{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:0 auto 10px;max-width:840px}
@@ -36,7 +36,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h2>Members across the country</h2>
+  <h2>Verified members across the country</h2>
   <div class="strip" id="strip"></div>
   <div class="mapbox">
     <svg id="map" viewBox="0 0 960 600" preserveAspectRatio="xMidYMid meet" aria-label="US member map"></svg>
@@ -124,6 +124,23 @@ d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json").then(function
   });
 
 });
+</script>
+
+<script>
+// Auto-height: report our true content height to the parent page so the iframe can
+// size exactly to the content (no white space, no inner scroll), on any device.
+(function(){
+  function reportHeight(){
+    var h = document.documentElement.scrollHeight || document.body.scrollHeight;
+    if (window.parent && window.parent!==window){
+      window.parent.postMessage({ rdcMapHeight: h }, "*");
+    }
+  }
+  window.addEventListener("load", function(){ reportHeight(); setTimeout(reportHeight, 400); setTimeout(reportHeight, 1200); });
+  window.addEventListener("resize", reportHeight);
+  // also report after the map draws (d3 async)
+  var tries=0; var iv=setInterval(function(){ reportHeight(); if(++tries>6) clearInterval(iv); }, 500);
+})();
 </script>
 </body>
 </html>
