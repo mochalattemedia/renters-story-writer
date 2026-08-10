@@ -8,12 +8,19 @@
 //
 //  GET ?memberId=ID&key=renters2026
 //  Optional: ?ids=3649,3650,3651  -> batch (comma list)
+//
+//  VM_VERSION: vm-v2 (2026-08-10)
+//   vm-v2  ?ids= batch runs capped-parallel (CONCURRENCY 5) instead of
+//          sequential for/await — the BD reads overlap. Feeds the panel
+//          drv-v8 chunked batch. Response carries _v:"vm-v2".
+//   vm-v1  original single + sequential-batch reader.
 // ============================================================
 
 const https = require("https");
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const KEY = "renters2026";
+const VM_VERSION = "vm-v2"; // vm-v2: batch runs capped-parallel (was sequential)
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -230,11 +237,23 @@ exports.handler = async function (event) {
     // Batch mode
     if (q.ids) {
       const ids = q.ids.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 50);
-      const results = [];
-      for (const id of ids) {
-        results.push(await shapeMember(id));
+      // Capped-parallel: up to CONCURRENCY shapeMember() calls at once so BD reads
+      // OVERLAP instead of running one-after-another. BD rate-limits under load
+      // (Bible), so keep the cap modest rather than firing all at once.
+      const CONCURRENCY = 5;
+      const results = new Array(ids.length);
+      let next = 0;
+      async function worker() {
+        while (true) {
+          const i = next++;
+          if (i >= ids.length) return;
+          results[i] = await shapeMember(ids[i]);
+        }
       }
-      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ count: results.length, members: results }) };
+      const pool = [];
+      for (let w = 0; w < Math.min(CONCURRENCY, ids.length); w++) pool.push(worker());
+      await Promise.all(pool);
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ _v: VM_VERSION, count: results.length, members: results }) };
     }
 
     // Debug: dump raw BD member object to discover exact field names (login count, dates, etc.)
@@ -247,6 +266,7 @@ exports.handler = async function (event) {
     // Single
     if (!q.memberId) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "memberId or ids required" }) };
     const shaped = await shapeMember(q.memberId);
+    if (shaped && typeof shaped === "object") shaped._v = VM_VERSION;
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(shaped) };
   } catch (e) {
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: e.message }) };
