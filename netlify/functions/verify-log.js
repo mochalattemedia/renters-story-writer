@@ -1,8 +1,9 @@
 // ============================================================
 //  verify-log.js   ·   Stage 2 — Submission HISTORY log
-//  VERSION: vl-v3 (2026-08-10) — list reads blobs in CAPPED-parallel chunks
-//  of 8 (with pagination + one retry) — fast without dropping records. vl-v2
-//  fired all reads at once and silently lost any that hit the Blobs limit.
+//  VERSION: vl-v4 (2026-08-10) — list reads blobs in CAPPED-parallel chunks
+//  of 8 (with pagination + one retry) — fast without dropping records. The
+//  earlier all-at-once parallel attempt silently lost records that hit the
+//  Blobs concurrency limit; this caps + retries + reports any still-missing.
 //  Persistent source of truth for identity-confirmation events,
 //  stored in Netlify Blobs. BD remains the member system; this
 //  log holds the WORKFLOW history BD does not keep.
@@ -23,6 +24,7 @@
 const { getStore } = require("@netlify/blobs");
 
 const KEY = "renters2026";
+const FN_VERSION = "vl-v4";
 const STORE_NAME = "verification-log";
 
 const corsHeaders = {
