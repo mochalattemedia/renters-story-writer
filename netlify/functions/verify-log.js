@@ -1,7 +1,8 @@
 // ============================================================
 //  verify-log.js   ·   Stage 2 — Submission HISTORY log
-//  VERSION: vl-v2 (2026-08-10) — list action reads all member blobs in
-//  PARALLEL (Promise.all); was sequential await-in-for (~14s at ~40 records).
+//  VERSION: vl-v3 (2026-08-10) — list reads blobs in CAPPED-parallel chunks
+//  of 8 (with pagination + one retry) — fast without dropping records. vl-v2
+//  fired all reads at once and silently lost any that hit the Blobs limit.
 //  Persistent source of truth for identity-confirmation events,
 //  stored in Netlify Blobs. BD remains the member system; this
 //  log holds the WORKFLOW history BD does not keep.
@@ -100,18 +101,38 @@ exports.handler = async function (event) {
       // Fetch every member blob IN PARALLEL. The old code awaited each store.get
       // one at a time, so N records = N sequential Blob round-trips (~14s at ~40
       // records). Parallel reads collapse that to roughly one round-trip.
-      const listing = await store.list({ prefix: "member:" });
-      const vals = await Promise.all(
-        listing.blobs.map(function (blob) {
-          return store.get(blob.key, { type: "json" }).catch(function () { return null; });
-        })
-      );
+      // Collect ALL blob keys first, following pagination if the list is paged.
+      const keys = [];
+      let cursor;
+      do {
+        const listing = await store.list({ prefix: "member:", cursor: cursor });
+        (listing.blobs || []).forEach(function (b) { keys.push(b.key); });
+        cursor = listing.cursor;
+      } while (cursor);
+
+      // Read in CAPPED-parallel batches. Firing all reads at once can trip Blobs
+      // concurrency and silently drop records; chunks keep it fast but complete.
+      // A read that genuinely fails is RETRIED once before being counted missing,
+      // and the count of any still-missing keys is returned so nothing hides.
       const out = [];
-      for (let i = 0; i < vals.length; i++) {
-        if (vals[i]) out.push(normalize(vals[i]));
+      let missing = 0;
+      const CHUNK = 8;
+      async function readOne(key) {
+        try { return await store.get(key, { type: "json" }); }
+        catch (e) {
+          try { return await store.get(key, { type: "json" }); } // one retry
+          catch (e2) { missing++; return null; }
+        }
+      }
+      for (let i = 0; i < keys.length; i += CHUNK) {
+        const slice = keys.slice(i, i + CHUNK);
+        const vals = await Promise.all(slice.map(readOne));
+        for (let j = 0; j < vals.length; j++) {
+          if (vals[j]) out.push(normalize(vals[j]));
+        }
       }
       out.sort((a, b) => String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
-      return ok({ _v: FN_VERSION, count: out.length, entries: out });
+      return ok({ _v: FN_VERSION, count: out.length, missing: missing, entries: out });
     }
 
     // ---- GET ----
