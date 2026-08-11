@@ -1,5 +1,5 @@
 /**
- * renters-pwa-worker.js — pwaw-v1
+ * renters-pwa-worker.js — pwaw-v4
  *
  * WHY THIS EXISTS
  * A service worker can only control the origin it is served from, and it must sit
@@ -21,15 +21,52 @@
  *
  * DO NOT route this worker at /*  — it must only intercept these three paths.
  *
+ * v2: shortcut URLs corrected to the live nav paths (/find-me-a-place,
+ *     /fake-listing-check). v1 pointed at /getmatched and /listing-check,
+ *     the second of which does not resolve on the live site.
+ *
  * ICONS: hosted on Netlify (cross-origin manifest icons are permitted).
  * Upload to the repo root of mochalattemedia/renters-story-writer:
  *   icon-192.png          192x192  square, opaque
  *   icon-512.png          512x512  square, opaque
- *   icon-maskable-512.png 512x512  logo inside the centre 80% safe zone
  *   apple-touch-icon.png  180x180  opaque, no transparency (iOS ignores alpha)
+ *
+ * v3: THE MASKABLE ICON IS DELIBERATELY ABSENT. Android crops a maskable
+ *     icon to a circle, and the house mark sits close enough to the edges
+ *     that the roof peak would probably clip. There is no Android device to
+ *     check it on, so rather than ship an unverifiable guess the entry is
+ *     removed: Android now places the icon inside a white rounded square
+ *     instead of cropping it. Slightly less polished, nothing chopped.
+ *     TO ADD IT LATER: re-export the artwork with the house at ~55-60% of
+ *     the width on the same navy field, upload icon-maskable-512.png, and
+ *     restore the icons entry with purpose: 'maskable'.
+ *
+ * v4: THREE CHANGES.
+ *   1. THE INSTALLED APP NOW OPENS TO THE MATCH DECK, NOT THE SITE.
+ *      /app is served here by proxying app-deck.html from Netlify, so it is
+ *      SAME-ORIGIN with renters.com. That matters: start_url and scope must
+ *      share the manifest's origin, so pointing start_url straight at the
+ *      netlify.app URL would be rejected. scope stays "/" deliberately, so
+ *      tapping through to the dashboard or a listing stays inside the app
+ *      window instead of kicking out to a browser tab.
+ *   2. display: minimal-ui. standalone strips the browser chrome entirely
+ *      and BD's nav carries no back affordance, so a member two pages deep
+ *      on a desktop install had no way back. minimal-ui keeps a thin
+ *      back/forward strip. Revisit standalone once the app has real in-app
+ *      navigation of its own.
+ *   3. THE ICONS ARE OUT OF THE SERVICE WORKER PRECACHE. They live on
+ *      netlify.app, which sends no Access-Control-Allow-Origin, so
+ *      cache.addAll() failed CORS on every install. The manifest itself
+ *      loads them fine (that path is not CORS-restricted), which is why the
+ *      install prompt still fired. Only /offline.html is precached now,
+ *      which is the only thing actually needed without a connection.
+ *
+ * TWO MORE ROUTES ARE REQUIRED IN CLOUDFLARE FOR v4:
+ *   www.renters.com/app
+ *   renters.com/app
  */
 
-const PWA_VERSION = 'pwaw-v1';
+const PWA_VERSION = 'pwaw-v4';
 const SW_CACHE = 'rdc-v1';
 const ASSET_BASE = 'https://renters-story-writer.netlify.app';
 
@@ -41,21 +78,21 @@ const MANIFEST = {
   short_name: 'Renters',
   description:
     'Verified renters, verified landlords. Search homes, book showings, and keep your rental records in one place.',
-  start_url: '/account/home?src=pwa',
+  start_url: '/app?src=pwa',
   scope: '/',
-  display: 'standalone',
+  display: 'minimal-ui',
   orientation: 'portrait',
   background_color: '#ffffff',
   theme_color: '#0d2d4e',
   categories: ['lifestyle', 'business', 'utilities'],
   icons: [
     { src: ASSET_BASE + '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-    { src: ASSET_BASE + '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-    { src: ASSET_BASE + '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+    { src: ASSET_BASE + '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }
   ],
   shortcuts: [
-    { name: 'Find Me a Place', short_name: 'Find', url: '/getmatched?prefill=1&src=pwa' },
-    { name: 'Safety Check', short_name: 'Safety', url: '/listing-check?src=pwa' },
+    { name: 'My Matches', short_name: 'Matches', url: '/app?src=pwa' },
+    { name: 'Find Me a Place', short_name: 'Find', url: '/find-me-a-place?src=pwa' },
+    { name: 'Safety Check', short_name: 'Safety', url: '/fake-listing-check?src=pwa' },
     { name: 'My Dashboard', short_name: 'Dashboard', url: '/account/home?src=pwa' }
   ]
 };
@@ -76,11 +113,10 @@ const MANIFEST = {
 
 const SW_JS = `/* renters.com service worker — ${SW_CACHE} (served by ${PWA_VERSION}) */
 const CACHE = '${SW_CACHE}';
-const PRECACHE = [
-  '/offline.html',
-  '${ASSET_BASE}/icon-192.png',
-  '${ASSET_BASE}/icon-512.png'
-];
+/* Only the offline page. The icons live on a different origin that sends no
+   Access-Control-Allow-Origin, so including them made addAll() fail CORS on
+   every install. They are not needed offline anyway. */
+const PRECACHE = ['/offline.html'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(
@@ -232,6 +268,29 @@ export default {
           /* max-age=0 matters: a cached service worker is very hard to replace */
           'Cache-Control': 'no-cache, max-age=0, must-revalidate',
           'Service-Worker-Allowed': '/',
+          'X-PWA-Version': PWA_VERSION
+        }
+      });
+    }
+
+    if (p === '/app') {
+      /* Proxy the deck from Netlify so it is served same-origin as
+         renters.com. Keeping the HTML in the repo rather than inline here
+         means it stays in git, reviewable and diffable, and this worker
+         stays thin. */
+      const deck = await fetch(ASSET_BASE + '/app-deck.html', {
+        cf: { cacheTtl: 60, cacheEverything: true }
+      });
+      if (!deck.ok) {
+        return new Response('The match deck is unavailable right now.', {
+          status: 502,
+          headers: { 'Content-Type': 'text/plain', 'X-PWA-Version': PWA_VERSION }
+        });
+      }
+      return new Response(deck.body, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'public, max-age=60',
           'X-PWA-Version': PWA_VERSION
         }
       });
