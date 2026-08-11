@@ -1,8 +1,21 @@
 // ============================================================
 //  didit-webhook.js
-//  FN_VERSION: dwh-v2   (2026-07-11)
+//  FN_VERSION: dwh-v3   (2026-08-11)
 //
 //  Changelog
+//   dwh-v3  Aug 11  MOBILE APPROVAL LINK. On 'approved' only, and only AFTER
+//                   the verify-log write lands, mints an HMAC-signed link via
+//                   verify-approve ?mint=1 and sends it as a SEPARATE, MINIMAL
+//                   email carrying NO name, NO email address and NO member
+//                   detail. The existing funnel email is untouched, because the
+//                   Gmail router matches on its subject text and changing those
+//                   strings is what broke the listing-draft filter.
+//                   Order matters: the link must not arrive before the record
+//                   it points at exists.
+//                   ALSO FIXED: SES region fallback was 'us-east-1'. SES lives
+//                   in us-east-2. Harmless while SES_REGION is set, a silent
+//                   failure the day it is not. Same correction made to
+//                   send-verification-email.js in July; this file was missed.
 //   dwh-v2  Jul 11  verify-log writes ONLY on approved/declined. Didit sends
 //                   4 statuses (not started -> in progress -> approved/declined);
 //                   writing on every status put abandoned sessions in the review
@@ -11,7 +24,7 @@
 //   dwh-v1          HMAC verify + verify-log write on every status + SES funnel
 //                   notifications to the hub.
 // ============================================================
-const FN_VERSION = "dwh-v2";
+const FN_VERSION = "dwh-v3";
 // ============================================================
 //  didit-webhook.js  ·  Receives Didit verification results
 //  Verifies HMAC-SHA256 over the RAW body, writes the outcome
@@ -19,14 +32,15 @@ const FN_VERSION = "dwh-v2";
 //  AND emails a funnel notification to the hub so every stage
 //  (link opened -> in progress -> approved/declined) lands in
 //  its own Renters/Identity bucket.
-//  Env: DIDIT_WEBHOOK_SECRET (required), SES_* (as elsewhere)
+//  Env: DIDIT_WEBHOOK_SECRET (required), SES_* (as elsewhere),
+//       ADMIN_PROBE_KEY (for the approval link mint)
 // ============================================================
 
 const crypto = require('crypto');
 const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses');
 
 const ses = new SESClient({
-  region: process.env.SES_REGION || 'us-east-1',
+  region: process.env.SES_REGION || 'us-east-2',
   credentials: {
     accessKeyId: process.env.SES_ACCESS_KEY_ID,
     secretAccessKey: process.env.SES_SECRET_ACCESS_KEY,
@@ -39,6 +53,9 @@ const NOTIFY_FROM = 'verify@renters.com';
 const VERIFY_LOG_URL = process.env.VERIFY_LOG_URL
   || 'https://renters-story-writer.netlify.app/.netlify/functions/verify-log';
 const VERIFY_LOG_KEY = process.env.VERIFY_LOG_KEY || 'renters2026';
+
+const APPROVE_URL = process.env.VERIFY_APPROVE_URL
+  || 'https://renters-story-writer.netlify.app/.netlify/functions/verify-approve';
 
 function post(url, payload) {
   return fetch(url, {
@@ -61,6 +78,38 @@ async function notify(subject, bodyText) {
     }));
   } catch (e) {
     console.log('notify email error: ' + e.message);
+  }
+}
+
+// Mint the signed approval link and send it on its own.
+// NO name, NO email, NO member detail in the body. The link is the payload and
+// the PIN is what actually protects it. Never throws.
+async function sendApprovalLink(memberId, sessionId) {
+  const adminKey = process.env.ADMIN_PROBE_KEY;
+  if (!adminKey) {
+    console.log('approval link skipped: ADMIN_PROBE_KEY not set');
+    return;
+  }
+  try {
+    const url = APPROVE_URL
+      + '?mint=1&memberId=' + encodeURIComponent(memberId)
+      + '&inquiryId=' + encodeURIComponent(sessionId || '')
+      + '&key=' + encodeURIComponent(adminKey);
+    const res = await fetch(url).then(function (r) { return r.json().catch(function () { return null; }); });
+    if (!res || !res.url) {
+      console.log('approval link mint failed: ' + JSON.stringify(res));
+      return;
+    }
+    await notify(
+      'Review request ready',                       // deliberately does NOT contain
+      'A verification is waiting.\n\n' +            // 'identity approved' etc, so the
+      res.url + '\n\n' +                            // existing Gmail router filters
+      'Opens on your phone. PIN required.\n' +      // cannot swallow it
+      'Link expires in ' + (res.expiresInHours || 72) + ' hours and works once.\n'
+    );
+    console.log('approval link sent for member=' + memberId);
+  } catch (e) {
+    console.log('approval link error: ' + e.message);
   }
 }
 
@@ -118,6 +167,7 @@ const displayName = name || ('Member #' + (memberId || 'unknown'));
   const s = diditStatus.toLowerCase();
 
   // ---- EMAIL NOTIFICATION (funnel: every stage, own subject anchor) ----
+  // DO NOT change these subject strings. The Gmail router matches on them.
   let subj;
   if (s === 'approved') {
     subj = '🆔 Identity APPROVED — ' + displayName;          // -> Renters/Identity
@@ -152,7 +202,7 @@ const displayName = name || ('Member #' + (memberId || 'unknown'));
 
   if (!memberId || memberId === 'renter' || /^live-test/i.test(memberId) || /^test/i.test(memberId)) {
     console.log('Didit webhook: no usable member id (vendor_data="' + memberId + '") session=' + sessionId + ' status=' + diditStatus);
-    return { statusCode: 200, body: JSON.stringify({ ok: true, skipped: 'no member id' }) };
+    return { statusCode: 200, body: JSON.stringify({ ok: true, _v: FN_VERSION, skipped: 'no member id' }) };
   }
 
   let logStatus = 'pending';
@@ -175,6 +225,7 @@ const displayName = name || ('Member #' + (memberId || 'unknown'));
     note = 'Didit status: ' + diditStatus;
   }
 
+  let logged = false;
   try {
     await post(VERIFY_LOG_URL, {
       action: 'record',
@@ -194,10 +245,18 @@ const displayName = name || ('Member #' + (memberId || 'unknown'));
       note: note,
       decidedBy: 'didit'
     });
+    logged = true;
     console.log('Didit -> verify-log: member=' + memberId + ' session=' + sessionId + ' status=' + logStatus);
   } catch (e) {
     console.log('verify-log write error: ' + e.message);
   }
 
-  return { statusCode: 200, body: JSON.stringify({ ok: true, memberId: memberId, status: logStatus }) };
+  // ---- MOBILE APPROVAL LINK (approved only, and only once the record exists) ----
+  // Sent AFTER the verify-log write on purpose. A link that arrives before the
+  // record it points at opens on a member with no submission to act on.
+  if (s === 'approved' && logged) {
+    await sendApprovalLink(memberId, sessionId);
+  }
+
+  return { statusCode: 200, body: JSON.stringify({ ok: true, _v: FN_VERSION, memberId: memberId, status: logStatus }) };
 };
