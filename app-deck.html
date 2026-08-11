@@ -1,16 +1,16 @@
 <!doctype html>
-<html lang="en" data-skin="paper">
+<html lang="en" data-skin="press">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
-<meta name="theme-color" content="#0d2d4e">
+<meta name="theme-color" content="#eef3f2">
 <title>Your matches — Renters.com</title>
-<meta name="rdc-version" content="md-v2">
+<meta name="rdc-version" content="md-v11">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ md-v2
+/* ============================================================ md-v11
    MATCH DECK — prototype
    Mock data. No feed, no booking backend. Built to be felt on a phone.
 
@@ -74,9 +74,9 @@ html[data-skin="deep"] .toast{background:#8dc63f;color:#0d2d4e}
 
 /* --- 3 PRESS --- */
 html[data-skin="press"]{
-  --paper:#eef3f2;
-  --line:#dbe5e4;
-  --r:6px;
+  --paper:#f4f6f7;
+  --line:#e3e9ec;
+  --r:9px;
   --ink-2:#48605c;
   --slate:#748a86;
 }
@@ -86,18 +86,22 @@ html[data-skin="press"] .card{
 }
 /* tier moves from the left spine to a full-width rule above the photo */
 html[data-skin="press"] .spine{left:0;right:0;bottom:auto;width:auto;height:5px}
-html[data-skin="press"] .photo{height:32%;min-height:120px}
+html[data-skin="press"] .photo{height:30%;min-height:112px}
 html[data-skin="press"] .rent{font-size:34px}
 html[data-skin="press"] .verdict{
   border-radius:0;letter-spacing:.16em;font-size:9.5px;padding:5px 9px;box-shadow:none;
 }
 html[data-skin="press"] .addr{font-size:19px;letter-spacing:-.02em}
 html[data-skin="press"] .crit li{border-bottom:1px solid var(--line)}
-html[data-skin="press"] .move{border-radius:0;border-left-width:4px}
-html[data-skin="press"] .pad{border-radius:0;box-shadow:0 1px 0 var(--line),0 10px 22px -16px rgba(13,45,78,.5)}
-html[data-skin="press"] .pad.big{border-radius:0}
-html[data-skin="press"] .cta,html[data-skin="press"] .slot,
-html[data-skin="press"] .strip div,html[data-skin="press"] .p-why{border-radius:4px}
+html[data-skin="press"] .move{border-radius:0;border-left-width:3px}
+html[data-skin="press"] .pad{border-radius:50%;box-shadow:0 1px 0 var(--line),0 10px 22px -16px rgba(13,45,78,.5)}
+html[data-skin="press"] .pad.big{border-radius:50%}
+/* Actions are full pills, matching the Ask Lisa control. Cards and panels
+   keep the 9px radius - the site pills its buttons and squares its surfaces,
+   and pilling both flattens the distinction between reading and acting. */
+html[data-skin="press"] .cta{border-radius:100px}
+html[data-skin="press"] .slot,
+html[data-skin="press"] .strip div,html[data-skin="press"] .p-why{border-radius:9px}
 html[data-skin="press"] .sheet{border-radius:8px 8px 0 0}
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -158,29 +162,26 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
   background:var(--tier);
 }
 
+/* SOLID NAVY, NOT A PHOTO SLOT. This is the decision the deck rests on:
+   photographs are how renters lose evenings on places they were never
+   getting. The band carries the rent and the verdict instead, so the first
+   thing read is what it costs and whether it fits. Photos belong after a
+   showing is booked, not before. */
 .photo{
-  flex:0 0 auto;height:38%;min-height:150px;position:relative;
-  background:linear-gradient(148deg,var(--p1),var(--p2));
+  flex:0 0 auto;height:30%;min-height:112px;position:relative;
+  background:var(--band);
   display:flex;align-items:flex-end;padding:14px 16px;
 }
-.photo::after{
-  content:'';position:absolute;inset:0;opacity:.16;
-  background-image:
-    linear-gradient(rgba(255,255,255,.7) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(255,255,255,.7) 1px,transparent 1px);
-  background-size:26px 26px;
-}
 .rent{
-  position:relative;z-index:1;
+  position:relative;z-index:2;
   font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:30px;
-  color:#fff;letter-spacing:-.03em;line-height:1;
-  text-shadow:0 1px 12px rgba(13,45,78,.35);
+  color:var(--band-ink);letter-spacing:-.03em;line-height:1;
   font-variant-numeric:tabular-nums;
 }
 .rent span{font-size:13px;font-weight:700;opacity:.82;letter-spacing:0}
 
 .verdict{
-  position:absolute;top:12px;right:12px;z-index:1;
+  position:absolute;top:12px;right:12px;z-index:2;
   background:var(--tier);color:#fff;
   font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;
   padding:6px 11px;border-radius:100px;
@@ -207,9 +208,12 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
   border-bottom:1px solid var(--line);
 }
 .crit li:last-child{border-bottom:0}
+/* Circular badges, sized and coloured like the numbered markers on the
+   site's Getting started list. Teal for a met requirement, gold for one
+   that needs a document, slate for one nobody has confirmed. */
 .tick{
-  flex:0 0 16px;height:16px;border-radius:50%;display:flex;align-items:center;
-  justify-content:center;font-size:9.5px;font-weight:700;color:#fff;
+  flex:0 0 18px;height:18px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:10px;font-weight:700;color:#fff;
 }
 .tick.y{background:var(--teal)}
 .tick.q{background:var(--gold);color:#4a3708}
@@ -342,13 +346,17 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
   flex:0 0 auto;padding:14px 22px calc(16px + env(safe-area-inset-bottom));
   border-top:1px solid var(--line);background:var(--white);
 }
+/* Lime is the primary action, matching "List your place free" on the site.
+   Teal stays for links, numbered markers and the live indicator, exactly as
+   the site uses it. One lime button per screen - the moment there are two,
+   neither one is the thing to press. */
 .cta{
-  width:100%;background:var(--teal);color:#fff;border-radius:13px;padding:16px;
+  width:100%;background:var(--lime);color:#0d2d4e;border-radius:100px;padding:16px;
   font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:16px;
   letter-spacing:-.01em;transition:transform .14s var(--ease);
 }
 .cta:active{transform:scale(.985)}
-.cta.ghost{background:var(--paper);color:var(--navy);margin-top:8px;font-size:14.5px;padding:13px}
+.cta.ghost{background:var(--paper);color:var(--navy);margin-top:8px;font-size:14.5px;padding:13px;border-radius:100px}
 .cta[disabled]{background:var(--line);color:var(--slate)}
 
 /* ------------------------------------------------------------- booking */
@@ -414,7 +422,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
       <div class="tally" id="tally"></div>
       <h2 id="endH">That's everything worth your time.</h2>
       <p id="endP"></p>
-      <button class="cta" style="max-width:260px" onclick="reset()">Start over</button>
+      <button class="cta" style="max-width:260px" onclick="reset()">Start over &rarr;</button>
       <button class="cta ghost" style="max-width:260px" onclick="location.href='/account/home'">Go to my dashboard</button>
     </div>
   </div>
@@ -446,7 +454,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 <div class="toast" id="toast"></div>
 
 <script>
-/* ============================================================ md-v2
+/* ============================================================ md-v11
    MOCK DATA ONLY. Every listing, criterion and time slot below is invented.
    Nothing here talks to BD, to a feed, or to a calendar.
 
@@ -462,7 +470,6 @@ var CARDS = [
     id:'a', tier:'strong',
     rent:1895, addr:'2140 SE Clinton St', unit:'Unit 3',
     hood:'Hosford-Abernethy', beds:2, baths:1, sqft:880,
-    p1:'#3a9e8f', p2:'#0d2d4e',
     dom:2, applicants:1,
     why:'You asked for two bedrooms under $2,100 in SE with a yard for the dog. This one is <b>$205 under your ceiling</b>, the landlord allows dogs up to 50lb with no breed limit, and off-street parking is included rather than an add-on.',
     crit:[
@@ -477,7 +484,6 @@ var CARDS = [
     id:'b', tier:'moderate',
     rent:2050, addr:'618 NE Failing St', unit:'',
     hood:'Sabin', beds:2, baths:1.5, sqft:940,
-    p1:'#e0a92e', p2:'#8a5f14',
     dom:1, applicants:6,
     why:'Everything fits except the pace. It posted yesterday and <b>six renters have already inquired</b> through us. The landlord screens on a first-complete-application basis rather than a deadline.',
     crit:[
@@ -492,7 +498,6 @@ var CARDS = [
     id:'c', tier:'moderate',
     rent:2100, addr:'4407 SE Woodstock Blvd', unit:'Apt B',
     hood:'Woodstock', beds:2, baths:1, sqft:820,
-    p1:'#e0a92e', p2:'#8a5f14',
     dom:9, applicants:2,
     why:'At the very top of your budget, and the landlord requires <b>3x rent</b> rather than the usual 2.5x. Your verified income is 2.57x, so this one is short on paper.',
     crit:[
@@ -507,7 +512,6 @@ var CARDS = [
     id:'d', tier:'weak',
     rent:1975, addr:'3312 NE 72nd Ave', unit:'',
     hood:'Roseway', beds:2, baths:1, sqft:900,
-    p1:'#6b7f93', p2:'#33475c',
     dom:23, applicants:0,
     why:'It matches on paper and we are showing it because your search has been quiet this week. But it has sat for <b>23 days</b> with no inquiries, and the landlord has not answered our last two messages.',
     crit:[
@@ -527,10 +531,18 @@ var SLOTS = [
   {d:'Sat Aug 15', t:'11:30 AM'}
 ];
 
+/* band  = the header colour. Navy on every card - a full lime header was
+           too much surface for the signal. The tier lives in the verdict
+           pill instead, which is smaller and therefore louder.
+   ink    = what the rent is set in, since white on lime is unreadable.
+   c/tint = the tier rule and the caveat panel, unchanged. */
 var TIER = {
-  strong:   {c:'var(--teal)', tint:'rgba(58,158,143,.09)',  label:'Strong match', cls:''},
-  moderate: {c:'var(--gold)', tint:'rgba(224,169,46,.11)',  label:'Worth a look', cls:'gold'},
-  weak:     {c:'var(--slate)',tint:'rgba(107,127,147,.10)', label:'Long shot',    cls:''}
+  strong:   {c:'var(--teal)', tint:'rgba(58,158,143,.09)',  label:'Strong match',
+             band:'var(--navy)', ink:'#fff', cls:''},
+  moderate: {c:'var(--gold)', tint:'rgba(224,169,46,.11)',  label:'Worth a look',
+             band:'var(--navy)', ink:'#fff', cls:'gold'},
+  weak:     {c:'var(--slate)',tint:'rgba(107,127,147,.10)', label:'Long shot',
+             band:'var(--navy)', ink:'#fff', cls:''}
 };
 
 var SCANNED = 214;
@@ -548,11 +560,11 @@ var endEl = document.getElementById('end');
   var q = '';
   try { q = (new URLSearchParams(location.search)).get('skin') || ''; } catch (e) {}
   var ok = { paper: 1, deep: 1, press: 1 };
-  var name = ok[q] ? q : 'paper';
+  var name = ok[q] ? q : 'press';
   document.documentElement.setAttribute('data-skin', name);
   var m = document.querySelector('meta[name=theme-color]');
   if (m) m.setAttribute('content',
-    name === 'deep' ? '#0a2340' : (name === 'press' ? '#eef3f2' : '#0d2d4e'));
+    name === 'deep' ? '#0a2340' : (name === 'paper' ? '#0d2d4e' : '#eef3f2'));
 })();
 
 /* ------------------------------------------------------------- helpers */
@@ -605,8 +617,8 @@ function buildCard(d, depth){
   el.className = 'card';
   el.style.setProperty('--tier', t.c);
   el.style.setProperty('--tint', t.tint);
-  el.style.setProperty('--p1', d.p1);
-  el.style.setProperty('--p2', d.p2);
+  el.style.setProperty('--band', t.band);
+  el.style.setProperty('--band-ink', t.ink);
   el.style.transform = 'translateY(' + (depth * -8) + 'px) scale(' + (1 - depth * 0.035) + ')';
   el.style.zIndex = String(10 - depth);
   el.style.opacity = depth > 1 ? '0' : '1';
@@ -749,15 +761,15 @@ function openListing(id){
   var act = document.getElementById('sheetAct');
   if (d.tier === 'strong'){
     act.innerHTML =
-      '<button class="cta" onclick="booking()">Book a showing</button>' +
+      '<button class="cta" onclick="booking()">Book a showing &rarr;</button>' +
       '<button class="cta ghost" onclick="closeSheet()">Back to matches</button>';
   } else if (d.tier === 'weak'){
     act.innerHTML =
-      '<button class="cta" onclick="chase()">Ask the landlord to confirm</button>' +
+      '<button class="cta" onclick="chase()">Ask the landlord to confirm &rarr;</button>' +
       '<button class="cta ghost" onclick="closeSheet()">Back to matches</button>';
   } else {
     act.innerHTML =
-      '<button class="cta" onclick="booking()">Book a showing</button>' +
+      '<button class="cta" onclick="booking()">Book a showing &rarr;</button>' +
       '<button class="cta ghost" onclick="closeSheet()">Back to matches</button>';
   }
 
@@ -802,7 +814,7 @@ function pick(n){
   for (var k = 0; k < all.length; k++) all[k].setAttribute('aria-pressed', String(k === n));
   var b = document.getElementById('confirm');
   b.disabled = false;
-  b.textContent = 'Book ' + SLOTS[n].d + ', ' + SLOTS[n].t;
+  b.innerHTML = 'Book ' + SLOTS[n].d + ', ' + SLOTS[n].t + ' &rarr;';
   vibrate(8);
 }
 
