@@ -657,6 +657,16 @@ window.addEventListener('message', function(e) {
     }
   }
 
+  /* zp-v4 (Aug 11): let a parent trigger the save.
+     PURELY ADDITIVE. BD's head-code block za6 never sends this message, so
+     /account/locations behaves exactly as before. The app wizard sends it so
+     the renter has ONE button at the bottom of the screen instead of hunting
+     for this page's own Save inside a scrolling iframe - which on a phone
+     sits below the fold and reads as a dead end. */
+  if (d.type === 'renters_areas_save') {
+    saveZones();
+  }
+
   if (d.type === 'renters_areas_result') {
     var el = document.getElementById('zp-status');
     if (d.full) {

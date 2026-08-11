@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="wz-v1">
+<meta name="rdc-version" content="wz-v2">
 <title>Start your search — Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ wz-v1
+/* ============================================================ wz-v2
    THE RENTER WIZARD — four steps, one container.
 
    WHY THIS EXISTS. Every piece below already works on the site. What does
@@ -75,12 +75,20 @@ input,select,textarea{font-family:inherit;font-size:16px}
 /* --------------------------------------------------------------- steps */
 .body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 20px 0;
       min-height:0}
+.body.tight{overflow:hidden;padding-bottom:14px}
 .step{display:none}
 .step.on{display:block}
 
 /* step 1 */
+/* THE FRAME MUST BE TALL. The picker carries its own Save button and its
+   own status line BELOW the map. At 300px of chrome those sat under the
+   fold, so a renter could draw a zone, close it, and have no way to finish
+   - which read as "the wizard is broken" and was the first thing to go
+   wrong in real use. Step 1 gets the whole body. */
 .frame{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--white);
-       height:calc(100vh - 300px);min-height:340px}
+       height:100%;min-height:420px}
+#s1.on{height:100%}
+.step.on#s1{display:flex;flex-direction:column}
 .frame iframe{width:100%;height:100%;border:0;display:block}
 
 /* step 2 */
@@ -183,7 +191,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .cta.ghost{background:transparent;color:var(--slate);font-size:13.5px;padding:10px;margin-top:2px}
 
 .toast{
-  position:fixed;left:50%;bottom:26px;transform:translate(-50%,18px);background:var(--navy);
+  position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translate(-50%,18px);background:var(--navy);
   color:#fff;padding:12px 19px;border-radius:12px;font-size:13px;font-weight:600;z-index:900;
   opacity:0;pointer-events:none;transition:opacity .22s,transform .22s var(--ease);
   max-width:86%;text-align:center;box-shadow:0 10px 30px rgba(13,45,78,.3);
@@ -281,7 +289,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
 <script>
 (function () {
   'use strict';
-  var V = 'wz-v1';
+  var V = 'wz-v2';
 
   var NET   = 'https://renters-story-writer.netlify.app';
   var FN    = NET + '/.netlify/functions/';
@@ -662,9 +670,12 @@ input,select,textarea{font-family:inherit;font-size:16px}
   /* ---------------------------------------------------------- routing */
 
   var COPY = {
+    /* No subtitle on step 1. The picker carries its own instructions, and
+       two sets of directions in two voices stacked above a map is what was
+       squeezing the map off the screen. */
     1: { h: 'Where do you want to live?',
-         s: "Draw the areas you would actually take a place in. Everything else follows from this.",
-         cta: 'Next →' },
+         s: '',
+         cta: 'Save my areas →' },
     2: { h: 'What are you looking for?',
          s: "Tell us what matters most, and we'll help you find your perfect spot.",
          cta: 'Save this search →' },
@@ -687,6 +698,8 @@ input,select,textarea{font-family:inherit;font-size:16px}
 
     $('h').textContent = COPY[n].h;
     $('sub').textContent = COPY[n].s;
+    $('sub').hidden = !COPY[n].s;
+    $('bodyEl').classList.toggle('tight', n === 1);
     $('next').innerHTML = COPY[n].cta;
     $('back').hidden = n === 1;
     $('skip').hidden = n !== 4;
@@ -700,11 +713,19 @@ input,select,textarea{font-family:inherit;font-size:16px}
 
   $('next').addEventListener('click', function () {
     if (state.step === 1) {
-      if (!state.areas.zones.length) {
-        toast('Draw at least one area first');
-        return;
+      if (state.areas.zones.length) { go(2); return; }
+      /* ONE BUTTON. Rather than making the renter find the picker's Save
+         inside a scrolling iframe, the wizard's own action asks the picker
+         to save. zone-picker needs the matching listener (zp-v4) or this
+         does nothing and the fallback message below is what they get. */
+      var f = $('zp');
+      if (f && f.contentWindow) {
+        f.contentWindow.postMessage({ type: 'renters_areas_save' }, '*');
       }
-      go(2); return;
+      setTimeout(function () {
+        if (!state.areas.zones.length) toast('Draw at least one area, then tap again');
+      }, 900);
+      return;
     }
 
     if (state.step === 2) {
