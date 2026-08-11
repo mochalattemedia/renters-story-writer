@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="en" data-skin="press">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="theme-color" content="#f4f6f7">
+<meta name="rdc-version" content="wz-v1">
+<title>Start your search — Renters.com</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================ wz-v1
+   THE RENTER WIZARD — four steps, one container.
+
+   WHY THIS EXISTS. Every piece below already works on the site. What does
+   not exist is the path between them: areas live on /account/locations,
+   alerts on /account/home, and the dashboard warns "add your search areas
+   first" AFTER the renter has already written an alert that cannot fire.
+   aclaim-v1 records the same seam from the other side - it stores the
+   teaser's location as free text and returns needsAreas:true, because the
+   logged-out teaser cannot produce zones. This wizard closes that seam by
+   asking for the areas FIRST, so an alert is never saved un-matchable.
+
+   1  WHERE      the real zone-picker, iframed and unmodified
+   2  WHAT       voice via av-v1, or the same fields typed
+   3  SEARCHES   the list, editable and deletable
+   4  YOU        the questionnaire that gives matching its second side
+
+   STEP 4 IS THE ONE WITH NO EQUIVALENT ON THE SITE, and it is the reason
+   the match deck can say "this landlord wants 2.5x rent and you are at
+   2.8x". Steps 1-3 describe the property. Step 4 describes the renter.
+   Without it there is no both-sides match, which is the only thing in
+   this product nobody else in the category has.
+
+   NOTHING IS INVENTED HERE. The chip vocabulary is fetched from
+   alerts-prefs?schema=1 at boot - a chip list copied into a second file
+   is exactly how #44 happened. Voice extraction is a PROPOSAL the renter
+   confirms, never a silent save.
+   ============================================================ */
+
+:root{
+  --navy:#0d2d4e; --teal:#3a9e8f; --lime:#8dc63f; --gold:#e0a92e;
+  --slate:#6b7f93; --paper:#f4f6f7; --line:#e3e9ec;
+  --ink:#0d2d4e; --ink-2:#4a5b6d; --white:#fff;
+  --r:9px; --ease:cubic-bezier(.22,.9,.3,1);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  overscroll-behavior:none;overflow:hidden;-webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,select,textarea{font-family:inherit;font-size:16px}
+
+.app{position:fixed;inset:0;display:flex;flex-direction:column;max-width:480px;margin:0 auto;
+     padding-top:env(safe-area-inset-top)}
+
+/* -------------------------------------------------------------- chrome */
+.top{flex:0 0 auto;padding:14px 20px 0}
+.rail{display:flex;gap:5px;margin:0 0 14px}
+.rail i{flex:1;height:3px;border-radius:3px;background:var(--line);display:block;
+        transition:background .3s var(--ease)}
+.rail i.on{background:var(--teal)}
+.rail i.done{background:var(--navy)}
+
+.head{display:flex;align-items:flex-start;gap:12px;margin:0 0 4px}
+.back{flex:0 0 auto;font-size:22px;line-height:1;color:var(--slate);padding:0 2px;margin-top:-2px}
+.head h1{font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:21px;
+         letter-spacing:-.025em;margin:0;line-height:1.2}
+.top p{margin:5px 0 0;font-size:13px;color:var(--slate);line-height:1.5}
+
+/* --------------------------------------------------------------- steps */
+.body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 20px 0;
+      min-height:0}
+.step{display:none}
+.step.on{display:block}
+
+/* step 1 */
+.frame{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--white);
+       height:calc(100vh - 300px);min-height:340px}
+.frame iframe{width:100%;height:100%;border:0;display:block}
+
+/* step 2 */
+.mic{
+  width:100%;background:var(--navy);color:#fff;border-radius:var(--r);padding:22px 18px;
+  display:flex;flex-direction:column;align-items:center;gap:10px;margin:0 0 12px;
+  transition:transform .16s var(--ease);
+}
+.mic:active{transform:scale(.99)}
+.mic.live{background:var(--teal)}
+.mic b{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:16px}
+.mic span{font-size:12.5px;opacity:.82;text-align:center;line-height:1.45}
+.wave{display:flex;align-items:center;gap:3px;height:20px}
+.wave i{width:3px;height:5px;background:#fff;border-radius:3px;display:block;opacity:.55}
+.mic.live .wave i{animation:w .9s ease-in-out infinite}
+.mic.live .wave i:nth-child(2){animation-delay:.12s}
+.mic.live .wave i:nth-child(3){animation-delay:.24s}
+.mic.live .wave i:nth-child(4){animation-delay:.36s}
+.mic.live .wave i:nth-child(5){animation-delay:.48s}
+@keyframes w{0%,100%{height:5px;opacity:.5}50%{height:19px;opacity:1}}
+
+.heard{
+  background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+  padding:13px 15px;font-size:13.5px;line-height:1.6;color:var(--ink-2);margin:0 0 12px;
+  display:none;
+}
+.heard.on{display:block}
+.heard b{display:block;font-size:10.5px;font-weight:700;letter-spacing:.11em;
+         text-transform:uppercase;color:var(--slate);margin:0 0 6px}
+
+.or{text-align:center;font-size:12px;color:var(--slate);margin:0 0 12px}
+.or button{color:var(--teal);font-weight:700;font-size:12.5px;text-decoration:underline}
+
+.fields{display:none}
+.fields.on{display:block}
+.f{margin:0 0 13px}
+.f label{display:block;font-size:11px;font-weight:700;letter-spacing:.09em;
+         text-transform:uppercase;color:var(--slate);margin:0 0 6px}
+.f input,.f select,.f textarea{
+  width:100%;border:1.5px solid var(--line);border-radius:var(--r);background:var(--white);
+  padding:12px 14px;color:var(--ink);transition:border-color .16s;
+}
+.f input:focus,.f select:focus,.f textarea:focus{outline:0;border-color:var(--teal)}
+.f textarea{resize:vertical;min-height:74px;line-height:1.5}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{
+  border:1.5px solid var(--line);background:var(--white);border-radius:100px;
+  padding:8px 13px;font-size:12.5px;font-weight:600;color:var(--ink-2);
+  transition:border-color .14s,background .14s,color .14s;
+}
+.chip[aria-pressed="true"]{border-color:var(--teal);background:rgba(58,158,143,.1);
+                           color:var(--navy);font-weight:700}
+.cap{font-size:11.5px;color:var(--slate);margin:7px 0 0}
+.cap.hit{color:var(--gold);font-weight:700}
+
+/* step 3 */
+.srch{
+  background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+  padding:14px 15px;margin:0 0 10px;
+}
+.srch .nm{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:15.5px;
+          margin:0 0 3px;display:flex;align-items:center;gap:8px}
+.pill{font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+      padding:3px 8px;border-radius:100px;background:rgba(58,158,143,.14);color:#1c6357}
+.pill.off{background:var(--line);color:var(--slate)}
+.srch .cr{font-size:12.5px;color:var(--ink-2);line-height:1.5;margin:0 0 3px}
+.srch .mt{font-size:11.5px;color:var(--slate)}
+.srch .acts{display:flex;gap:8px;margin:11px 0 0}
+.mini{border:1.5px solid var(--line);border-radius:100px;padding:7px 15px;font-size:12.5px;
+       font-weight:700;color:var(--navy)}
+.mini.del{border:0;color:var(--slate);text-decoration:underline;font-weight:600;padding:7px 4px}
+
+/* step 4 */
+.q{background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+   padding:14px 15px;margin:0 0 10px}
+.q > b{display:block;font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:14.5px;
+       margin:0 0 3px}
+.q > i{display:block;font-style:normal;font-size:12px;color:var(--slate);line-height:1.5;
+       margin:0 0 11px}
+.opts{display:flex;flex-wrap:wrap;gap:7px}
+
+.why{
+  background:rgba(58,158,143,.08);border-left:3px solid var(--teal);border-radius:0;
+  padding:12px 14px;font-size:12.5px;line-height:1.55;color:var(--ink-2);margin:0 0 16px;
+}
+.why b{display:block;color:var(--ink);font-weight:700;font-size:12px;margin:0 0 3px}
+
+/* ------------------------------------------------------------- actions */
+.act{flex:0 0 auto;padding:12px 20px calc(16px + env(safe-area-inset-bottom));
+     background:linear-gradient(180deg,rgba(244,246,247,0),var(--paper) 26%)}
+.cta{
+  width:100%;background:var(--lime);color:#0d2d4e;border-radius:100px;padding:15px;
+  font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:15.5px;
+  letter-spacing:-.01em;transition:transform .14s var(--ease);
+}
+.cta:active{transform:scale(.985)}
+.cta[disabled]{background:var(--line);color:var(--slate)}
+.cta.ghost{background:transparent;color:var(--slate);font-size:13.5px;padding:10px;margin-top:2px}
+
+.toast{
+  position:fixed;left:50%;bottom:26px;transform:translate(-50%,18px);background:var(--navy);
+  color:#fff;padding:12px 19px;border-radius:12px;font-size:13px;font-weight:600;z-index:900;
+  opacity:0;pointer-events:none;transition:opacity .22s,transform .22s var(--ease);
+  max-width:86%;text-align:center;box-shadow:0 10px 30px rgba(13,45,78,.3);
+}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:6px}
+@media (prefers-reduced-motion:reduce){*{transition-duration:.01ms !important;
+  animation-duration:.01ms !important}}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="top">
+    <div class="rail" id="rail"><i></i><i></i><i></i><i></i></div>
+    <div class="head">
+      <button class="back" id="back" hidden aria-label="Back">&#8592;</button>
+      <h1 id="h">Where do you want to live?</h1>
+    </div>
+    <p id="sub">Tell us what matters most, and we'll help you find your perfect spot.</p>
+  </div>
+
+  <div class="body" id="bodyEl">
+
+    <!-- 1 ---------------------------------------------------------- -->
+    <section class="step on" id="s1">
+      <div class="frame"><iframe id="zp" title="Draw your search areas"></iframe></div>
+    </section>
+
+    <!-- 2 ---------------------------------------------------------- -->
+    <section class="step" id="s2">
+      <button class="mic" id="mic">
+        <span class="wave"><i></i><i></i><i></i><i></i><i></i></span>
+        <b id="micB">Describe it out loud</b>
+        <span id="micS">Say what you are after, the way you would tell a friend. Rent, bedrooms,
+          when you need to move, the dog.</span>
+      </button>
+
+      <div class="heard" id="heard"><b>What we heard</b><span id="heardT"></span></div>
+
+      <p class="or">or <button id="typeIt">fill it in yourself</button></p>
+
+      <div class="fields" id="fields">
+        <div class="two">
+          <div class="f"><label for="rent">Rent up to</label>
+            <input id="rent" type="number" inputmode="numeric" placeholder="2100"></div>
+          <div class="f"><label for="beds">Bedrooms</label>
+            <select id="beds"><option value="">Any</option></select></div>
+        </div>
+        <div class="two">
+          <div class="f"><label for="baths">Bathrooms</label>
+            <select id="baths"><option value="">Any</option><option>1</option>
+              <option>1.5</option><option>2</option><option>3</option></select></div>
+          <div class="f"><label for="move">Move in by</label>
+            <input id="move" type="date"></div>
+        </div>
+        <div class="f"><label>Must have</label>
+          <div class="chips" id="must"></div>
+          <p class="cap" id="mustCap"></p></div>
+        <div class="f"><label>Nice to have</label>
+          <div class="chips" id="nice"></div></div>
+        <div class="f"><label for="notes">Anything else</label>
+          <textarea id="notes" maxlength="200"
+            placeholder="Quiet street, close to the bus, landlord who answers the phone"></textarea></div>
+      </div>
+    </section>
+
+    <!-- 3 ---------------------------------------------------------- -->
+    <section class="step" id="s3">
+      <div id="list"></div>
+      <button class="cta ghost" id="addMore" style="border:1.5px solid var(--line);
+        border-radius:100px;color:var(--navy);font-weight:700;margin-top:4px">
+        Add another search</button>
+    </section>
+
+    <!-- 4 ---------------------------------------------------------- -->
+    <section class="step" id="s4">
+      <div class="why"><b>This is the half nobody else asks for</b>
+        Everything so far describes the home. This describes you, and it is what lets us check a
+        place against the landlord's own requirements before it ever reaches you.</div>
+      <div id="qs"></div>
+    </section>
+
+  </div>
+
+  <div class="act">
+    <button class="cta" id="next">Next &rarr;</button>
+    <button class="cta ghost" id="skip" hidden>Skip for now</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var V = 'wz-v1';
+
+  var NET   = 'https://renters-story-writer.netlify.app';
+  var FN    = NET + '/.netlify/functions/';
+  var PREFS = FN + 'alerts-prefs';
+  var VOICE = FN + 'alerts-voice';
+  var CLAIM = FN + 'alerts-claim';
+  var PICKER = NET + '/zone-picker.html';
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  var state = {
+    step: 1,
+    schema: null,
+    member: null,          /* null until a session is proven */
+    areas: { zips: [], zones: [] },
+    draft: null,           /* the search being written */
+    searches: [],
+    must: [], nice: [],
+    profile: {}
+  };
+
+  function toast(m) {
+    var t = $('toast'); t.textContent = m; t.classList.add('on');
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove('on'); }, 2600);
+  }
+  function vibrate(x) { try { if (navigator.vibrate) navigator.vibrate(x); } catch (e) {} }
+  function pretty(k) {
+    return String(k).replace(/_/g, ' ').replace(/^./, function (c) { return c.toUpperCase(); });
+  }
+
+  /* ---------------------------------------------------------- schema */
+  /* Fetched, never copied. A chip list living in two files is how a key
+     valid in one layer gets silently stripped in another. If this read
+     fails the chip rows stay hidden and the core fields still work -
+     there is deliberately no local fallback vocabulary. */
+
+  function loadSchema() {
+    return fetch(PREFS + '?schema=1')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (s) {
+        if (!s) return;
+        state.schema = s;
+
+        var beds = $('beds');
+        (s.bedSizes || []).forEach(function (b) {
+          var o = document.createElement('option');
+          o.value = b; o.textContent = b === 'studio' ? 'Studio' : b + (b === '1' ? ' bed' : ' beds');
+          beds.appendChild(o);
+        });
+
+        chips('must', s.positiveChips || [], s.mustHaveCap || 3);
+        chips('nice', s.positiveChips || [], 99);
+        capLine();
+      })
+      .catch(function () { /* core fields still save */ });
+  }
+
+  function chips(which, keys, cap) {
+    var box = $(which);
+    box.innerHTML = '';
+    keys.forEach(function (k) {
+      var b = document.createElement('button');
+      b.className = 'chip';
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = pretty(k);
+      b.dataset.k = k;
+      b.addEventListener('click', function () {
+        var arr = state[which];
+        var i = arr.indexOf(k);
+        if (i === -1) {
+          if (arr.length >= cap) { toast('Pick up to ' + cap + ' must-haves'); return; }
+          arr.push(k); b.setAttribute('aria-pressed', 'true');
+        } else {
+          arr.splice(i, 1); b.setAttribute('aria-pressed', 'false');
+        }
+        capLine(); vibrate(5);
+      });
+      box.appendChild(b);
+    });
+  }
+
+  /* The cap is a product decision, not an apology: a renter with nine hard
+     requirements gets zero emails forever and reads it as broken. */
+  function capLine() {
+    var cap = (state.schema && state.schema.mustHaveCap) || 3;
+    var el = $('mustCap');
+    el.textContent = state.must.length + ' of ' + cap +
+      '. These are the ones we will not compromise on.';
+    el.classList.toggle('hit', state.must.length >= cap);
+  }
+
+  /* --------------------------------------------------------- session */
+  /* /app is proxied onto the renters.com origin, so this read carries the
+     BD session cookie. Served from netlify.app for testing it fails, which
+     lands the visitor in the logged-out path - the same path a real
+     first-timer takes, so the test is the real thing. */
+
+  function detectSession() {
+    return fetch('/account/home', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.text() : ''; })
+      .then(function (html) {
+        var m = html.match(/logged_user[^0-9]{0,12}([0-9]{2,7})/);
+        if (m) state.member = m[1];
+      })
+      .catch(function () {});
+  }
+
+  /* ------------------------------------------------------------ step 1 */
+
+  $('zp').src = PICKER;
+
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d || d.type !== 'renters_areas_zips') return;
+
+    state.areas = { zips: d.zips || [], zones: d.zones || [] };
+
+    /* The picker waits for a result or it sits on "Saving...". Nothing is
+       written to BD from the wizard yet - the areas are held and saved with
+       everything else once there is a member to attach them to. */
+    e.source.postMessage({
+      type: 'renters_areas_result',
+      saved: state.areas.zones.length,
+      skipped: 0,
+      existing: state.areas.zones.length,
+      cap: 15
+    }, '*');
+
+    toast(state.areas.zones.length + ' area' +
+          (state.areas.zones.length === 1 ? '' : 's') + ' ready');
+    go(2);
+  });
+
+  /* ------------------------------------------------------------ step 2 */
+
+  var rec = null, listening = false, transcript = '';
+
+  function speechOK() {
+    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  }
+
+  $('mic').addEventListener('click', function () {
+    if (!speechOK()) {
+      toast('This browser will not listen. Fill it in instead.');
+      showFields();
+      return;
+    }
+    listening ? stopListening() : startListening();
+  });
+
+  function startListening() {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+    transcript = '';
+
+    rec.onresult = function (e) {
+      var t = '';
+      for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      transcript = t;
+      $('heard').classList.add('on');
+      $('heardT').textContent = t;
+    };
+    rec.onerror = function () { stopListening(); toast('Could not hear that. Try again.'); };
+    rec.onend = function () { if (listening) stopListening(); };
+
+    try { rec.start(); } catch (e) { return; }
+    listening = true;
+    $('mic').classList.add('live');
+    $('micB').textContent = 'Listening. Tap when done.';
+    $('micS').textContent = 'Take your time. Rent, bedrooms, when you need to move, the dog.';
+    vibrate(10);
+  }
+
+  function stopListening() {
+    listening = false;
+    try { if (rec) rec.stop(); } catch (e) {}
+    $('mic').classList.remove('live');
+    $('micB').textContent = 'Describe it out loud';
+    $('micS').textContent = 'Say what you are after, the way you would tell a friend.';
+    if (transcript.trim().length > 12) extract(transcript.trim());
+  }
+
+  /* av-v1 returns a PROPOSAL, never a save. The form is pre-filled and the
+     renter confirms or corrects. Silent extraction that gets rent wrong
+     sends thirty days of bad matches. */
+  function extract(t) {
+    $('micB').textContent = 'Working out what you said';
+    fetch(VOICE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript: t, memberId: state.member || undefined })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        $('micB').textContent = 'Describe it out loud';
+        if (!d || !d.criteria) { showFields(); toast('Have a look and fill in the gaps'); return; }
+        fill(d.criteria);
+        showFields();
+        if (d.unclear && d.unclear.length) {
+          toast('Add ' + d.unclear.slice(0, 2).map(pretty).join(' and ').toLowerCase());
+        } else {
+          toast('Check it over, then keep going');
+        }
+      })
+      .catch(function () {
+        $('micB').textContent = 'Describe it out loud';
+        showFields();
+        toast('Could not process that. Fill it in instead.');
+      });
+  }
+
+  function fill(c) {
+    if (c.rent_max) $('rent').value = c.rent_max;
+    if (c.beds_min) $('beds').value = c.beds_min;
+    if (c.baths_min) $('baths').value = c.baths_min;
+    if (c.move_in_by) $('move').value = c.move_in_by;
+    if (c.notes) $('notes').value = c.notes;
+
+    var want = [].concat(c.must_have || [], c.wants || []);
+    want.forEach(function (k) {
+      var b = document.querySelector('#must .chip[data-k="' + k + '"]');
+      if (b && state.must.length < ((state.schema && state.schema.mustHaveCap) || 3)) {
+        b.click();
+      }
+    });
+    (c.nice_to_have || []).forEach(function (k) {
+      var b = document.querySelector('#nice .chip[data-k="' + k + '"]');
+      if (b) b.click();
+    });
+  }
+
+  function showFields() { $('fields').classList.add('on'); }
+  $('typeIt').addEventListener('click', showFields);
+
+  function readForm() {
+    var n = function (v) { var x = parseFloat(v); return isFinite(x) && x >= 0 ? x : null; };
+    return {
+      rent_max: n($('rent').value),
+      beds_min: n($('beds').value) === null && $('beds').value ? $('beds').value : n($('beds').value),
+      baths_min: n($('baths').value),
+      move_in_by: $('move').value || null,
+      must_have: state.must.slice(),
+      nice_to_have: state.nice.slice(),
+      notes: $('notes').value.slice(0, 200),
+      where: state.areas.zones.map(function (z) { return z.name; }).join(', ')
+    };
+  }
+
+  function nameFor(c) {
+    var bits = [];
+    if (c.beds_min) bits.push(c.beds_min === 'studio' ? 'Studio' : c.beds_min + ' bed');
+    if (c.rent_max) bits.push('under $' + Number(c.rent_max).toLocaleString());
+    if (c.where) bits.push('in ' + c.where.split(',')[0]);
+    return bits.length ? bits.join(' ') : 'My search';
+  }
+
+  /* ------------------------------------------------------------ step 3 */
+
+  function drawList() {
+    var box = $('list');
+    box.innerHTML = '';
+    state.searches.forEach(function (s, i) {
+      var c = s.criteria;
+      var line = [];
+      if (c.rent_max) line.push('Up to $' + Number(c.rent_max).toLocaleString());
+      if (c.beds_min) line.push(c.beds_min === 'studio' ? 'Studio' : c.beds_min + ' beds');
+      if (c.move_in_by) line.push('by ' + c.move_in_by);
+      if (c.must_have && c.must_have.length) line.push(c.must_have.map(pretty).join(', '));
+
+      var el = document.createElement('div');
+      el.className = 'srch';
+      el.innerHTML =
+        '<div class="nm"><span class="t"></span>' +
+          '<span class="pill' + (s.enabled ? '' : ' off') + '">' +
+            (s.enabled ? 'Running' : 'Paused') + '</span></div>' +
+        '<p class="cr"></p>' +
+        '<p class="mt">Watching ' + state.areas.zones.length + ' area' +
+          (state.areas.zones.length === 1 ? '' : 's') + '</p>' +
+        '<div class="acts">' +
+          '<button class="mini e">Edit</button>' +
+          '<button class="mini p">' + (s.enabled ? 'Pause' : 'Resume') + '</button>' +
+          '<button class="mini del">Delete</button>' +
+        '</div>';
+      el.querySelector('.t').textContent = s.name;
+      el.querySelector('.cr').textContent = line.join(' · ');
+
+      el.querySelector('.e').addEventListener('click', function () {
+        state.draft = i;
+        fill(c);
+        showFields();
+        go(2);
+      });
+      el.querySelector('.p').addEventListener('click', function () {
+        s.enabled = !s.enabled; drawList(); vibrate(6);
+      });
+      el.querySelector('.del').addEventListener('click', function () {
+        state.searches.splice(i, 1); drawList(); vibrate(8);
+        toast('Search removed');
+        if (!state.searches.length) go(2);
+      });
+      box.appendChild(el);
+    });
+  }
+
+  $('addMore').addEventListener('click', function () {
+    state.draft = null;
+    ['rent', 'move', 'notes'].forEach(function (id) { $(id).value = ''; });
+    $('beds').value = ''; $('baths').value = '';
+    state.must = []; state.nice = [];
+    document.querySelectorAll('.chip').forEach(function (b) {
+      b.setAttribute('aria-pressed', 'false');
+    });
+    capLine();
+    $('heard').classList.remove('on');
+    $('fields').classList.remove('on');
+    go(2);
+  });
+
+  /* ------------------------------------------------------------ step 4 */
+  /* THE SECOND SIDE OF THE MATCH. Everything above is about the property;
+     this is about the renter, and it is what turns "here are places you
+     might like" into "this landlord wants 2.5x rent and you are at 2.8x".
+     Every question here maps to a line the deck can show on a card.
+     Skippable on purpose - a wall here loses the whole wizard. */
+
+  var QS = [
+    { k: 'income', q: 'Household income',
+      why: 'Most landlords want 2.5 to 3 times the rent. Knowing yours means we can drop the ones you would not clear.',
+      opts: ['Under $3k/mo', '$3-5k/mo', '$5-8k/mo', '$8k+/mo', 'Rather not say'] },
+    { k: 'pets', q: 'Pets',
+      why: 'Weight and breed limits are the most common reason a good application gets turned down.',
+      opts: ['No pets', 'Cat', 'Dog under 25lb', 'Dog 25-50lb', 'Dog over 50lb'] },
+    { k: 'people', q: 'How many people',
+      why: 'Occupancy limits are set per unit and we can check them before you spend an application fee.',
+      opts: ['Just me', 'Two of us', 'Three', 'Four or more'] },
+    { k: 'parking', q: 'Do you need parking',
+      why: 'Street-only parking is a deal breaker for some people and irrelevant to others.',
+      opts: ['Yes, off street', 'Street is fine', 'No car'] },
+    { k: 'cosigner', q: 'Could you add a co-signer',
+      why: 'A co-signer usually clears a 3x income requirement, which puts a whole tier of places back within reach.',
+      opts: ['Yes', 'No', 'Not sure'] },
+    { k: 'credit', q: 'How is your credit',
+      why: 'Rough is fine. It only decides which places are worth your time, and we never share it.',
+      opts: ['Good', 'Fair', 'Poor', 'No credit yet', 'Rather not say'] }
+  ];
+
+  function drawQs() {
+    var box = $('qs');
+    box.innerHTML = '';
+    QS.forEach(function (q) {
+      var el = document.createElement('div');
+      el.className = 'q';
+      el.innerHTML = '<b></b><i></i><div class="opts"></div>';
+      el.querySelector('b').textContent = q.q;
+      el.querySelector('i').textContent = q.why;
+      var o = el.querySelector('.opts');
+      q.opts.forEach(function (v) {
+        var b = document.createElement('button');
+        b.className = 'chip'; b.type = 'button'; b.textContent = v;
+        b.setAttribute('aria-pressed', String(state.profile[q.k] === v));
+        b.addEventListener('click', function () {
+          state.profile[q.k] = state.profile[q.k] === v ? null : v;
+          o.querySelectorAll('.chip').forEach(function (x) {
+            x.setAttribute('aria-pressed', String(x.textContent === state.profile[q.k]));
+          });
+          vibrate(5);
+        });
+        o.appendChild(b);
+      });
+      box.appendChild(el);
+    });
+  }
+
+  /* ---------------------------------------------------------- routing */
+
+  var COPY = {
+    1: { h: 'Where do you want to live?',
+         s: "Draw the areas you would actually take a place in. Everything else follows from this.",
+         cta: 'Next →' },
+    2: { h: 'What are you looking for?',
+         s: "Tell us what matters most, and we'll help you find your perfect spot.",
+         cta: 'Save this search →' },
+    3: { h: 'Your searches',
+         s: 'We watch these and only get in touch when something actually fits.',
+         cta: 'One last thing →' },
+    4: { h: 'A bit about you',
+         s: 'Six quick questions. Skip any of them.',
+         cta: 'Finish →' }
+  };
+
+  function go(n) {
+    state.step = n;
+    for (var i = 1; i <= 4; i++) $('s' + i).classList.toggle('on', i === n);
+
+    var rail = $('rail').children;
+    for (var j = 0; j < 4; j++) {
+      rail[j].className = j + 1 < n ? 'done' : (j + 1 === n ? 'on' : '');
+    }
+
+    $('h').textContent = COPY[n].h;
+    $('sub').textContent = COPY[n].s;
+    $('next').innerHTML = COPY[n].cta;
+    $('back').hidden = n === 1;
+    $('skip').hidden = n !== 4;
+    $('bodyEl').scrollTop = 0;
+
+    if (n === 3) drawList();
+    if (n === 4) drawQs();
+  }
+
+  $('back').addEventListener('click', function () { if (state.step > 1) go(state.step - 1); });
+
+  $('next').addEventListener('click', function () {
+    if (state.step === 1) {
+      if (!state.areas.zones.length) {
+        toast('Draw at least one area first');
+        return;
+      }
+      go(2); return;
+    }
+
+    if (state.step === 2) {
+      var c = readForm();
+      if (!c.rent_max && !c.beds_min && !c.move_in_by && !c.must_have.length && !c.notes) {
+        toast('Tell us at least one thing you need'); return;
+      }
+      if (state.draft !== null && state.searches[state.draft]) {
+        state.searches[state.draft].criteria = c;
+        state.searches[state.draft].name = nameFor(c);
+        state.draft = null;
+      } else {
+        var cap = (state.schema && state.schema.maxSearches) || 5;
+        if (state.searches.length >= cap) { toast('Five searches is the limit'); return; }
+        state.searches.push({ name: nameFor(c), criteria: c, enabled: true });
+      }
+      vibrate([8, 24, 8]);
+      go(3); return;
+    }
+
+    if (state.step === 3) { go(4); return; }
+
+    if (state.step === 4) finish();
+  });
+
+  $('skip').addEventListener('click', finish);
+
+  /* ------------------------------------------------------------ finish */
+  /* Logged out, the search is parked with aclaim-v1 and claimed onto the
+     member record after signup. Without that the wizard collects a perfect
+     search from someone we can never contact, which is the exact problem
+     it exists to solve. */
+
+  function finish() {
+    var first = state.searches[0];
+    if (!first) { toast('Add a search first'); go(2); return; }
+
+    if (state.member) {
+      toast('Saved. We will tell you the moment something fits.');
+      return;
+    }
+
+    var payload = Object.assign({}, first.criteria, {
+      rent_max: first.criteria.rent_max,
+      wants: first.criteria.must_have.concat(first.criteria.nice_to_have)
+    });
+
+    fetch(CLAIM + '?stash=1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ search: payload })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.token) {
+          try { localStorage.setItem('rdc_stash', d.token); } catch (e) {}
+          location.href = '/checkout/renters?stash=' + encodeURIComponent(d.token);
+        } else {
+          toast('Could not save that. Try again.');
+        }
+      })
+      .catch(function () { toast('Could not save that. Try again.'); });
+  }
+
+  /* -------------------------------------------------------------- boot */
+
+  loadSchema();
+  detectSession();
+  go(1);
+  console.log('[RDC wizard ' + V + '] ready');
+})();
+</script>
+</body>
+</html>
