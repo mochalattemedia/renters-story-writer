@@ -1,6 +1,17 @@
 // ============================================================
-//  verify-approve.js   va-v1   (2026-08-11)
+//  verify-approve.js   va-v2   (2026-08-11)
 //  Mobile verification approval. No BD login, phone-first.
+//
+//  va-v2  BD's DEFAULT AVATAR IS NOT A PHOTO. verify-member returns a
+//         profilePhotoUrl for every member, including those who never
+//         uploaded anything, because BD serves a stock silhouette at
+//         profile-profile-holder.png. va-v1 read "a URL exists" as "has a
+//         photo" and printed a GREEN bar over a placeholder, which is the
+//         one wrong thing this page can say: the whole decision is whether
+//         the profile photo matches the selfie, and a silhouette matches
+//         nothing. Now the placeholder is detected, the tile shows as
+//         empty, and the bar points at the needs-photo button.
+//         (The bookmarklet has the same flaw in its "Has photo" line.)
 //
 //  A Didit approval fires a minimal email carrying an HMAC-signed
 //  link. The link opens a private page that shows the three photos
@@ -32,7 +43,7 @@
 //    POST {action:"data"|"approve"|"needsphoto", t, pin}
 // ============================================================
 
-const FN_VERSION = "va-v1";
+const FN_VERSION = "va-v2";
 
 const crypto = require("crypto");
 const { getStore } = require("@netlify/blobs");
@@ -50,6 +61,27 @@ const STORE_NAME = "approve-tokens";
 const TTL_HOURS = 72;
 const MAX_PIN_ATTEMPTS = 5;
 const VIEW_WINDOW_MS = 15 * 60 * 1000;
+
+// BD serves a stock silhouette to every member with no uploaded photo, so a
+// non-empty profilePhotoUrl proves nothing on its own. Matched on the known
+// filename only: a looser pattern risks the worse error, telling Kenny to chase
+// a photo from someone who already supplied a real one.
+const PLACEHOLDER_MARKERS = ["profile-profile-holder"];
+
+function isPlaceholderPhoto(url) {
+  if (!url) return false;
+  const u = String(url).toLowerCase().split("?")[0];
+  for (let i = 0; i < PLACEHOLDER_MARKERS.length; i++) {
+    if (u.indexOf(PLACEHOLDER_MARKERS[i]) !== -1) return true;
+  }
+  return false;
+}
+
+// Returns "" when the member has no REAL photo, placeholder included.
+function realPhotoUrl(member) {
+  const u = (member && (member.profilePhotoUrl || member.profilePhoto)) || "";
+  return isPlaceholderPhoto(u) ? "" : u;
+}
 
 // ---------- plumbing ----------
 
@@ -374,7 +406,7 @@ function pageHtml(token) {
     "$('sub').textContent='Member #'+d.memberId+(d.accountType?(' · '+d.accountType):'');",
     "var base=location.pathname+'?t='+encodeURIComponent(T)+'&v='+encodeURIComponent(VIEW)+'&img=';",
     "var h='';",
-    "h+=\"<div class='ph s-profile'>\"+(d.hasProfile?(\"<img src='\"+base+\"profile' alt=''>\"):\"<div class='none'>No profile photo</div>\")+\"<p>Profile</p></div>\";",
+    "h+=\"<div class='ph s-profile'>\"+(d.hasProfile?(\"<img src='\"+base+\"profile' alt=''>\"):(\"<div class='none'>\"+(d.placeholderPhoto?'Placeholder, not a photo':'No profile photo')+\"</div>\"))+\"<p>Profile</p></div>\";",
     "h+=\"<div class='ph s-selfie'>\"+(d.hasSelfie?(\"<img src='\"+base+\"selfie' alt=''>\"):\"<div class='none'>No selfie</div>\")+\"<p>Selfie</p></div>\";",
     "h+=\"<div class='ph s-id'>\"+(d.hasId?(\"<img src='\"+base+\"id' alt=''>\"):\"<div class='none'>No ID photo</div>\")+\"<p>ID photo</p></div>\";",
     "$('photos').innerHTML=h;",
@@ -382,7 +414,8 @@ function pageHtml(token) {
     "var c=d.score>=80?'#1e8449':(d.score>=60?'#b9770e':'#c0392b');",
     "$('score').innerHTML=\"<div class='score'>ID to selfie match: <span style='color:\"+c+\"'>\"+d.score.toFixed(1)+\"%</span></div>\";",
     "}",
-    "$('flag').innerHTML=d.hasProfile?\"<div class='flag f-good'>Profile photo on file</div>\":\"<div class='flag f-bad'>No profile photo. Send the needs-photo email.</div>\";",
+    "var fmsg=d.hasProfile?\"<div class='flag f-good'>Photo on file. Check it is the same face.</div>\":(d.placeholderPhoto?\"<div class='flag f-bad'>Stock silhouette, not a real photo. Send the needs-photo email.</div>\":\"<div class='flag f-bad'>No profile photo. Send the needs-photo email.</div>\");",
+    "$('flag').innerHTML=fmsg;",
     "}",
 
     "$('open').onclick=function(){",
@@ -485,7 +518,7 @@ exports.handler = async function (event) {
     let url = "";
     if (q.img === "profile") {
       const mem = await loadMember(t.payload.m);
-      url = (mem && (mem.profilePhotoUrl || mem.profilePhoto)) || "";
+      url = realPhotoUrl(mem);
     } else {
       const sf = await loadSelfie(t.payload.i);
       url = q.img === "selfie" ? (sf && sf.selfie) || "" : (sf && sf.idPortrait) || "";
@@ -562,7 +595,8 @@ exports.handler = async function (event) {
         memberId: t.payload.m,
         name: (member && member.name) || "",
         accountType: (member && member.accountType) || "",
-        hasProfile: !!(member && (member.profilePhotoUrl || member.profilePhoto)),
+        hasProfile: !!realPhotoUrl(member),
+        placeholderPhoto: isPlaceholderPhoto((member && (member.profilePhotoUrl || member.profilePhoto)) || ""),
         hasSelfie: !!(sf && sf.selfie),
         hasId: !!(sf && sf.idPortrait),
         score: sf && typeof sf.faceMatchScore === "number" ? sf.faceMatchScore : null,
