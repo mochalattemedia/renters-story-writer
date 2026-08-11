@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="en" data-skin="paper">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="theme-color" content="#0d2d4e">
+<title>Your matches — Renters.com</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================ md-v1
+   MATCH DECK — prototype
+   Mock data. No feed, no booking backend. Built to be felt on a phone.
+
+   The thesis: this screen's job is not to show inventory. It is to show
+   that almost everything was thrown away. Hard no's never render.
+   ============================================================ */
+
+:root{
+  --navy:#0d2d4e;
+  --navy-2:#16406b;
+  --teal:#3a9e8f;
+  --lime:#8dc63f;
+  --gold:#e0a92e;
+  --slate:#6b7f93;
+  --paper:#f4f7f9;
+  --line:#e2e9ee;
+  --ink:#0d2d4e;
+  --ink-2:#4a5b6d;
+  --white:#fff;
+  --r:18px;
+  --ease:cubic-bezier(.22,.9,.3,1);
+}
+
+/* ============================================================
+   THREE SKINS. Same structure, same brand palette, same copy.
+   Only the surface treatment changes, which is what "look and feel"
+   actually means here. Switch with the pill at the top right.
+
+   1 PAPER      light, utility, reads as a tool you trust
+   2 DEEP       navy field, cards float, reads as an app at night
+   3 PRESS      pale field, tier as a full-width rule, type does the work
+   ============================================================ */
+
+/* --- 2 DEEP --- */
+html[data-skin="deep"]{
+  --paper:#0a2340;
+  --white:#12395f;
+  --line:#1d4c78;
+  --ink:#eaf2f8;
+  --ink-2:#a9c3d8;
+  --slate:#7d9cb8;
+  --r:20px;
+}
+html[data-skin="deep"] body{background:radial-gradient(120% 80% at 50% 0%,#123a60 0%,#0a2340 62%)}
+html[data-skin="deep"] .card{
+  box-shadow:0 1px 0 rgba(255,255,255,.06) inset, 0 24px 50px -20px rgba(0,0,0,.7);
+  border:1px solid rgba(255,255,255,.07);
+}
+html[data-skin="deep"] .brand{color:#fff}
+html[data-skin="deep"] .pad{background:#12395f;box-shadow:0 12px 26px -14px rgba(0,0,0,.8)}
+html[data-skin="deep"] .pad svg path[stroke]{stroke:#a9c3d8}
+html[data-skin="deep"] .pad.big{background:var(--teal)}
+html[data-skin="deep"] .strip div,
+html[data-skin="deep"] .p-why{background:rgba(255,255,255,.05)}
+html[data-skin="deep"] .sheet{background:#12395f}
+html[data-skin="deep"] .sheet-act{background:#12395f}
+html[data-skin="deep"] .cta.ghost{background:rgba(255,255,255,.07);color:#eaf2f8}
+html[data-skin="deep"] .open svg path{stroke:#eaf2f8}
+html[data-skin="deep"] .slot{border-color:#1d4c78}
+html[data-skin="deep"] .toast{background:#8dc63f;color:#0d2d4e}
+
+/* --- 3 PRESS --- */
+html[data-skin="press"]{
+  --paper:#eef3f2;
+  --line:#dbe5e4;
+  --r:6px;
+  --ink-2:#48605c;
+  --slate:#748a86;
+}
+html[data-skin="press"] .card{
+  box-shadow:0 1px 0 var(--line), 0 14px 30px -20px rgba(13,45,78,.3);
+  border:1px solid var(--line);
+}
+/* tier moves from the left spine to a full-width rule above the photo */
+html[data-skin="press"] .spine{left:0;right:0;bottom:auto;width:auto;height:5px}
+html[data-skin="press"] .photo{height:32%;min-height:120px}
+html[data-skin="press"] .rent{font-size:34px}
+html[data-skin="press"] .verdict{
+  border-radius:0;letter-spacing:.16em;font-size:9.5px;padding:5px 9px;box-shadow:none;
+}
+html[data-skin="press"] .addr{font-size:19px;letter-spacing:-.02em}
+html[data-skin="press"] .crit li{border-bottom:1px solid var(--line)}
+html[data-skin="press"] .move{border-radius:0;border-left-width:4px}
+html[data-skin="press"] .pad{border-radius:0;box-shadow:0 1px 0 var(--line),0 10px 22px -16px rgba(13,45,78,.5)}
+html[data-skin="press"] .pad.big{border-radius:0}
+html[data-skin="press"] .cta,html[data-skin="press"] .slot,
+html[data-skin="press"] .strip div,html[data-skin="press"] .p-why{border-radius:4px}
+html[data-skin="press"] .sheet{border-radius:8px 8px 0 0}
+
+/* --- skin switcher (development only, not shipped) --- */
+.skins{
+  position:fixed;top:calc(env(safe-area-inset-top) + 10px);right:12px;z-index:70;
+  display:flex;gap:0;background:rgba(13,45,78,.9);border-radius:100px;padding:3px;
+  box-shadow:0 4px 14px rgba(13,45,78,.35);
+}
+.skins button{
+  font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:rgba(255,255,255,.62);padding:6px 10px;border-radius:100px;
+}
+.skins button[aria-pressed="true"]{background:#fff;color:#0d2d4e}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  overscroll-behavior:none;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit}
+
+/* ---------------------------------------------------------------- shell */
+
+.app{
+  position:fixed;inset:0;display:flex;flex-direction:column;
+  max-width:480px;margin:0 auto;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+
+.bar{
+  flex:0 0 auto;display:flex;align-items:baseline;justify-content:space-between;
+  padding:18px 22px 12px;
+}
+.brand{
+  font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:16px;
+  letter-spacing:-.02em;color:var(--navy);
+}
+.brand em{font-style:normal;color:var(--teal)}
+.remaining{
+  font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--slate);font-variant-numeric:tabular-nums;
+}
+
+/* ------------------------------------------------------------ the deck */
+
+.stage{flex:1 1 auto;position:relative;padding:4px 18px 0;min-height:0}
+
+.card{
+  position:absolute;left:18px;right:18px;top:0;bottom:16px;
+  background:var(--white);border-radius:var(--r);
+  box-shadow:0 1px 2px rgba(13,45,78,.06), 0 18px 40px -18px rgba(13,45,78,.34);
+  display:flex;flex-direction:column;overflow:hidden;
+  touch-action:none;user-select:none;
+  transform-origin:50% 120%;
+  will-change:transform;
+}
+.card.settle{transition:transform .38s var(--ease), opacity .38s var(--ease)}
+.card.gone{transition:transform .34s cubic-bezier(.4,0,.9,.4), opacity .34s linear}
+
+/* THE SIGNATURE: the match tier is the card's own left spine, not a badge.
+   You read the verdict before you read the address. */
+.spine{
+  position:absolute;left:0;top:0;bottom:0;width:6px;
+  background:var(--tier);
+}
+
+.photo{
+  flex:0 0 auto;height:38%;min-height:150px;position:relative;
+  background:linear-gradient(148deg,var(--p1),var(--p2));
+  display:flex;align-items:flex-end;padding:14px 16px;
+}
+.photo::after{
+  content:'';position:absolute;inset:0;opacity:.16;
+  background-image:
+    linear-gradient(rgba(255,255,255,.7) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.7) 1px,transparent 1px);
+  background-size:26px 26px;
+}
+.rent{
+  position:relative;z-index:1;
+  font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:30px;
+  color:#fff;letter-spacing:-.03em;line-height:1;
+  text-shadow:0 1px 12px rgba(13,45,78,.35);
+  font-variant-numeric:tabular-nums;
+}
+.rent span{font-size:13px;font-weight:700;opacity:.82;letter-spacing:0}
+
+.verdict{
+  position:absolute;top:12px;right:12px;z-index:1;
+  background:var(--tier);color:#fff;
+  font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;
+  padding:6px 11px;border-radius:100px;
+  box-shadow:0 2px 10px rgba(13,45,78,.25);
+}
+.verdict.gold{color:#4a3708}
+
+.body{flex:1 1 auto;padding:16px 18px 0;overflow:hidden;display:flex;flex-direction:column}
+
+.addr{
+  font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:17px;
+  line-height:1.25;letter-spacing:-.015em;margin:0 0 3px;
+}
+.hood{font-size:12.5px;color:var(--slate);margin:0 0 13px;font-weight:600}
+.hood b{color:var(--ink-2);font-weight:600}
+
+/* The criteria strip: the landlord's stated requirements, checked against
+   this renter. This is the both-sides match, and it is the only thing on
+   the card that no other rental product can show. */
+.crit{list-style:none;margin:0 0 12px;padding:0;display:flex;flex-direction:column;gap:0}
+.crit li{
+  display:flex;align-items:center;gap:9px;
+  font-size:12.5px;line-height:1.35;padding:6.5px 0;
+  border-bottom:1px solid var(--line);
+}
+.crit li:last-child{border-bottom:0}
+.tick{
+  flex:0 0 16px;height:16px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:9.5px;font-weight:700;color:#fff;
+}
+.tick.y{background:var(--teal)}
+.tick.q{background:var(--gold);color:#4a3708}
+.tick.n{background:var(--slate)}
+.crit b{font-weight:700}
+.crit .val{margin-left:auto;color:var(--slate);font-weight:700;font-variant-numeric:tabular-nums}
+
+/* Moderate and weak cards carry a reason AND a move. A caveat with no
+   next step is noise, and noise is the thing this product sells against. */
+.move{
+  margin:auto 0 0;padding:11px 13px;border-radius:11px;
+  background:var(--tint);border-left:3px solid var(--tier);
+  font-size:12.5px;line-height:1.45;color:var(--ink-2);
+}
+.move b{color:var(--ink);font-weight:700;display:block;margin-bottom:2px;font-size:12px}
+
+.foot{
+  flex:0 0 auto;padding:12px 18px 14px;display:flex;align-items:center;
+  justify-content:space-between;gap:10px;border-top:1px solid var(--line);
+  margin-top:12px;
+}
+.live{
+  display:flex;align-items:center;gap:6px;
+  font-size:11px;font-weight:700;color:var(--teal);
+  letter-spacing:.02em;
+}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--teal);flex:0 0 6px}
+@media (prefers-reduced-motion:no-preference){
+  .dot{animation:pulse 2.4s ease-in-out infinite}
+}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.82)}}
+.open{
+  font-size:12px;font-weight:700;color:var(--navy);
+  display:flex;align-items:center;gap:5px;
+}
+
+/* swipe intent overlay */
+.stamp{
+  position:absolute;top:22px;z-index:3;
+  font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:15px;
+  letter-spacing:.14em;text-transform:uppercase;
+  padding:9px 14px;border-radius:9px;border:2.5px solid;
+  opacity:0;pointer-events:none;
+}
+.stamp.keep{left:20px;color:var(--teal);border-color:var(--teal);transform:rotate(-11deg)}
+.stamp.pass{right:20px;color:var(--slate);border-color:var(--slate);transform:rotate(11deg)}
+
+/* ------------------------------------------------------------ controls */
+
+.pads{
+  flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:18px;
+  padding:10px 0 16px;
+}
+.pad{
+  width:56px;height:56px;border-radius:50%;background:var(--white);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 5px rgba(13,45,78,.08),0 10px 24px -12px rgba(13,45,78,.4);
+  transition:transform .16s var(--ease);
+}
+.pad:active{transform:scale(.9)}
+.pad.big{width:66px;height:66px;background:var(--teal)}
+.pad svg{display:block}
+.hint{
+  text-align:center;font-size:11px;color:var(--slate);padding:0 0 12px;
+  letter-spacing:.01em;
+}
+
+/* --------------------------------------------------------------- sheet */
+
+.scrim{
+  position:fixed;inset:0;background:rgba(13,45,78,.5);z-index:40;
+  opacity:0;pointer-events:none;transition:opacity .26s var(--ease);
+}
+.scrim.on{opacity:1;pointer-events:auto}
+
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:41;
+  max-width:480px;margin:0 auto;
+  background:var(--white);border-radius:22px 22px 0 0;
+  max-height:92%;display:flex;flex-direction:column;
+  transform:translateY(101%);transition:transform .34s var(--ease);
+  padding-bottom:env(safe-area-inset-bottom);
+  box-shadow:0 -10px 44px rgba(13,45,78,.24);
+}
+.sheet.on{transform:translateY(0)}
+.grab{
+  flex:0 0 auto;padding:11px 0 5px;display:flex;justify-content:center;
+}
+.grab i{width:38px;height:4px;border-radius:4px;background:var(--line);display:block}
+.sheet-scroll{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:6px 22px 0}
+
+.p-rent{
+  font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:32px;
+  letter-spacing:-.03em;margin:0;line-height:1;
+}
+.p-rent span{font-size:14px;font-weight:700;color:var(--slate);letter-spacing:0}
+.p-addr{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:16px;margin:8px 0 2px}
+.p-hood{font-size:13px;color:var(--slate);margin:0 0 16px;font-weight:600}
+
+.strip{display:flex;gap:8px;margin:0 0 18px}
+.strip div{
+  flex:1;background:var(--paper);border-radius:11px;padding:10px 8px;text-align:center;
+}
+.strip b{
+  display:block;font-family:'Red Hat Display',sans-serif;font-weight:900;
+  font-size:17px;letter-spacing:-.02em;
+}
+.strip small{font-size:10px;color:var(--slate);font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+
+.h{
+  font-size:10.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--slate);margin:0 0 9px;
+}
+.p-why{
+  font-size:13.5px;line-height:1.6;color:var(--ink-2);margin:0 0 20px;
+  padding:13px 15px;background:var(--paper);border-radius:12px;
+}
+.p-why b{color:var(--ink)}
+
+.sheet .crit{margin-bottom:20px}
+.sheet .crit li{font-size:13px;padding:8px 0}
+
+.ledger{
+  border-top:1px solid var(--line);padding:15px 0 20px;margin-top:2px;
+  font-size:12px;color:var(--slate);line-height:1.6;
+}
+.ledger b{color:var(--ink);font-weight:700}
+
+.sheet-act{
+  flex:0 0 auto;padding:14px 22px calc(16px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--line);background:var(--white);
+}
+.cta{
+  width:100%;background:var(--teal);color:#fff;border-radius:13px;padding:16px;
+  font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:16px;
+  letter-spacing:-.01em;transition:transform .14s var(--ease);
+}
+.cta:active{transform:scale(.985)}
+.cta.ghost{background:var(--paper);color:var(--navy);margin-top:8px;font-size:14.5px;padding:13px}
+.cta[disabled]{background:var(--line);color:var(--slate)}
+
+/* ------------------------------------------------------------- booking */
+
+.slots{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin:0 0 6px}
+.slot{
+  border:1.5px solid var(--line);border-radius:12px;padding:13px 10px;text-align:left;
+  transition:border-color .16s,background .16s;
+}
+.slot b{display:block;font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:14px}
+.slot small{font-size:11px;color:var(--slate);font-weight:600}
+.slot[aria-pressed="true"]{border-color:var(--teal);background:rgba(58,158,143,.08)}
+
+/* ----------------------------------------------------------- end state */
+
+.end{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;padding:0 34px;
+  opacity:0;pointer-events:none;transition:opacity .4s var(--ease) .12s;
+}
+.end.on{opacity:1;pointer-events:auto}
+.end h2{
+  font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:23px;
+  letter-spacing:-.025em;margin:0 0 10px;line-height:1.2;
+}
+.end p{font-size:13.5px;line-height:1.6;color:var(--ink-2);margin:0 0 24px}
+
+/* The count is the product. 214 scanned, 3 shown. */
+.tally{display:flex;align-items:flex-end;gap:2px;margin:0 0 22px;height:54px}
+.tally i{width:3px;border-radius:2px;background:var(--line);display:block;height:14px}
+.tally i.hit{background:var(--teal);height:54px}
+@media (prefers-reduced-motion:no-preference){
+  .end.on .tally i{animation:rise .5s var(--ease) backwards}
+}
+@keyframes rise{from{height:0;opacity:0}}
+
+.toast{
+  position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);
+  background:var(--navy);color:#fff;padding:13px 20px;border-radius:12px;
+  font-size:13px;font-weight:600;z-index:60;opacity:0;pointer-events:none;
+  transition:opacity .24s,transform .24s var(--ease);max-width:88%;text-align:center;
+  box-shadow:0 10px 30px rgba(13,45,78,.3);
+}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+:focus-visible{outline:3px solid var(--gold);outline-offset:3px;border-radius:6px}
+
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms !important;animation-duration:.01ms !important}
+}
+</style>
+</head>
+<body>
+
+<div class="skins" id="skins">
+  <button aria-pressed="true"  onclick="skin('paper',this)">Paper</button>
+  <button aria-pressed="false" onclick="skin('deep',this)">Deep</button>
+  <button aria-pressed="false" onclick="skin('press',this)">Press</button>
+</div>
+
+<div class="app">
+  <div class="bar">
+    <div class="brand">Renters<em>.</em>com</div>
+    <div class="remaining" id="count"></div>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="end" id="end">
+      <div class="tally" id="tally"></div>
+      <h2 id="endH">That's everything worth your time.</h2>
+      <p id="endP"></p>
+      <button class="cta" style="max-width:260px" onclick="reset()">Start over</button>
+    </div>
+  </div>
+
+  <div class="pads">
+    <button class="pad" id="padNo" aria-label="Not for me">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <path d="M5 5l12 12M17 5L5 17" stroke="#6b7f93" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <button class="pad big" id="padYes" aria-label="See this place">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+        <path d="M13 22s-8.4-5.1-8.4-11.2A4.9 4.9 0 0 1 13 7.6a4.9 4.9 0 0 1 8.4 3.2C21.4 16.9 13 22 13 22z"
+              fill="#fff"/>
+      </svg>
+    </button>
+  </div>
+  <div class="hint" id="hint">Swipe left to pass &middot; right to look closer</div>
+</div>
+
+<div class="scrim" id="scrim" onclick="closeSheet()"></div>
+
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Listing detail">
+  <div class="grab"><i></i></div>
+  <div class="sheet-scroll" id="sheetBody"></div>
+  <div class="sheet-act" id="sheetAct"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================ md-v1
+   MOCK DATA ONLY. Every listing, criterion and time slot below is invented.
+   Nothing here talks to BD, to a feed, or to a calendar.
+
+   Renter profile this deck is matched against:
+     verified income $5,400/mo  ·  1 dog, 42lb  ·  budget to $2,100
+     needs parking  ·  move-in by Oct 1  ·  SE / NE Portland
+   ============================================================ */
+
+var RENTER = { income: 5400, budget: 2100 };
+
+var CARDS = [
+  {
+    id:'a', tier:'strong',
+    rent:1895, addr:'2140 SE Clinton St', unit:'Unit 3',
+    hood:'Hosford-Abernethy', beds:2, baths:1, sqft:880,
+    p1:'#3a9e8f', p2:'#0d2d4e',
+    dom:2, applicants:1,
+    why:'You asked for two bedrooms under $2,100 in SE with a yard for the dog. This one is <b>$205 under your ceiling</b>, the landlord allows dogs up to 50lb with no breed limit, and off-street parking is included rather than an add-on.',
+    crit:[
+      {s:'y', k:'Income requirement', v:'2.5x rent', note:'yours is 2.8x'},
+      {s:'y', k:'Dogs allowed', v:'Up to 50lb'},
+      {s:'y', k:'Off-street parking', v:'1 space'},
+      {s:'y', k:'Available', v:'Sept 15'}
+    ],
+    move:null
+  },
+  {
+    id:'b', tier:'moderate',
+    rent:2050, addr:'618 NE Failing St', unit:'',
+    hood:'Sabin', beds:2, baths:1.5, sqft:940,
+    p1:'#e0a92e', p2:'#8a5f14',
+    dom:1, applicants:6,
+    why:'Everything fits except the pace. It posted yesterday and <b>six renters have already inquired</b> through us. The landlord screens on a first-complete-application basis rather than a deadline.',
+    crit:[
+      {s:'y', k:'Income requirement', v:'2.5x rent', note:'yours is 2.6x'},
+      {s:'y', k:'Dogs allowed', v:'Case by case'},
+      {s:'q', k:'Parking', v:'Street only'},
+      {s:'y', k:'Available', v:'Oct 1'}
+    ],
+    move:{t:'Move fast or skip it', b:'Six inquiries in a day means this one is gone by the weekend. Book the earliest showing or pass now rather than applying late.'}
+  },
+  {
+    id:'c', tier:'moderate',
+    rent:2100, addr:'4407 SE Woodstock Blvd', unit:'Apt B',
+    hood:'Woodstock', beds:2, baths:1, sqft:820,
+    p1:'#e0a92e', p2:'#8a5f14',
+    dom:9, applicants:2,
+    why:'At the very top of your budget, and the landlord requires <b>3x rent</b> rather than the usual 2.5x. Your verified income is 2.57x, so this one is short on paper.',
+    crit:[
+      {s:'q', k:'Income requirement', v:'3x rent', note:'yours is 2.57x'},
+      {s:'y', k:'Dogs allowed', v:'Under 45lb'},
+      {s:'y', k:'Off-street parking', v:'1 space'},
+      {s:'y', k:'Available', v:'Sept 1'}
+    ],
+    move:{t:'One document clears this', b:'A co-signer or three months of savings on file usually satisfies a 3x requirement. Add either to your profile and we will re-submit you as a full match.'}
+  },
+  {
+    id:'d', tier:'weak',
+    rent:1975, addr:'3312 NE 72nd Ave', unit:'',
+    hood:'Roseway', beds:2, baths:1, sqft:900,
+    p1:'#6b7f93', p2:'#33475c',
+    dom:23, applicants:0,
+    why:'It matches on paper and we are showing it because your search has been quiet this week. But it has sat for <b>23 days</b> with no inquiries, and the landlord has not answered our last two messages.',
+    crit:[
+      {s:'y', k:'Income requirement', v:'2.5x rent', note:'yours is 2.7x'},
+      {s:'n', k:'Pet policy', v:'Not stated'},
+      {s:'n', k:'Parking', v:'Not stated'},
+      {s:'q', k:'Available', v:'Listed Jul 19'}
+    ],
+    move:{t:'We cannot confirm this one', b:'The landlord has not responded to confirm it is still available or that dogs are allowed. Swipe right and we will keep chasing, but do not build a plan around it.'}
+  }
+];
+
+var SLOTS = [
+  {d:'Thu Aug 13', t:'5:30 PM'},
+  {d:'Thu Aug 13', t:'6:15 PM'},
+  {d:'Sat Aug 15', t:'10:00 AM'},
+  {d:'Sat Aug 15', t:'11:30 AM'}
+];
+
+var TIER = {
+  strong:   {c:'var(--teal)', tint:'rgba(58,158,143,.09)',  label:'Strong match', cls:''},
+  moderate: {c:'var(--gold)', tint:'rgba(224,169,46,.11)',  label:'Worth a look', cls:'gold'},
+  weak:     {c:'var(--slate)',tint:'rgba(107,127,147,.10)', label:'Long shot',    cls:''}
+};
+
+var SCANNED = 214;
+var i = 0, kept = [], live = null, activeCard = null;
+
+var stage = document.getElementById('stage');
+var endEl = document.getElementById('end');
+
+/* ---------------------------------------------------------------- skins */
+
+function skin(name, btn){
+  document.documentElement.setAttribute('data-skin', name);
+  document.querySelector('meta[name=theme-color]').setAttribute(
+    'content', name === 'deep' ? '#0a2340' : (name === 'press' ? '#eef3f2' : '#0d2d4e'));
+  var all = document.querySelectorAll('#skins button');
+  for (var k = 0; k < all.length; k++) all[k].setAttribute('aria-pressed', String(all[k] === btn));
+  vibrate(6);
+}
+
+/* ------------------------------------------------------------- helpers */
+
+function money(n){ return '$' + n.toLocaleString('en-US'); }
+
+function vibrate(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e){} }
+
+function toast(msg){
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(function(){ t.classList.remove('on'); }, 2600);
+}
+
+function critHTML(list){
+  return '<ul class="crit">' + list.map(function(c){
+    var mark = c.s === 'y' ? '&#10003;' : (c.s === 'q' ? '!' : '&ndash;');
+    return '<li><span class="tick ' + c.s + '">' + mark + '</span>' +
+           '<b>' + c.k + '</b>' +
+           '<span class="val">' + c.v + (c.note ? ' &middot; ' + c.note : '') + '</span></li>';
+  }).join('') + '</ul>';
+}
+
+/* ---------------------------------------------------------------- deck */
+
+function render(){
+  document.querySelectorAll('.card').forEach(function(n){ n.remove(); });
+
+  var left = CARDS.length - i;
+  document.getElementById('count').textContent =
+    left > 0 ? left + ' of ' + CARDS.length : '';
+  document.getElementById('hint').style.visibility = left > 0 ? 'visible' : 'hidden';
+  document.querySelector('.pads').style.visibility = left > 0 ? 'visible' : 'hidden';
+
+  if (left <= 0){ showEnd(); return; }
+  endEl.classList.remove('on');
+
+  /* render up to three, back to front, so the top card is last in the DOM */
+  for (var k = Math.min(i + 2, CARDS.length - 1); k >= i; k--){
+    stage.appendChild(buildCard(CARDS[k], k - i));
+  }
+  live = stage.querySelector('.card:last-child');
+  attach(live);
+}
+
+function buildCard(d, depth){
+  var t = TIER[d.tier];
+  var el = document.createElement('article');
+  el.className = 'card';
+  el.style.setProperty('--tier', t.c);
+  el.style.setProperty('--tint', t.tint);
+  el.style.setProperty('--p1', d.p1);
+  el.style.setProperty('--p2', d.p2);
+  el.style.transform = 'translateY(' + (depth * -8) + 'px) scale(' + (1 - depth * 0.035) + ')';
+  el.style.zIndex = String(10 - depth);
+  el.style.opacity = depth > 1 ? '0' : '1';
+  el.dataset.id = d.id;
+
+  el.innerHTML =
+    '<span class="spine"></span>' +
+    '<div class="stamp keep">Look closer</div>' +
+    '<div class="stamp pass">Pass</div>' +
+    '<div class="photo">' +
+      '<span class="verdict ' + t.cls + '">' + t.label + '</span>' +
+      '<div class="rent">' + money(d.rent) + '<span> /mo</span></div>' +
+    '</div>' +
+    '<div class="body">' +
+      '<h3 class="addr">' + d.addr + (d.unit ? ' &middot; ' + d.unit : '') + '</h3>' +
+      '<p class="hood">' + d.hood + ' &middot; <b>' + d.beds + ' bed &middot; ' +
+        d.baths + ' bath &middot; ' + d.sqft + ' sq ft</b></p>' +
+      critHTML(d.crit) +
+      (d.move ? '<div class="move"><b>' + d.move.t + '</b>' + d.move.b + '</div>' : '') +
+    '</div>' +
+    '<div class="foot">' +
+      '<span class="live"><i class="dot"></i>Confirmed available today</span>' +
+      '<span class="open">Tap to open' +
+        '<svg width="12" height="12" viewBox="0 0 12 12" fill="none">' +
+        '<path d="M4 2l4 4-4 4" stroke="#0d2d4e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '</span>' +
+    '</div>';
+  return el;
+}
+
+/* ------------------------------------------------------------ gestures */
+
+function attach(el){
+  if (!el) return;
+  var sx = 0, sy = 0, dx = 0, dy = 0, down = false, moved = false, id = null;
+  var keep = el.querySelector('.stamp.keep');
+  var pass = el.querySelector('.stamp.pass');
+
+  el.addEventListener('pointerdown', function(e){
+    if (e.button && e.button !== 0) return;
+    down = true; moved = false; id = e.pointerId;
+    sx = e.clientX; sy = e.clientY; dx = 0; dy = 0;
+    el.classList.remove('settle');
+    el.setPointerCapture(id);
+  });
+
+  el.addEventListener('pointermove', function(e){
+    if (!down || e.pointerId !== id) return;
+    dx = e.clientX - sx; dy = e.clientY - sy;
+    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) moved = true;
+    var rot = dx / 22;
+    el.style.transform = 'translate(' + dx + 'px,' + dy * .32 + 'px) rotate(' + rot + 'deg)';
+    var p = Math.min(Math.abs(dx) / 110, 1);
+    keep.style.opacity = dx > 0 ? p : 0;
+    pass.style.opacity = dx < 0 ? p : 0;
+  });
+
+  function release(e){
+    if (!down || (e && e.pointerId !== id)) return;
+    down = false;
+    try{ el.releasePointerCapture(id); }catch(err){}
+
+    if (!moved){ openListing(el.dataset.id); settle(); return; }
+
+    if (dx > 96)       { fly(1); }
+    else if (dx < -96) { fly(-1); }
+    else               { settle(); }
+  }
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
+
+  function settle(){
+    el.classList.add('settle');
+    el.style.transform = 'translate(0,0) rotate(0deg)';
+    keep.style.opacity = 0; pass.style.opacity = 0;
+  }
+
+  function fly(dir){
+    el.classList.add('gone');
+    el.style.transform = 'translate(' + (dir * 620) + 'px,' + (dy * .32 + 40) + 'px) rotate(' + (dir * 26) + 'deg)';
+    el.style.opacity = '0';
+    vibrate(dir > 0 ? 14 : 8);
+    var d = CARDS[i];
+    if (dir > 0) { kept.push(d.id); }
+    i++;
+    setTimeout(function(){
+      render();
+      if (dir > 0) openListing(d.id);
+    }, 250);
+  }
+
+  el._fly = fly;
+}
+
+document.getElementById('padNo').onclick  = function(){ if (live && live._fly) live._fly(-1); };
+document.getElementById('padYes').onclick = function(){ if (live && live._fly) live._fly(1); };
+
+document.addEventListener('keydown', function(e){
+  if (document.getElementById('sheet').classList.contains('on')){
+    if (e.key === 'Escape') closeSheet();
+    return;
+  }
+  if (e.key === 'ArrowLeft'  && live && live._fly) live._fly(-1);
+  if (e.key === 'ArrowRight' && live && live._fly) live._fly(1);
+});
+
+/* --------------------------------------------------------------- sheet */
+
+function byId(id){ for (var k = 0; k < CARDS.length; k++) if (CARDS[k].id === id) return CARDS[k]; return null; }
+
+function openListing(id){
+  var d = byId(id); if (!d) return;
+  activeCard = d;
+  var t = TIER[d.tier];
+  var ratio = (RENTER.income / d.rent).toFixed(2);
+
+  document.getElementById('sheetBody').innerHTML =
+    '<p class="p-rent">' + money(d.rent) + '<span> /mo</span></p>' +
+    '<h2 class="p-addr">' + d.addr + (d.unit ? ' &middot; ' + d.unit : '') + '</h2>' +
+    '<p class="p-hood">' + d.hood + ', Portland</p>' +
+    '<div class="strip">' +
+      '<div><b>' + d.beds + '</b><small>Beds</small></div>' +
+      '<div><b>' + d.baths + '</b><small>Baths</small></div>' +
+      '<div><b>' + d.sqft + '</b><small>Sq ft</small></div>' +
+      '<div><b>' + d.dom + 'd</b><small>Listed</small></div>' +
+    '</div>' +
+    '<p class="h">Why you are seeing this</p>' +
+    '<p class="p-why">' + d.why + '</p>' +
+    '<p class="h">This landlord\u2019s requirements, against your profile</p>' +
+    critHTML(d.crit) +
+    (d.move ? '<div class="move" style="--tier:' + t.c + ';--tint:' + t.tint + ';margin-bottom:18px">' +
+      '<b>' + d.move.t + '</b>' + d.move.b + '</div>' : '') +
+    '<div class="ledger">Verified income <b>' + money(RENTER.income) + '/mo</b> \u2014 that is ' +
+      '<b>' + ratio + 'x</b> this rent. We confirmed with the landlord that this unit is still ' +
+      'available <b>today</b>. ' + (d.applicants > 0
+        ? '<b>' + d.applicants + '</b> other verified renter' + (d.applicants > 1 ? 's have' : ' has') + ' inquired through us.'
+        : 'No other renter has inquired through us yet.') +
+    '</div>';
+
+  var act = document.getElementById('sheetAct');
+  if (d.tier === 'strong'){
+    act.innerHTML =
+      '<button class="cta" onclick="booking()">Book a showing</button>' +
+      '<button class="cta ghost" onclick="closeSheet()">Back to matches</button>';
+  } else if (d.tier === 'weak'){
+    act.innerHTML =
+      '<button class="cta" onclick="chase()">Ask the landlord to confirm</button>' +
+      '<button class="cta ghost" onclick="closeSheet()">Back to matches</button>';
+  } else {
+    act.innerHTML =
+      '<button class="cta" onclick="booking()">Book a showing</button>' +
+      '<button class="cta ghost" onclick="closeSheet()">Back to matches</button>';
+  }
+
+  document.getElementById('scrim').classList.add('on');
+  document.getElementById('sheet').classList.add('on');
+}
+
+function closeSheet(){
+  document.getElementById('scrim').classList.remove('on');
+  document.getElementById('sheet').classList.remove('on');
+}
+
+/* ------------------------------------------------------------- booking */
+
+var picked = null;
+
+function booking(){
+  picked = null;
+  var d = activeCard;
+  document.getElementById('sheetBody').innerHTML =
+    '<p class="h">Book a showing</p>' +
+    '<h2 class="p-addr" style="margin-top:0">' + d.addr + '</h2>' +
+    '<p class="p-hood">These are times the landlord has open. Pick one and it goes ' +
+      'straight onto both calendars.</p>' +
+    '<div class="slots" id="slots">' +
+      SLOTS.map(function(s, n){
+        return '<button class="slot" aria-pressed="false" onclick="pick(' + n + ')">' +
+               '<b>' + s.t + '</b><small>' + s.d + '</small></button>';
+      }).join('') +
+    '</div>' +
+    '<div class="ledger">You will get a calendar invite and a reminder the morning of. ' +
+      'The landlord sees your verified badge and income band, nothing else.</div>';
+
+  document.getElementById('sheetAct').innerHTML =
+    '<button class="cta" id="confirm" disabled onclick="confirmBooking()">Pick a time</button>' +
+    '<button class="cta ghost" onclick="openListing(activeCard.id)">Back to the listing</button>';
+}
+
+function pick(n){
+  picked = n;
+  var all = document.querySelectorAll('#slots .slot');
+  for (var k = 0; k < all.length; k++) all[k].setAttribute('aria-pressed', String(k === n));
+  var b = document.getElementById('confirm');
+  b.disabled = false;
+  b.textContent = 'Book ' + SLOTS[n].d + ', ' + SLOTS[n].t;
+  vibrate(8);
+}
+
+function confirmBooking(){
+  if (picked === null) return;
+  var s = SLOTS[picked];
+  closeSheet();
+  vibrate([12, 40, 12]);
+  toast('Showing booked \u2014 ' + s.d + ' at ' + s.t);
+}
+
+function chase(){
+  closeSheet();
+  toast('We will chase the landlord and let you know');
+}
+
+/* ----------------------------------------------------------- end state */
+
+function showEnd(){
+  var t = document.getElementById('tally');
+  t.innerHTML = '';
+  var shown = CARDS.length;
+  for (var k = 0; k < 58; k++){
+    var bar = document.createElement('i');
+    /* the few tall bars are the ones that made it through */
+    if (k === 12 || k === 29 || k === 41 || k === 50) bar.className = 'hit';
+    bar.style.animationDelay = (k * 9) + 'ms';
+    t.appendChild(bar);
+  }
+  document.getElementById('endP').innerHTML =
+    'We looked at <b>' + SCANNED + '</b> rentals in your search area this week. ' +
+    '<b>' + (SCANNED - shown) + '</b> failed your budget, your dog, the landlord\u2019s ' +
+    'income requirement, or were already gone. You saw the <b>' + shown + '</b> that were left.' +
+    (kept.length ? '<br><br>You kept <b>' + kept.length + '</b>.' : '');
+  endEl.classList.add('on');
+}
+
+function reset(){ i = 0; kept = []; render(); }
+
+render();
+</script>
+</body>
+</html>
