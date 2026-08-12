@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="wz-v5">
+<meta name="rdc-version" content="wz-v6">
 <title>Start your search — Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ wz-v5
+/* ============================================================ wz-v6
    THE RENTER WIZARD — four steps, one container.
 
    WHY THIS EXISTS. Every piece below already works on the site. What does
@@ -261,12 +261,14 @@ input,select,textarea{font-family:inherit;font-size:16px}
           <div class="f"><label for="beds">Bedrooms</label>
             <select id="beds"><option value="">Any</option></select></div>
         </div>
+        <div class="f"><label for="moveE">Earliest you could move</label>
+          <input id="moveE" type="date"></div>
         <div class="two">
           <div class="f"><label for="baths">Bathrooms</label>
             <select id="baths"><option value="">Any</option><option>1</option>
               <option>1.5</option><option>2</option><option>3</option></select></div>
-          <div class="f"><label for="move">Move in by</label>
-            <input id="move" type="date"></div>
+          <div class="f"><label for="moveL">Must be in by</label>
+            <input id="moveL" type="date"></div>
         </div>
         <div class="f"><label>Must have</label>
           <div class="chips" id="must"></div>
@@ -308,7 +310,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
 <script>
 (function () {
   'use strict';
-  var V = 'wz-v5';
+  var V = 'wz-v6';
 
   var NET   = 'https://renters-story-writer.netlify.app';
   var FN    = NET + '/.netlify/functions/';
@@ -569,7 +571,13 @@ input,select,textarea{font-family:inherit;font-size:16px}
     if (c.rent_max) $('rent').value = c.rent_max;
     if (c.beds_min) $('beds').value = c.beds_min;
     if (c.baths_min) $('baths').value = c.baths_min;
-    if (c.move_in_by) $('move').value = c.move_in_by;
+    /* av-v1 returns move_in_earliest and move_in_latest. The first draft of
+       this read c.move_in_by - a key that exists nowhere in its output - so a
+       date the model extracted correctly was dropped on the floor and the
+       renter had to pick it again by hand. Exactly the failure the schema
+       fetch exists to prevent, reintroduced by hand a layer up. */
+    if (c.move_in_latest) $('moveL').value = c.move_in_latest;
+    if (c.move_in_earliest) $('moveE').value = c.move_in_earliest;
     if (c.notes) $('notes').value = c.notes;
 
     var want = [].concat(c.must_have || [], c.wants || []);
@@ -600,7 +608,8 @@ input,select,textarea{font-family:inherit;font-size:16px}
       rent_max: n($('rent').value),
       beds_min: n($('beds').value) === null && $('beds').value ? $('beds').value : n($('beds').value),
       baths_min: n($('baths').value),
-      move_in_by: $('move').value || null,
+      move_in_earliest: $('moveE').value || null,
+      move_in_latest: $('moveL').value || null,
       must_have: state.must.slice(),
       nice_to_have: state.nice.slice(),
       notes: $('notes').value.slice(0, 200),
@@ -626,7 +635,8 @@ input,select,textarea{font-family:inherit;font-size:16px}
       var line = [];
       if (c.rent_max) line.push('Up to $' + Number(c.rent_max).toLocaleString());
       if (c.beds_min) line.push(c.beds_min === 'studio' ? 'Studio' : c.beds_min + ' beds');
-      if (c.move_in_by) line.push('by ' + c.move_in_by);
+      if (c.move_in_latest) line.push('by ' + c.move_in_latest);
+      else if (c.move_in_earliest) line.push('from ' + c.move_in_earliest);
       if (c.must_have && c.must_have.length) line.push(c.must_have.map(pretty).join(', '));
 
       var el = document.createElement('div');
@@ -666,7 +676,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
 
   $('addMore').addEventListener('click', function () {
     state.draft = null;
-    ['rent', 'move', 'notes'].forEach(function (id) { $(id).value = ''; });
+    ['rent', 'moveE', 'moveL', 'notes'].forEach(function (id) { $(id).value = ''; });
     $('beds').value = ''; $('baths').value = '';
     state.must = []; state.nice = [];
     document.querySelectorAll('.chip').forEach(function (b) {
@@ -787,7 +797,8 @@ input,select,textarea{font-family:inherit;font-size:16px}
 
     if (state.step === 2) {
       var c = readForm();
-      if (!c.rent_max && !c.beds_min && !c.move_in_by && !c.must_have.length && !c.notes) {
+      if (!c.rent_max && !c.beds_min && !c.move_in_latest && !c.move_in_earliest &&
+          !c.must_have.length && !c.notes) {
         toast('Tell us at least one thing you need'); return;
       }
       if (state.draft !== null && state.searches[state.draft]) {
