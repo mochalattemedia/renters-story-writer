@@ -604,16 +604,22 @@ function clearAll() {
 function saveZones() {
   if (zones.some(function(z) { return z.loading; })) {
     setStatus('Please wait, still identifying zip codes...');
+    /* zp-v5: tell the parent WHY. Inside an iframe on a phone this status
+       line is often off screen, so a parent that cannot hear this has to
+       invent a reason for the wait - and the invented one was wrong. */
+    if (window.parent) window.parent.postMessage({ type: 'renters_areas_busy' }, '*');
     return;
   }
   if (zones.length === 0) {
     setStatus('No zones to save, draw at least one zone first.');
+    if (window.parent) window.parent.postMessage({ type: 'renters_areas_none' }, '*');
     return;
   }
 
   var zipList = allZipsAcrossZones();
   if (zipList.length === 0) {
     setStatus('No zip codes found, try drawing larger zones.');
+    if (window.parent) window.parent.postMessage({ type: 'renters_areas_none' }, '*');
     return;
   }
 
@@ -657,7 +663,7 @@ window.addEventListener('message', function(e) {
     }
   }
 
-  /* zp-v4 (Aug 11): let a parent trigger the save.
+  /* zp-v4/v5 (Aug 11): let a parent trigger the save, and report why not.
      PURELY ADDITIVE. BD's head-code block za6 never sends this message, so
      /account/locations behaves exactly as before. The app wizard sends it so
      the renter has ONE button at the bottom of the screen instead of hunting
