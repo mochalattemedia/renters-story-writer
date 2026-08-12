@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="wz-v6">
+<meta name="rdc-version" content="wz-v7">
 <title>Start your search — Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ wz-v6
+/* ============================================================ wz-v7
    THE RENTER WIZARD — four steps, one container.
 
    WHY THIS EXISTS. Every piece below already works on the site. What does
@@ -255,12 +255,10 @@ input,select,textarea{font-family:inherit;font-size:16px}
       <p class="or">or <button id="typeIt">fill it in yourself</button></p>
 
       <div class="fields" id="fields">
-        <div class="two">
-          <div class="f"><label for="rent">Rent up to</label>
-            <input id="rent" type="number" inputmode="numeric" placeholder="2100"></div>
-          <div class="f"><label for="beds">Bedrooms</label>
-            <select id="beds"><option value="">Any</option></select></div>
-        </div>
+        <div class="f"><label for="rent">Rent up to</label>
+          <input id="rent" type="number" inputmode="numeric" placeholder="2100"></div>
+        <div class="f"><label>Bedrooms</label>
+          <div class="chips" id="beds"></div></div>
         <div class="f"><label for="moveE">Earliest you could move</label>
           <input id="moveE" type="date"></div>
         <div class="two">
@@ -310,7 +308,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
 <script>
 (function () {
   'use strict';
-  var V = 'wz-v6';
+  var V = 'wz-v7';
 
   var NET   = 'https://renters-story-writer.netlify.app';
   var FN    = NET + '/.netlify/functions/';
@@ -322,6 +320,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
   var $ = function (id) { return document.getElementById(id); };
 
   var state = {
+    beds: [],
     step: 1,
     schema: null,
     member: null,          /* null until a session is proven */
@@ -354,11 +353,15 @@ input,select,textarea{font-family:inherit;font-size:16px}
         if (!s) return;
         state.schema = s;
 
-        var beds = $('beds');
-        (s.bedSizes || []).forEach(function (b) {
-          var o = document.createElement('option');
-          o.value = b; o.textContent = b === 'studio' ? 'Studio' : b + (b === '1' ? ' bed' : ' beds');
-          beds.appendChild(o);
+        /* BEDS IS A SET, NOT A FLOOR. av-v1 returns beds as a subset of
+           bedSizes and ap-v8 stores it the same way - beds_min only exists
+           as a migrated v2 legacy. The first draft read beds_min into a
+           single select, so "two bedroom" extracted correctly and then
+           displayed as "Any". Third time a key was derived rather than read
+           from the schema; the schema fetch is right there. */
+        chips('beds', s.bedSizes || [], 99, function (k) {
+          return k === 'studio' ? 'Studio' : (k === '4plus' ? '4+ beds' :
+                 k + (k === '1' ? ' bed' : ' beds'));
         });
 
         chips('must', s.positiveChips || [], s.mustHaveCap || 3);
@@ -368,7 +371,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
       .catch(function () { /* core fields still save */ });
   }
 
-  function chips(which, keys, cap) {
+  function chips(which, keys, cap, label) {
     var box = $(which);
     box.innerHTML = '';
     keys.forEach(function (k) {
@@ -376,7 +379,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
       b.className = 'chip';
       b.type = 'button';
       b.setAttribute('aria-pressed', 'false');
-      b.textContent = pretty(k);
+      b.textContent = label ? label(k) : pretty(k);
       b.dataset.k = k;
       b.addEventListener('click', function () {
         var arr = state[which];
@@ -552,8 +555,11 @@ input,select,textarea{font-family:inherit;font-size:16px}
       .then(function (d) {
         $('micB').textContent = 'Describe it out loud';
         if (!d || !d.criteria) { showFields(); toast('Have a look and fill in the gaps'); return; }
+        /* Fill, but do NOT open the form. The renter confirms the words they
+           said before being handed fifteen fields; showing both at once put
+           an open form under a transcript they had not agreed to yet. */
         fill(d.criteria);
-        showFields();
+        confirmReady();
         if (d.unclear && d.unclear.length) {
           toast('Add ' + d.unclear.slice(0, 2).map(pretty).join(' and ').toLowerCase());
         } else {
@@ -569,8 +575,8 @@ input,select,textarea{font-family:inherit;font-size:16px}
 
   function fill(c) {
     if (c.rent_max) $('rent').value = c.rent_max;
-    if (c.beds_min) $('beds').value = c.beds_min;
     if (c.baths_min) $('baths').value = c.baths_min;
+    press('beds', c.beds);
     /* av-v1 returns move_in_earliest and move_in_latest. The first draft of
        this read c.move_in_by - a key that exists nowhere in its output - so a
        date the model extracted correctly was dropped on the floor and the
@@ -580,24 +586,61 @@ input,select,textarea{font-family:inherit;font-size:16px}
     if (c.move_in_earliest) $('moveE').value = c.move_in_earliest;
     if (c.notes) $('notes').value = c.notes;
 
-    var want = [].concat(c.must_have || [], c.wants || []);
-    want.forEach(function (k) {
-      var b = document.querySelector('#must .chip[data-k="' + k + '"]');
-      if (b && state.must.length < ((state.schema && state.schema.mustHaveCap) || 3)) {
-        b.click();
+    press('must', c.must_have);
+    press('nice', c.nice_to_have);
+
+    /* Voice already told us the household and the pets, with weights. Asking
+       again in step 4 makes a renter repeat themselves, which is the fastest
+       way to make a questionnaire feel like a form. */
+    var people = (c.household_adults || 0) + (c.household_kids || 0);
+    if (people === 1) state.profile.people = 'Just me';
+    else if (people === 2) state.profile.people = 'Two of us';
+    else if (people === 3) state.profile.people = 'Three';
+    else if (people >= 4) state.profile.people = 'Four or more';
+
+    if (Array.isArray(c.pets)) {
+      if (!c.pets.length) state.profile.pets = 'No pets';
+      else {
+        var p = c.pets[0];
+        var w = Number(p && p.weight_lbs);
+        if (p && p.species === 'cat') state.profile.pets = 'Cat';
+        else if (p && p.species === 'dog') {
+          state.profile.pets = !isFinite(w) ? 'Dog 25-50lb' :
+            (w < 25 ? 'Dog under 25lb' : (w > 50 ? 'Dog over 50lb' : 'Dog 25-50lb'));
+        }
       }
-    });
-    (c.nice_to_have || []).forEach(function (k) {
-      var b = document.querySelector('#nice .chip[data-k="' + k + '"]');
-      if (b) b.click();
-    });
+    }
   }
 
+  /* Two states for the same button. Before extraction it re-reads a
+     corrected transcript; after, it opens the pre-filled form. */
+  var readyToOpen = false;
+
+  function confirmReady() {
+    readyToOpen = true;
+    $('redo').textContent = 'Looks right →';
+  }
+
+  $('heardT').addEventListener('input', function () {
+    readyToOpen = false;
+    $('redo').textContent = 'Use this →';
+  });
+
   $('redo').addEventListener('click', function () {
+    if (readyToOpen) { showFields(); vibrate(8); return; }
     var t = ($('heardT').value || '').trim();
     if (t.length < 13) { toast('Say a little more'); return; }
     extract(t);
   });
+
+  /* Set chips from an extracted array, respecting each row's own cap. */
+  function press(which, keys) {
+    if (!Array.isArray(keys)) return;
+    keys.forEach(function (k) {
+      var b = document.querySelector('#' + which + ' .chip[data-k="' + k + '"]');
+      if (b && b.getAttribute('aria-pressed') !== 'true') b.click();
+    });
+  }
 
   function showFields() { $('fields').classList.add('on'); }
   $('typeIt').addEventListener('click', showFields);
@@ -606,7 +649,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
     var n = function (v) { var x = parseFloat(v); return isFinite(x) && x >= 0 ? x : null; };
     return {
       rent_max: n($('rent').value),
-      beds_min: n($('beds').value) === null && $('beds').value ? $('beds').value : n($('beds').value),
+      beds: state.beds.slice(),
       baths_min: n($('baths').value),
       move_in_earliest: $('moveE').value || null,
       move_in_latest: $('moveL').value || null,
@@ -619,7 +662,10 @@ input,select,textarea{font-family:inherit;font-size:16px}
 
   function nameFor(c) {
     var bits = [];
-    if (c.beds_min) bits.push(c.beds_min === 'studio' ? 'Studio' : c.beds_min + ' bed');
+    if (c.beds && c.beds.length) {
+      bits.push(c.beds.length > 1 ? c.beds.length + ' sizes' :
+        (c.beds[0] === 'studio' ? 'Studio' : c.beds[0] + ' bed'));
+    }
     if (c.rent_max) bits.push('under $' + Number(c.rent_max).toLocaleString());
     if (c.where) bits.push('in ' + c.where.split(',')[0]);
     return bits.length ? bits.join(' ') : 'My search';
@@ -634,7 +680,11 @@ input,select,textarea{font-family:inherit;font-size:16px}
       var c = s.criteria;
       var line = [];
       if (c.rent_max) line.push('Up to $' + Number(c.rent_max).toLocaleString());
-      if (c.beds_min) line.push(c.beds_min === 'studio' ? 'Studio' : c.beds_min + ' beds');
+      if (c.beds && c.beds.length) {
+        line.push(c.beds.map(function (b) {
+          return b === 'studio' ? 'Studio' : (b === '4plus' ? '4+' : b + ' bed');
+        }).join(' or '));
+      }
       if (c.move_in_latest) line.push('by ' + c.move_in_latest);
       else if (c.move_in_earliest) line.push('from ' + c.move_in_earliest);
       if (c.must_have && c.must_have.length) line.push(c.must_have.map(pretty).join(', '));
@@ -677,8 +727,8 @@ input,select,textarea{font-family:inherit;font-size:16px}
   $('addMore').addEventListener('click', function () {
     state.draft = null;
     ['rent', 'moveE', 'moveL', 'notes'].forEach(function (id) { $(id).value = ''; });
-    $('beds').value = ''; $('baths').value = '';
-    state.must = []; state.nice = [];
+    $('baths').value = '';
+    state.must = []; state.nice = []; state.beds = [];
     document.querySelectorAll('.chip').forEach(function (b) {
       b.setAttribute('aria-pressed', 'false');
     });
@@ -797,7 +847,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
 
     if (state.step === 2) {
       var c = readForm();
-      if (!c.rent_max && !c.beds_min && !c.move_in_latest && !c.move_in_earliest &&
+      if (!c.rent_max && !c.beds.length && !c.move_in_latest && !c.move_in_earliest &&
           !c.must_have.length && !c.notes) {
         toast('Tell us at least one thing you need'); return;
       }
