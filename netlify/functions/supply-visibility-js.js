@@ -1,5 +1,9 @@
 // ============================================================
-//  supply-visibility-js.js   ·   VERSION: svjs2  (2026-07-20)
+//  supply-visibility-js.js   ·   VERSION: svjs3  (2026-08-12)
+//  svjs3: THE "FIND HOUSING PROVIDERS" CARD IS GONE, and the supply-side
+//         visibility panel is next to fall for the same reason. Renters and
+//         providers no longer find each other by browsing - every
+//         introduction goes through us. See the block comment below.
 //  Serves TWO dashboard injections, both on /account/home:
 //    1. Supply-side "Who can find me" panel  (svis4-remote)
 //       - landlord / PM / realtor only
@@ -264,108 +268,22 @@ const JS = `(function () {
   else run();
 })();
 /* ------------------------------------------------------------
-   FIND PROVIDERS ENTRY CARD  (fpc1)
-   Runs for EVERY member type on /account/home. Injects a card
-   into the sidebar accordion after the Account panel, linking to
-   /find-providers. Without this the page is unreachable unless a
-   member types the URL. Lives here rather than in head code so
-   adding it needs no head-code change (see Bible v35).
+   FIND PROVIDERS ENTRY CARD (fpc1) — REMOVED in svjs3.
+
+   The card read "Browse landlords, property managers and realtors
+   who chose to be found by renters." Nobody chose that any more:
+   w186 emptied the renter visibility panel and its save writes all
+   four audience tags FALSE, and rs3 closed renter-search to every
+   member-facing caller. The card was an entry point to a capability
+   that no longer exists, on a page it could not reach.
+
+   NOT DELETED, REMOVED. The whole block is preserved in git history
+   and /find-providers still resolves - it is simply unlinked, the
+   same treatment the listing pages got. Restoring it means restoring
+   this block AND reopening rs3, in that order; the card alone would
+   render a page that returns an empty set.
    ------------------------------------------------------------ */
-(function () {
-  var CARD_VERSION = "fpc1";
-  if ((window.location.pathname || "").toLowerCase().indexOf("/account/home") === -1) return;
-  if (document.getElementById("rdc-fpcard")) return;
 
-  function levelText() {
-    var out = "";
-    try {
-      var el = document.querySelector(".member-level-name");
-      if (el && el.textContent && el.textContent.trim()) out = el.textContent.trim();
-    } catch (e) {}
-    if (!out) {
-      try {
-        var t = document.body ? (document.body.innerText || document.body.textContent || "") : "";
-        var i = t.indexOf("Plan:");
-        if (i !== -1) out = t.substr(i + 5, 40).split(String.fromCharCode(10))[0].trim();
-      } catch (e) {}
-    }
-    return out;
-  }
-  function classify(t) {
-    t = (t || "").toLowerCase();
-    if (t.indexOf("property manager") !== -1 || t.indexOf("property-manager") !== -1) return "propertyManagers";
-    if (t.indexOf("realtor") !== -1 || t.indexOf("agent") !== -1) return "realtors";
-    if (t.indexOf("landlord") !== -1) return "landlords";
-    if (t.indexOf("renter") !== -1) return "renters";
-    return "";
-  }
-
-  var SUB = {
-    renters: "Browse landlords, property managers and realtors who chose to be found by renters.",
-    landlords: "Browse property managers, realtors and other landlords who chose to be found by landlords.",
-    propertyManagers: "Browse landlords, realtors and other property managers who chose to be found by you.",
-    realtors: "Browse landlords, property managers and other realtors who chose to be found by you."
-  };
-
-  function findAccountPanel() {
-    var acc = document.getElementById("accordion");
-    if (!acc) return null;
-    var link = acc.querySelector('a[href="#collapseFour"]');
-    if (!link) {
-      var links = acc.querySelectorAll("a[data-toggle=collapse], a[href^='#collapse']");
-      for (var i = 0; i < links.length; i++) {
-        if (/account/i.test(links[i].textContent)) { link = links[i]; break; }
-      }
-    }
-    if (!link) return null;
-    var node = link;
-    while (node && node.parentNode && node.parentNode !== acc) node = node.parentNode;
-    return (node && node.parentNode === acc) ? node : null;
-  }
-
-  function build(panel, who) {
-    if (document.getElementById("rdc-fpcard")) return;
-    if (!document.getElementById("rdc-fpcard-css")) {
-      var st = document.createElement("style");
-      st.id = "rdc-fpcard-css";
-      st.textContent = ''
-        + '#rdc-fpcard{background:#fff;border-radius:12px;box-shadow:0 2px 10px rgba(13,45,78,.08);border:1px solid #e8eef4;margin:18px 0;overflow:hidden;font-family:"Open Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0d2d4e;}'
-        + '#rdc-fpcard .h{padding:16px 16px 12px;}'
-        + '#rdc-fpcard .ttl{font-size:16px;font-weight:800;display:flex;align-items:center;gap:8px;}'
-        + '#rdc-fpcard .sub{font-size:12px;color:#6b7a89;margin-top:5px;line-height:1.45;}'
-        + '#rdc-fpcard .go{display:block;margin:12px 16px 16px;text-align:center;background:#0d2d4e;color:#fff;font-weight:800;font-size:14px;text-decoration:none;border-radius:9px;padding:12px;transition:filter .15s;}'
-        + '#rdc-fpcard .go:hover{filter:brightness(1.15);color:#fff;}';
-      document.head.appendChild(st);
-    }
-    var card = document.createElement("div");
-    card.id = "rdc-fpcard";
-    card.innerHTML = ''
-      + '<div class="h"><div class="ttl"><i class="fa fa-building" style="color:#3a9e8f;"></i> Find housing providers</div>'
-      +   '<div class="sub">' + (SUB[who] || SUB.renters) + '</div></div>'
-      + '<a class="go" href="/find-providers">Search providers</a>';
-    panel.parentNode.insertBefore(card, panel.nextSibling);
-    try { console.log("Find providers card " + CARD_VERSION + " injected (" + (who || "unknown") + ")"); } catch (e) {}
-  }
-
-  function run() {
-    var who = classify(levelText());
-    if (!who) {
-      var body = "";
-      try { body = document.body.innerText || document.body.textContent || ""; } catch (e) {}
-      who = classify(body) || "renters";
-    }
-    var tries = 0;
-    var timer = setInterval(function () {
-      tries++;
-      var panel = findAccountPanel();
-      if (panel) { clearInterval(timer); build(panel, who); }
-      else if (tries >= 20) { clearInterval(timer); }
-    }, 300);
-  }
-
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
-  else run();
-})();
 `;
 
 exports.handler = async function () {
