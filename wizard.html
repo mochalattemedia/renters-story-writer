@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="wz-v4">
+<meta name="rdc-version" content="wz-v5">
 <title>Start your search — Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ wz-v4
+/* ============================================================ wz-v5
    THE RENTER WIZARD — four steps, one container.
 
    WHY THIS EXISTS. Every piece below already works on the site. What does
@@ -199,6 +199,10 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .cta:active{transform:scale(.985)}
 .cta[disabled]{background:var(--line);color:var(--slate)}
 .cta.ghost{background:transparent;color:var(--slate);font-size:13.5px;padding:10px;margin-top:2px}
+/* The last step is not another Next. Navy carries it, matching the
+   "Create My Profile" button on the signup page this hands off to, so the
+   change of colour is the signal that the flow is ending. */
+.cta.end{background:var(--navy);color:#fff}
 
 .toast{
   position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translate(-50%,18px);background:var(--navy);
@@ -304,7 +308,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
 <script>
 (function () {
   'use strict';
-  var V = 'wz-v4';
+  var V = 'wz-v5';
 
   var NET   = 'https://renters-story-writer.netlify.app';
   var FN    = NET + '/.netlify/functions/';
@@ -763,6 +767,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
     $('sub').hidden = !COPY[n].s;
     $('bodyEl').classList.toggle('tight', n === 1);
     $('next').innerHTML = COPY[n].cta;
+    $('next').classList.toggle('end', n === 4);
     $('back').hidden = n === 1;
     $('skip').hidden = n !== 4;
     $('bodyEl').scrollTop = 0;

@@ -36,6 +36,12 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
 .zp-btn-teal { background: #3a9e8f; color: #fff; }
 .zp-btn-navy { background: #0d2d4e; color: #fff; }
 .zp-btn-outline { background: #fff; color: #0d2d4e; border: 1px solid #e8eceb; }
+/* zp-v7: Finish Zone was a white outline button sitting under a red Cancel,
+   which made the destructive action the loud one and the completing action
+   the quiet one. It is the ONLY thing a renter needs to press once the
+   points are down, so it now carries the site's affirmative colour and the
+   full width of the row. */
+.zp-btn-lime { background: #8dc63f; color: #0d2d4e; font-weight: 700; }
 .zp-btn-red { background: #c0392b; color: #fff; }
 
 #zp-map { width: 100%; height: 480px; cursor: default; }
@@ -97,7 +103,7 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
   <input type="text" id="zp-search" placeholder="Search a neighborhood, city, or zip...">
   <button class="zp-btn zp-btn-teal" id="zp-draw-btn" onclick="startDrawing()">&#9998; Draw Zone</button>
   <button class="zp-btn zp-btn-red" id="zp-cancel-btn" onclick="cancelDrawing()" style="display:none;">&#x2715; Cancel</button>
-  <button class="zp-btn zp-btn-outline" id="zp-finish-btn" onclick="finishZone()" style="display:none;">&#10003; Finish Zone</button>
+  <button class="zp-btn zp-btn-lime" id="zp-finish-btn" onclick="finishZone()" style="display:none;">&#10003; Finish Zone</button>
 </div>
 
 <div id="zp-instructions">
@@ -151,7 +157,13 @@ function initMap() {
     zoom: 5,
     mapTypeControl: false,
     streetViewControl: false,
-    fullscreenControl: true
+    fullscreenControl: true,
+    /* zp-v7: Google's clickable POI icons intercept a tap and open a place
+       card instead of placing a polygon point. On a desktop mouse that is a
+       rare misclick; on a phone, where the target is a fingertip, it happens
+       constantly and reads as the map being unresponsive. Drawing points is
+       the only thing anyone does here, so the icons lose. */
+    clickableIcons: false
   });
 
   geocoder = new google.maps.Geocoder();
@@ -707,10 +719,23 @@ function setStatus(msg) {
    it partners with, and the host offers Back instead. */
 (function () {
   try {
-    if (new URLSearchParams(location.search).get('embed') === '1') {
-      var row = document.getElementById('zp-actions');
-      if (row) row.style.display = 'none';
-    }
+    if (new URLSearchParams(location.search).get('embed') !== '1') return;
+
+    /* The host asks "Where do you want to live?" directly above this frame.
+       Repeating it as "My Areas" plus four lines of instructions cost about
+       two thirds of the visible height on a phone and pushed the map into a
+       strip. The host owns the framing; this page owns the map. */
+    ['zp-actions', 'zp-header'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+
+    var css = document.createElement('style');
+    css.textContent =
+      '#zp-instructions{display:none !important}' +
+      '#zp-toolbar{padding:10px 12px}' +
+      '#zp-finish-btn{flex:1 1 auto;font-size:15px;padding:12px}';
+    document.head.appendChild(css);
   } catch (e) {}
 })();
 </script>
