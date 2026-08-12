@@ -1,4 +1,31 @@
 // ============================================================
+//  renter-search.js   ·   VERSION: rs3  (2026-08-11)
+//  rs3: MEMBER-FACING SEARCH IS CLOSED. No member finds another member on
+//       Renters.com any more, in any direction. Every introduction goes
+//       through us, which is the product rather than a restriction on it.
+//
+//       WHY THIS FILE AND NOT JUST THE LINKS. The pages that displayed
+//       these results were unlinked from the nav, but this function is a
+//       PUBLIC URL with no auth - anyone who knew it still got verified
+//       renter cards back, name, location, budget, timeline and all.
+//       Unlinking a page is not the same as closing a capability, and the
+//       renters in the index never agreed to the second thing.
+//
+//       THE INDEX IS LEFT INTACT AND STILL BEING WRITTEN by visibility.js.
+//       Nothing is deleted, it simply is not served. Flip MEMBER_SEARCH to
+//       true and the old behaviour returns with a current index behind it -
+//       a stale index would have to be rebuilt.
+//
+//       ADMIN READ ADDED. Kenny needs one view the members do not get:
+//       every renter who said yes to a realtor introduction, and how many
+//       they agreed to hear from. That is an operator queue, not a
+//       directory, and it is the list the realtor side of the business
+//       actually runs on.
+//       GET ?admin=KEY&audience=buying   (KEY must equal env RDC_ADMIN_KEY)
+//       FAILS CLOSED: if RDC_ADMIN_KEY is unset, the admin path is dead.
+//       An admin door that opens when a variable is missing is worse than
+//       no door at all.
+//
 //  renter-search.js   ·   VERSION: rs2  (2026-07-09)
 //  rs2: Blob read fixed. readFindableSet now builds the store via idxStore()
 //       with explicit siteID + token, matching visibility.js. The old plain
@@ -25,7 +52,13 @@ const { URL } = require("url");
 const { getStore } = require("@netlify/blobs");
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const VERSION = "rs2";
+const VERSION = "rs3";
+
+// Member-facing search. False = every non-admin call returns an empty set.
+const MEMBER_SEARCH = false;
+
+// Operator key. Unset means the admin path does not exist at all.
+const ADMIN_KEY = process.env.RDC_ADMIN_KEY || "";
 const INDEX_STORE = "visibility-index";
 
 const AUDIENCE_KEYS = ["landlords", "propertyManagers", "realtors", "buying", "renters"];
@@ -145,6 +178,19 @@ function idxStore() {
   return getStore({ name: INDEX_STORE, consistency: "strong" });
 }
 
+// vis7 stores the realtor introduction cap at intro-cap:{memberId} in the
+// same store as the findable sets. A cap of null on a member sitting in the
+// buying set means the consent landed but the number did not, which is worth
+// seeing in the queue rather than silently reading as unlimited.
+async function readIntroCap(memberId) {
+  try {
+    const v = await idxStore().get("intro-cap:" + String(memberId), { type: "json" });
+    return v && typeof v.cap === "number" ? v.cap : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function readFindableSet(audience) {
   try {
     const store = idxStore();
@@ -160,6 +206,46 @@ exports.handler = async function (event) {
   if (event.httpMethod !== "GET") return { statusCode: 405, headers: corsHeaders, body: "Method Not Allowed" };
 
   const q = event.queryStringParameters || {};
+
+  // ---- ADMIN: the realtor introduction queue ------------------------------
+  // Deliberately checked BEFORE the closed-search guard, and deliberately
+  // requires a key that has to be set by hand.
+  if (q.admin) {
+    if (!ADMIN_KEY || q.admin !== ADMIN_KEY) {
+      return { statusCode: 404, headers: corsHeaders,
+        body: JSON.stringify({ version: VERSION, error: "not found" }) };
+    }
+    const aud = AUDIENCE_KEYS.indexOf(q.audience) !== -1 ? q.audience : "buying";
+    const ids = await readFindableSet(aud);
+    const rows = [];
+    for (const id of ids.slice(0, 200)) {
+      const c = await shapeCard(id);
+      if (!c) continue;
+      delete c._haystack;
+      c.introCap = await readIntroCap(id);
+      rows.push(c);
+    }
+    rows.sort((a, b) => (a.verified === b.verified ? 0 : a.verified ? -1 : 1));
+    return {
+      statusCode: 200,
+      headers: Object.assign({}, corsHeaders, { "Cache-Control": "no-store" }),
+      body: JSON.stringify({ version: VERSION, admin: true, audience: aud,
+        total: rows.length, results: rows }, null, 2),
+    };
+  }
+
+  // ---- MEMBER-FACING: closed ---------------------------------------------
+  // Returns 200 with an empty set rather than an error. Any page still
+  // calling this renders "nobody found" and stands down quietly, instead of
+  // showing a member a broken component they cannot do anything about.
+  if (!MEMBER_SEARCH) {
+    return {
+      statusCode: 200,
+      headers: corsHeaders,
+      body: JSON.stringify({ version: VERSION, closed: true, total: 0, results: [] }),
+    };
+  }
+
   const audience = AUDIENCE_KEYS.indexOf(q.audience) !== -1 ? q.audience : "landlords";
   const loc = (q.location || "").trim().toLowerCase();
   const verifiedOnly = q.verifiedOnly === "1" || q.verifiedOnly === "true";
