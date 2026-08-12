@@ -1,9 +1,29 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v14
+// alerts-card-js.js  —  ac-v15
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v15 CHANGE: THE TWO CONSENT CHECKBOXES ARE REMOVED.
+//   "Introduce me to verified Renters.com properties that match" and
+//   "also pass my inquiry to matching properties that are not on
+//   Renters.com yet" both came off this card.
+//   WHY: consent is asked ONCE now, on the What We Share screen, where the
+//   renter sees their own values beside every field and reads the exact
+//   introduction a landlord will receive. A checkbox asking the same
+//   question with none of that context is how two records end up
+//   disagreeing about what somebody agreed to.
+//   THE STORED VALUES ARE NOT TOUCHED. state.consent still loads from the
+//   server and still goes back on every save. Zeroing them would have been
+//   a consent change made on a renter's behalf without asking.
+//   The handlers were deleted rather than guarded: saveConsent() read the
+//   DOM, so with the inputs gone it would have written FALSE for both the
+//   moment anything called it.
+//   ⚠️ THERE IS NOW NO WAY TO REVOKE THESE TWO FROM THIS CARD. That is
+//   only acceptable because the lead hub shows nobody has ever ticked
+//   them. If that stops being true, revocation must exist on the What We
+//   Share screen before this stays removed.
 //
 // ac-v14 CHANGE: SCHEMA v3, VOICE INTAKE, CONSENT, AND THE v13 GATE.
 //
@@ -69,7 +89,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v14";
+const FN_VERSION = "ac-v15";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 
@@ -611,20 +631,27 @@ const JS = `
       html += '</div>';
     }
 
-    // ---- CONSENT. Both off unless the renter turns them on. ----
-    html +=
-      '<div style="' + S.consent + '">' +
-        '<span style="' + S.lab + '">How we can introduce you</span>' +
-        '<label style="' + S.cRow + '">' +
-          '<input type="checkbox" id="ra-c-plat" style="' + S.cBox + '"' + (state.consent.platform ? " checked" : "") + '>' +
-          '<span style="' + S.cLab + '">Introduce me to verified Renters.com properties that match. The landlord or manager sees that I am identity verified.</span>' +
-        '</label>' +
-        '<label style="' + S.cRow + '">' +
-          '<input type="checkbox" id="ra-c-off" style="' + S.cBox + '"' + (state.consent.off_platform ? " checked" : "") + '>' +
-          '<span style="' + S.cLab + '">Also pass my inquiry to matching properties that are not on Renters.com yet, so I do not miss them.</span>' +
-        '</label>' +
-        '<p style="' + S.itemMuted + '">Both are off unless you turn them on. We never sell your verified data, and you can change this any time.</p>' +
-      '</div>';
+    // ---- CONSENT BLOCK REMOVED (ac-v15) ----------------------------------
+    // Two checkboxes used to live here: "introduce me to verified
+    // Renters.com properties" and "also pass my inquiry off-platform".
+    //
+    // WHY THEY ARE GONE. Consent is now asked ONCE, on the What We Share
+    // screen, where the renter sees their own values beside every field and
+    // reads the exact introduction a landlord will receive. A checkbox that
+    // says "introduce me to properties that match" asks the same question
+    // with none of that context, and asking twice in two vocabularies is how
+    // two records end up disagreeing about what someone agreed to.
+    //
+    // THE STORED VALUES ARE NOT TOUCHED. state.consent is still loaded from
+    // the server and still sent back on every save, so nothing is silently
+    // revoked and nothing is silently granted. Zeroing them here would have
+    // been a consent change made on a renter's behalf without asking, which
+    // is the thing this whole surface exists to avoid.
+    //
+    // ⚠️ CONSEQUENCE WORTH KNOWING: there is now no way to REVOKE these two
+    // from this card. That is only acceptable because the lead hub shows
+    // nobody has ever ticked them. If that stops being true, revocation has
+    // to exist on the What We Share screen before this stays removed.
 
     html +=
       '<div id="ra-note" style="' + S.note + '"></div>' +
@@ -660,15 +687,10 @@ const JS = `
       render(mp);
     };
 
-    var cp = document.getElementById("ra-c-plat");
-    var co = document.getElementById("ra-c-off");
-    function saveConsent() {
-      state.consent.platform = !!(cp && cp.checked);
-      state.consent.off_platform = !!(co && co.checked);
-      persist(mp, "Saved.");
-    }
-    if (cp) cp.onchange = saveConsent;
-    if (co) co.onchange = saveConsent;
+    // ac-v15: the consent checkbox handlers are gone with their inputs.
+    // They are removed rather than left guarded because saveConsent() read
+    // the DOM and would have written FALSE for both the moment anything
+    // called it - a live way to revoke a consent nobody asked to revoke.
 
     var list = document.getElementById("ra-list");
     if (list) {
