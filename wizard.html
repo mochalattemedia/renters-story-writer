@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="wz-v2">
+<meta name="rdc-version" content="wz-v4">
 <title>Start your search — Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ wz-v2
+/* ============================================================ wz-v4
    THE RENTER WIZARD — four steps, one container.
 
    WHY THIS EXISTS. Every piece below already works on the site. What does
@@ -118,6 +118,16 @@ input,select,textarea{font-family:inherit;font-size:16px}
 .heard.on{display:block}
 .heard b{display:block;font-size:10.5px;font-weight:700;letter-spacing:.11em;
          text-transform:uppercase;color:var(--slate);margin:0 0 6px}
+/* Editable on purpose. Browser speech recognition has no local vocabulary,
+   so neighbourhood names are the thing it reliably mangles - "Laurelhurst
+   Park" came back as a word that is not a place anywhere. Correcting the
+   transcript before extraction is one edit; correcting the extracted fields
+   afterwards is several. It also keeps av-v1's own rule intact: the renter
+   stays the author of their own criteria. */
+.heard textarea{width:100%;border:1.5px solid var(--line);border-radius:var(--r);
+  background:var(--paper);padding:11px 13px;font-size:14px;line-height:1.55;color:var(--ink);
+  resize:vertical;min-height:76px}
+.heard textarea:focus{outline:0;border-color:var(--teal);background:var(--white)}
 
 .or{text-align:center;font-size:12px;color:var(--slate);margin:0 0 12px}
 .or button{color:var(--teal);font-weight:700;font-size:12.5px;text-decoration:underline}
@@ -231,7 +241,12 @@ input,select,textarea{font-family:inherit;font-size:16px}
           when you need to move, the dog.</span>
       </button>
 
-      <div class="heard" id="heard"><b>What we heard</b><span id="heardT"></span></div>
+      <div class="heard" id="heard">
+        <b>What we heard &middot; tap to fix anything</b>
+        <textarea id="heardT" rows="4"
+          placeholder="Your words appear here"></textarea>
+        <button class="mini" id="redo" style="margin-top:10px">Use this &rarr;</button>
+      </div>
 
       <p class="or">or <button id="typeIt">fill it in yourself</button></p>
 
@@ -289,14 +304,14 @@ input,select,textarea{font-family:inherit;font-size:16px}
 <script>
 (function () {
   'use strict';
-  var V = 'wz-v2';
+  var V = 'wz-v4';
 
   var NET   = 'https://renters-story-writer.netlify.app';
   var FN    = NET + '/.netlify/functions/';
   var PREFS = FN + 'alerts-prefs';
   var VOICE = FN + 'alerts-voice';
   var CLAIM = FN + 'alerts-claim';
-  var PICKER = NET + '/zone-picker.html';
+  var PICKER = NET + '/zone-picker.html?embed=1';
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -402,9 +417,49 @@ input,select,textarea{font-family:inherit;font-size:16px}
 
   $('zp').src = PICKER;
 
+  /* WHY THIS IS NOT A SINGLE POST-AND-HOPE.
+     The picker refuses to save while it is still resolving zip codes, and it
+     reports that in its OWN status line - inside the iframe, where a phone
+     user cannot see it. The first version fired once, waited 900ms, and then
+     told the renter to "draw at least one area", which was both wrong and the
+     opposite of what was happening: the area WAS drawn and the zips were mid
+     flight. A made-up reason for a real wait is worse than no message.
+     So: ask, keep asking while it works, and say what is actually going on. */
+
+  var saving = false, tries = 0;
+
+  function askSave() {
+    var f = $('zp');
+    if (!f || !f.contentWindow) return;
+    if (!saving) { saving = true; tries = 0; }
+    tries++;
+    f.contentWindow.postMessage({ type: 'renters_areas_save' }, '*');
+
+    if (tries === 2) toast('Working out the ZIP codes in your area');
+
+    if (tries > 12) {          /* ~9s, then stop and say something true */
+      saving = false;
+      toast('Draw an area on the map, then tap again');
+      return;
+    }
+    setTimeout(function () { if (saving && !state.areas.zones.length) askSave(); }, 750);
+  }
+
   window.addEventListener('message', function (e) {
     var d = e.data;
-    if (!d || d.type !== 'renters_areas_zips') return;
+    if (!d) return;
+
+    if (d.type === 'renters_areas_busy') {
+      if (saving && tries < 3) toast('Working out the ZIP codes in your area');
+      return;
+    }
+    if (d.type === 'renters_areas_none') {
+      saving = false;
+      toast('Draw an area on the map first');
+      return;
+    }
+    if (d.type !== 'renters_areas_zips') return;
+    saving = false;
 
     state.areas = { zips: d.zips || [], zones: d.zones || [] };
 
@@ -454,7 +509,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
       for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
       transcript = t;
       $('heard').classList.add('on');
-      $('heardT').textContent = t;
+      $('heardT').value = t;
     };
     rec.onerror = function () { stopListening(); toast('Could not hear that. Try again.'); };
     rec.onend = function () { if (listening) stopListening(); };
@@ -473,7 +528,8 @@ input,select,textarea{font-family:inherit;font-size:16px}
     $('mic').classList.remove('live');
     $('micB').textContent = 'Describe it out loud';
     $('micS').textContent = 'Say what you are after, the way you would tell a friend.';
-    if (transcript.trim().length > 12) extract(transcript.trim());
+    var typed = ($('heardT').value || '').trim();
+    if (typed.length > 12) extract(typed);
   }
 
   /* av-v1 returns a PROPOSAL, never a save. The form is pre-filled and the
@@ -524,6 +580,12 @@ input,select,textarea{font-family:inherit;font-size:16px}
       if (b) b.click();
     });
   }
+
+  $('redo').addEventListener('click', function () {
+    var t = ($('heardT').value || '').trim();
+    if (t.length < 13) { toast('Say a little more'); return; }
+    extract(t);
+  });
 
   function showFields() { $('fields').classList.add('on'); }
   $('typeIt').addEventListener('click', showFields);
@@ -675,7 +737,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
        squeezing the map off the screen. */
     1: { h: 'Where do you want to live?',
          s: '',
-         cta: 'Save my areas →' },
+         cta: 'Next →' },
     2: { h: 'What are you looking for?',
          s: "Tell us what matters most, and we'll help you find your perfect spot.",
          cta: 'Save this search →' },
@@ -714,17 +776,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
   $('next').addEventListener('click', function () {
     if (state.step === 1) {
       if (state.areas.zones.length) { go(2); return; }
-      /* ONE BUTTON. Rather than making the renter find the picker's Save
-         inside a scrolling iframe, the wizard's own action asks the picker
-         to save. zone-picker needs the matching listener (zp-v4) or this
-         does nothing and the fallback message below is what they get. */
-      var f = $('zp');
-      if (f && f.contentWindow) {
-        f.contentWindow.postMessage({ type: 'renters_areas_save' }, '*');
-      }
-      setTimeout(function () {
-        if (!state.areas.zones.length) toast('Draw at least one area, then tap again');
-      }, 900);
+      askSave();
       return;
     }
 
@@ -782,7 +834,7 @@ input,select,textarea{font-family:inherit;font-size:16px}
       .then(function (d) {
         if (d && d.token) {
           try { localStorage.setItem('rdc_stash', d.token); } catch (e) {}
-          location.href = '/checkout/renters?stash=' + encodeURIComponent(d.token);
+          location.href = 'https://www.renters.com/checkout/renters?stash=' + encodeURIComponent(d.token);
         } else {
           toast('Could not save that. Try again.');
         }

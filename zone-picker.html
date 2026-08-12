@@ -117,7 +117,7 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
 
 <div id="zp-footer">
   <span id="zp-status"></span>
-  <div style="display:flex;gap:10px;">
+  <div style="display:flex;gap:10px;" id="zp-actions">
     <button class="zp-btn zp-btn-outline" onclick="clearAll()">Clear All</button>
     <button class="zp-btn zp-btn-navy" onclick="saveZones()">Save My Areas</button>
   </div>
@@ -694,6 +694,25 @@ window.addEventListener('message', function(e) {
 function setStatus(msg) {
   document.getElementById('zp-status').innerHTML = msg;
 }
+</script>
+
+<script>
+/* zp-v6 (Aug 11): HIDE THE SAVE ROW WHEN A HOST OWNS THE ACTION.
+   ?embed=1 is passed by the app wizard, which carries its own button at the
+   bottom of the screen and triggers this page's save by postMessage. Without
+   this the renter sees two buttons that say the same thing, stacked, and has
+   no way to tell which one is real - which is exactly what happened in
+   testing. BD's /account/locations does NOT pass the flag, so the row stays
+   exactly where it is there. Clear All goes too: it belongs beside the save
+   it partners with, and the host offers Back instead. */
+(function () {
+  try {
+    if (new URLSearchParams(location.search).get('embed') === '1') {
+      var row = document.getElementById('zp-actions');
+      if (row) row.style.display = 'none';
+    }
+  } catch (e) {}
+})();
 </script>
 
 <script>
