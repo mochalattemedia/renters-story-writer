@@ -1,5 +1,19 @@
 // ============================================================
-//  visibility.js   ·   VERSION: vis6  (2026-07-20)
+//  visibility.js   ·   VERSION: vis7  (2026-08-11)
+//  vis7: THE HOMEOWNERSHIP TOGGLE CARRIES A NUMBER.
+//        The renter no longer just says "yes, realtors may reach out" -
+//        they say how many they are willing to hear from. Sent as
+//        introCap on the POST, returned on ?status=1, held in the Blob
+//        store under intro-cap:{memberId}.
+//        WHY NOT A TAG: the five audience flags are tags because they are
+//        booleans BD filters on. A cap is an integer and BD never displays
+//        it, so expressing it as three mutually exclusive tags would model
+//        a number as a set of switches and need three tag_ids made by hand.
+//        WHY IT IS READ BACK: a cap that fails to land silently turns a
+//        bounded consent into an open door. The POST returns introCapLanded
+//        so the panel can refuse to report success on a write that vanished.
+//        Turning the toggle off CLEARS the cap rather than leaving a number
+//        behind with no consent attached to it.
 //  vis6: SUPPLY-SIDE SUPPORT. The same tags (6-10) now serve EVERY member
 //        type: "visible-to-landlords" on a landlord record means that
 //        landlord is visible to landlords. NO NEW BD TAGS NEEDED.
@@ -67,7 +81,7 @@ const corsHeaders = {
 };
 
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
-const FUNCTION_VERSION = "vis6";
+const FUNCTION_VERSION = "vis7";
 
 // The five audience tags. Keyed by the flag name the wizard sends/reads.
 // tag_id values confirmed from BD Members > Tags. tag_type_id 1 = Custom Tags group.
@@ -86,6 +100,55 @@ AUDIENCES.forEach((a) => { BY_KEY[a.key] = a; });
 // renter-search.js reads these to list who opted into being found by each type.
 // Store name "visibility-index", one key per audience -> JSON array of member IDs.
 const INDEX_STORE = "visibility-index";
+
+// ---- INTRODUCTION CAP -------------------------------------------------
+// vis7. The homeownership toggle is no longer a bare yes: the renter also
+// says HOW MANY realtors they are willing to hear from.
+//
+// WHY NOT A TAG. The five audience flags are BD tags because they are
+// booleans and BD needs them for its own filtering. A cap is a number, and
+// it is operational rather than profile data - it tells US how many
+// introductions to make and BD never displays it. Adding three mutually
+// exclusive tags to express one integer would be modelling a number as a
+// set of switches, and it would need three new tag_ids created by hand.
+//
+// WHY THIS MATTERS MORE THAN IT LOOKS. A cap is a STRONGER consent than a
+// yes. "Two realtors" is a bounded permission with a number the renter
+// chose, which is far easier to honour and to evidence than an open door.
+// If it is ever lost, the consent silently becomes unlimited - so it is
+// read back after every write, the same discipline as ap-v8.
+const CAP_PREFIX = "intro-cap:";
+const CAP_MIN = 1;
+const CAP_MAX = 3;
+
+function cleanCap(v) {
+  const n = parseInt(v, 10);
+  if (!isFinite(n)) return null;
+  if (n < CAP_MIN) return CAP_MIN;
+  if (n > CAP_MAX) return CAP_MAX;
+  return n;
+}
+
+async function readIntroCap(memberId) {
+  try {
+    const v = await idxStore().get(CAP_PREFIX + String(memberId), { type: "json" });
+    return v && typeof v.cap === "number" ? v.cap : null;
+  } catch (e) { return null; }
+}
+
+// Returns the value actually stored, not the value sent. A write that
+// reports success and lands nothing is the failure this guards against.
+async function writeIntroCap(memberId, cap) {
+  const key = CAP_PREFIX + String(memberId);
+  try {
+    if (cap === null) { await idxStore().delete(key); return { ok: true, cap: null }; }
+    await idxStore().setJSON(key, { cap: cap, at: new Date().toISOString() });
+    const back = await readIntroCap(memberId);
+    return { ok: back === cap, cap: back };
+  } catch (e) {
+    return { ok: false, cap: null, error: (e && e.message) ? e.message : String(e) };
+  }
+}
 function idxStore() {
   // getStore() does NOT throw on creation (only later on read/write), so a
   // try/catch fallback never fires. Pass siteID + token explicitly when present.
@@ -392,6 +455,7 @@ exports.handler = async function (event) {
           buying: on.buying,
           renters: on.renters,
           incomeConfirmed: await readIncomeConfirmed(q.memberId, member),
+          introCap: await readIntroCap(q.memberId),
         }),
       };
     }
@@ -406,7 +470,7 @@ exports.handler = async function (event) {
   try { body = JSON.parse(event.body); }
   catch (e) { return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) }; }
 
-  const { memberId, flags, timestamp } = body;
+  const { memberId, flags, timestamp, introCap } = body;
   const userId = memberId;
   if (!has(userId)) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "memberId required" }) };
@@ -414,6 +478,13 @@ exports.handler = async function (event) {
   if (!flags || typeof flags !== "object") {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "flags object required" }) };
   }
+
+  // The cap only means anything while the toggle is on. Turning the toggle
+  // off clears it rather than leaving a number behind that no longer has a
+  // consent attached to it.
+  const wantsBuying = flags.buying === true || flags.buying === "true" || flags.buying === 1;
+  const capWanted = wantsBuying ? (cleanCap(introCap) || CAP_MIN) : null;
+  const capResult = await writeIntroCap(userId, capWanted);
 
   // Desired state per audience (coerce to bool; unknown keys ignored).
   const desired = {};
@@ -468,6 +539,7 @@ exports.handler = async function (event) {
   if (verifiedFlag === "1") lines.push(`Verification: Yes (approved)`);
   lines.push("");
   lines.push(onList.length ? `Now visible to: ${onList.join(", ")}` : "Now hidden from everyone.");
+  if (capResult.cap) lines.push(`Wants up to ${capResult.cap} realtor introduction${capResult.cap === 1 ? "" : "s"}.`);
   if (offList.length) lines.push(`Hidden from: ${offList.join(", ")}`);
   lines.push("");
   lines.push(`Write results: ${AUDIENCES.map((a) => a.key + "=" + results[a.key]).join(", ")}`);
@@ -507,6 +579,11 @@ exports.handler = async function (event) {
       memberType: ownType,
       results,
       index: indexResult,
+      // The cap the renter ACTUALLY has now, read back from the store. If
+      // this comes back null while the toggle is on, the write did not land
+      // and the panel must not tell them it saved.
+      introCap: capResult.cap,
+      introCapLanded: capResult.ok,
       emailSent: emailOk,
     }),
   };
