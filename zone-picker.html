@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>My Areas - Renters.com</title>
-<!-- zone-picker.html  zp-v10
+<!-- zone-picker.html  zp-v11
+     zp-v11: ?place=NAME centres the map there on load. The renter told us
+     where in words on the teaser; handing them a map of the whole country
+     and asking again turns confirming into starting over.
      zp-v10: embedded, this is a DRAWING SURFACE, not an area manager.
      Rename, the cap banner, the "Your Zones" heading and the "2 of 15"
      profile-pool status are all hidden - they describe a profile-wide
@@ -215,6 +218,42 @@ function initMap() {
     }
     setStatus('Showing ' + (place.name || 'that area') + '. Click "Draw Zone" to outline it.');
   });
+
+  /* zp-v11: OPEN WHERE THEY ALREADY SAID. ?place=Denver+University centres
+     the map there before the renter touches anything.
+     WHY IT MATTERS: the teaser asks "where do you want to live" and they
+     answer in words. Then the dashboard hands them a map of the entire
+     United States and asks the same question again. Starting at the place
+     they named turns drawing a zone from STARTING OVER into CONFIRMING -
+     which is the difference between a step and a chore.
+     The name is also remembered as lastSearchName, so a zone drawn
+     immediately inherits their words rather than a reverse geocode of a
+     random point inside the shape. */
+  (function () {
+    try {
+      var want = new URLSearchParams(location.search).get('place');
+      if (!want) return;
+      want = String(want).trim().slice(0, 80);
+      if (!want) return;
+      input.value = want;
+      lastSearchName = want;
+      new google.maps.Geocoder().geocode(
+        { address: want, componentRestrictions: { country: 'US' } },
+        function (res, status) {
+          if (status !== 'OK' || !res || !res.length) {
+            /* Not found is not a failure. They still have the search box,
+               and a map centred on nothing is better than a wrong guess. */
+            setStatus('Search for the area you want, then tap Draw Zone.');
+            return;
+          }
+          var g = res[0].geometry;
+          if (g.viewport) map.fitBounds(g.viewport);
+          else { map.setCenter(g.location); map.setZoom(12); }
+          setStatus('Showing ' + want + '. Tap Draw Zone to outline it.');
+        }
+      );
+    } catch (e) {}
+  })();
 
   // Map click handler for drawing
   map.addListener('click', function(e) {
