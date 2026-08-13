@@ -1,8 +1,24 @@
 // ============================================================
 //  send-verification-email.js
-//  FN_VERSION: sve-v3   (2026-07-11)
+//  FN_VERSION: sve-v4   (2026-08-13)
 //
 //  Changelog
+//   sve-v4  Aug 13  + ADMIN COPY. Every member-facing decision email now also
+//                   fires a separate admin notification to kenny@renters.com
+//                   with its own subject anchor, so decisions bucket in Gmail
+//                   the way the Didit funnel already does.
+//                     approved    -> "✅ Verified — <name>"
+//                     needs-photo -> "📷 Needs photo — <name>"
+//                     try-again   -> "🔁 Try again sent — <name>"
+//                     denied      -> "🚫 Denied — <name>"
+//                   Built HERE and not in verify-approve.js on purpose: BOTH
+//                   the bookmarklet and the phone page call this function, so
+//                   one change covers every decision surface. Putting it in
+//                   the phone tool would have bucketed phone decisions only
+//                   and silently dropped desktop ones from the same label.
+//                   The admin copy NEVER blocks or fails the member email:
+//                   it is sent after, and its errors are logged, not thrown.
+//   sve-v3  Jul 11  + needs-photo email (hold for a face photo, no re-Didit)
 //   sve-v3  Jul 11  + needs-photo email (hold for a face photo, no re-Didit)
 //                   + try-again email (warm retry nudge for Didit declines)
 //                   + SES region fallback corrected us-east-1 -> us-east-2
@@ -18,7 +34,7 @@
 //  Types: approved | denied | needs-photo | try-again
 //  Sender: verify@renters.com  ·  SES region: us-east-2 (Ohio)
 // ============================================================
-const FN_VERSION = "sve-v3";
+const FN_VERSION = "sve-v4";
 
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
 const ses = new SESClient({
@@ -46,6 +62,62 @@ function cleanName(raw) {
   n = n.replace(/([A-Za-z0-9])\.([A-Za-z0-9])/g, "$1 $2").trim();
   if (!n) return "there";
   return n;
+}
+
+// --- ADMIN COPY -------------------------------------------------------------
+// A SECOND email to the hub, one per decision, with its own subject anchor.
+// Deliberately not a BCC of the member email: a BCC carries the member-facing
+// subject, which cannot be filtered apart from the member's own copy and says
+// nothing about which surface made the call. These anchors are collision-proof
+// and can carry the decision context the member copy cannot.
+//
+// Gmail filters (subject contains):
+//   "✅ Verified —"      -> Renters/Identity-Granted
+//   "📷 Needs photo —"   -> Renters/Identity-NeedsPhoto
+//   "🔁 Try again sent —" -> (optional label)
+//   "🚫 Denied —"        -> (optional label)
+const ADMIN_TO = "kenny@renters.com";
+
+const ADMIN_ANCHORS = {
+  "approved":    { anchor: "✅ Verified", line: "Verified badge granted. Welcome email sent." },
+  "needs-photo": { anchor: "📷 Needs photo", line: "Holding for a face photo. Identity stays confirmed." },
+  "try-again":   { anchor: "🔁 Try again sent", line: "Didit declined. Retry nudge sent." },
+  "denied":      { anchor: "🚫 Denied", line: "Verification denied and the member was notified." }
+};
+
+// Never throws. The member email is the product; this is bookkeeping, and
+// bookkeeping must not be able to fail a send that already succeeded.
+async function adminCopy(type, opts) {
+  try {
+    const cfg = ADMIN_ANCHORS[type];
+    if (!cfg) return;
+    const o = opts || {};
+    const who = String(o.name || "").trim() || ("Member #" + (o.memberId || "unknown"));
+
+    const lines = [
+      cfg.line,
+      "",
+      "Member:  " + who,
+      (o.memberId ? "ID:      #" + o.memberId : null),
+      "Email:   " + (o.email || "(none)"),
+      (o.accountType ? "Type:    " + o.accountType : null),
+      (o.decidedFrom ? "Decided: " + o.decidedFrom : null),
+      "When:    " + new Date().toISOString(),
+      "",
+      "Sent from Renters.com verification."
+    ].filter(function (x) { return x !== null; });
+
+    await ses.send(new SendEmailCommand({
+      Source: "verify@renters.com",
+      Destination: { ToAddresses: [ADMIN_TO] },
+      Message: {
+        Subject: { Data: cfg.anchor + " — " + who, Charset: "UTF-8" },
+        Body: { Text: { Data: lines.join("\n"), Charset: "UTF-8" } }
+      }
+    }));
+  } catch (e) {
+    console.log("admin copy failed (" + type + "): " + e.message);
+  }
 }
 
 // Renter vs supply-side (landlord / property manager / realtor / agent)
@@ -133,6 +205,11 @@ exports.handler = async function (event) {
   catch (e) { return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Invalid JSON" }) }; }
 
   const { type, email, accountType } = body;
+  // Optional. Passed by verify-approve.js (va-v3+) so the admin copy can name
+  // the member and the surface. Absent from bookmarklet calls, which is fine:
+  // the copy falls back to the name, then to "Member #unknown".
+  const memberId = body.memberId || "";
+  const decidedFrom = body.decidedFrom || "";
   if (!type || !email) {
     return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Missing required fields: type, email" }) };
   }
@@ -190,6 +267,7 @@ exports.handler = async function (event) {
     });
     try {
       await ses.send(taCommand);
+      await adminCopy("try-again", { name: body.name, memberId, email, accountType, decidedFrom });
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, _v: FN_VERSION, type: "try-again", email }) };
     } catch (err) {
       console.error("SES error:", err);
@@ -243,6 +321,7 @@ exports.handler = async function (event) {
     });
     try {
       await ses.send(npCommand);
+      await adminCopy("needs-photo", { name: body.name, memberId, email, accountType, decidedFrom });
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, _v: FN_VERSION, type: "needs-photo", email }) };
     } catch (err) {
       console.error("SES error:", err);
@@ -296,6 +375,7 @@ exports.handler = async function (event) {
     });
     try {
       await ses.send(denyCommand);
+      await adminCopy("denied", { name: body.name, memberId, email, accountType, decidedFrom });
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, _v: FN_VERSION, type: "denied", email }) };
     } catch (err) {
       console.error("SES error:", err);
@@ -377,6 +457,7 @@ exports.handler = async function (event) {
   });
   try {
     await ses.send(command);
+    await adminCopy("approved", { name: body.name, memberId, email, accountType, decidedFrom });
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, _v: FN_VERSION, type, email, side: supply ? "landlord" : "renter" }) };
   } catch (err) {
     console.error("SES error:", err);
