@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v16
+// alerts-teaser-js.js  —  at-v17
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,22 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v17: 🔴 THE SIGNUP BUTTON WAS INVISIBLE. Not missing - INVISIBLE.
+// The anchor was in the DOM, correctly styled, with a working href to
+// /checkout/renters and the claim token attached, and it computed to
+// display:none. Console: "Create my free account | 0x0 | rgb(255,255,255)
+// | rgb(58,158,143) | none".
+// An inline style beats a stylesheet - but NOT one marked !important, and
+// BD has a rule hiding bare anchors in this content area. So the single
+// conversion point on the homepage teaser existed and nobody could see or
+// click it. Every visitor who finished a perfect spot hit a dead end.
+//
+// ⚠️ INLINE IS NOT THE TOP OF THE CASCADE. On any surface whose CSS you
+// do not control, the properties deciding whether a thing EXISTS on
+// screen - display, visibility - need !important. Same family as the
+// button-type trap that reloaded the dashboard: you do not own the
+// document you are rendering into, and its defaults are not neutral.
 //
 // at-v16: BUTTON HIERARCHY, AND "TYPE IT INSTEAD" STOPS THROWING AWAY
 // WHAT WAS SAID.
@@ -202,7 +218,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v16";
+const FN_VERSION = "at-v17";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -267,7 +283,19 @@ const JS = `
     chipNo: "border:1px solid #edf1f5;background:#fbfcfd;color:#c2cbd6;border-radius:999px;padding:8px 13px;font-size:13.5px;margin:0 7px 8px 0;font-family:inherit;cursor:default;",
     chipOn: "border:1px solid " + NAVY + ";background:" + NAVY + ";color:#fff;border-radius:999px;padding:9px 15px;font-size:13px;cursor:pointer;",
     btn: "background:" + NAVY + ";color:#fff;border:0;border-radius:11px;padding:15px 26px;font-size:16px;font-weight:700;cursor:pointer;width:100%;max-width:360px;display:block;margin:0 auto;",
-    btnGo: "background:" + TEAL + ";color:#fff;border:0;border-radius:11px;padding:14px 26px;font-size:16px;font-weight:700;cursor:pointer;width:100%;text-decoration:none;display:block;text-align:center;box-sizing:border-box;",
+    // 🔴 at-v17: display AND visibility CARRY !important, AND THAT IS THE
+    // WHOLE BUG. "Create my free account" - the one conversion on this
+    // page - was in the DOM, correctly styled, with a working href, and
+    // COMPUTED display:none. An inline style normally wins, but it loses
+    // to a stylesheet rule marked !important, and BD has one hiding bare
+    // anchors in this content area. So the button existed and nobody
+    // could see it or click it.
+    // ⚠️ THE LESSON FOR ANYTHING INJECTED INTO A HOST PAGE: inline is not
+    // the top of the cascade. On a surface whose CSS you do not control,
+    // the properties that decide whether a thing EXISTS on screen -
+    // display, visibility - need !important. Same family as the button
+    // type trap: you do not own the document you are rendering into.
+    btnGo: "background:" + TEAL + ";color:#fff;border:0;border-radius:11px;padding:14px 26px;font-size:16px;font-weight:700;cursor:pointer;width:100%;text-decoration:none;text-align:center;box-sizing:border-box;display:block !important;visibility:visible !important;",
     wallWrap: "text-align:center;padding:8px 4px;max-width:560px;margin:0 auto;",
     wallH: "margin:0 0 10px;font-size:21px;font-weight:800;color:" + NAVY + ";",
     wallP: "margin:0 0 20px;font-size:15px;color:#5b6b82;line-height:1.55;",
