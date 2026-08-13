@@ -1,6 +1,11 @@
 // ============================================================
-//  verify-approve.js   va-v2   (2026-08-11)
+//  verify-approve.js   va-v3   (2026-08-13)
 //  Mobile verification approval. No BD login, phone-first.
+//
+//  va-v3  Passes memberId + decidedFrom:"phone" to send-verification-email
+//         (sve-v4+), which uses them in the admin copy so a Gmail decision
+//         record names the member and the surface. Cosmetic to the member,
+//         who sees no change. Nothing else touched.
 //
 //  va-v2  BD's DEFAULT AVATAR IS NOT A PHOTO. verify-member returns a
 //         profilePhotoUrl for every member, including those who never
@@ -43,7 +48,7 @@
 //    POST {action:"data"|"approve"|"needsphoto", t, pin}
 // ============================================================
 
-const FN_VERSION = "va-v2";
+const FN_VERSION = "va-v3";
 
 const crypto = require("crypto");
 const { getStore } = require("@netlify/blobs");
@@ -285,7 +290,9 @@ async function doApprove(payload, member) {
       type: "approved",
       email: member.email,
       name: member.name || "",
-      accountType: member.accountType || ""
+      accountType: member.accountType || "",
+      memberId: memberId,
+      decidedFrom: "phone"
     });
     emailed = true;
   }
@@ -320,7 +327,10 @@ async function doNeedsPhoto(payload, member) {
   await postJson(EMAIL_URL, {
     type: "needs-photo",
     email: member.email,
-    name: member.name || ""
+    name: member.name || "",
+    accountType: member.accountType || "",
+    memberId: memberId,
+    decidedFrom: "phone"
   });
 
   return { ok: true, message: "Needs-photo email sent to " + member.email };
