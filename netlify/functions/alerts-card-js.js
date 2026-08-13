@@ -1,9 +1,37 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v25
+// alerts-card-js.js  —  ac-v26
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v26 CHANGE: 🔴 THE CARD WAS NOT DISAPPEARING. THE PAGE WAS
+// RELOADING. Every button on this card was submitting a BD form.
+//
+// THE TELL, and it was the only diagnostic that mattered: KENNY SAID THE
+// CONSOLE ITSELF RESTARTED. A console that clears is a NAVIGATION. Five
+// versions were spent hunting a DOM removal that never happened - no
+// error, no thrown render, no node removed, because nothing was wrong
+// inside this card at all. The page simply went away and came back.
+//
+// THE CAUSE: <button> WITH NO type ATTRIBUTE DEFAULTS TO type="submit".
+// This card injects into .member_accounts, which sits INSIDE ONE OF BD'S
+// FORMS, so every button here was a submit button for somebody else's
+// form. Clicking Start talking submitted it and reloaded /account/home,
+// which threw away the in-memory draft and re-rendered the empty state.
+// TWENTY-FOUR BUTTONS, NOT ONE OF THEM TYPED. It is a wonder anything
+// worked - and the ones that appeared to work were the ones that
+// re-rendered fast enough to look intentional.
+//
+// ⭐ THE RULE, AND IT APPLIES TO EVERY SURFACE INJECTED INTO A HOST PAGE:
+// ALWAYS SET type="button" ON A BUTTON THAT IS NOT SUBMITTING YOUR OWN
+// FORM. You do not control the DOM you are injected into, and a form
+// wrapper you never see turns every control you render into a submit.
+//
+// 📌 AND THE DIAGNOSTIC LESSON: "the console restarted" is not a detail
+// about tooling, IT IS THE ANSWER. A cleared console means the document
+// reloaded, which rules out every in-page explanation at once. Ask about
+// it FIRST when state vanishes with no error.
 //
 // ac-v25 CHANGE: "Use this area" NO LONGER HANGS. Diagnosed from a
 // console that showed NO ERROR AT ALL, which is what made it slow to find.
@@ -355,7 +383,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v25";
+const FN_VERSION = "ac-v26";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -717,6 +745,8 @@ const JS = `
       var blockedByCap = !on && opts.cap && arr.length >= opts.cap;
       var blocked = blockedByOther || blockedByCap;
       var b = document.createElement("button");
+      // Same trap as every other button on this card - see the ac-v26
+      // header. A button with no type inside a form is a SUBMIT button.
       b.type = "button";
       b.textContent = pretty(k);
       if (blockedByOther) b.title = "Already chosen in another list";
@@ -871,8 +901,8 @@ const JS = `
     if (!n) {
       html +=
         '<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">' +
-          '<button id="ra-voice" style="' + S.mic + '">Describe it out loud</button>' +
-          '<button id="ra-new" style="' + S.ghost + '">Fill in a form instead</button>' +
+          '<button type="button" id="ra-voice" style="' + S.mic + '">Describe it out loud</button>' +
+          '<button type="button" id="ra-new" style="' + S.ghost + '">Fill in a form instead</button>' +
         '</div>';
     } else {
       html += '<div id="ra-list">';
@@ -929,9 +959,9 @@ const JS = `
                 (s.updated && s.updated.slice(0, 10) !== (s.created || "").slice(0, 10)
                   ? '  \\u00b7  updated ' + esc(fmtDate(s.updated)) : "") + '</p>' +
               '<div style="' + S.acts + '">' +
-                '<button data-act="edit" data-i="' + i + '" style="' + S.ghost + '">Edit</button>' +
-                '<button data-act="toggle" data-i="' + i + '" style="' + S.ghost + '">' + (s.enabled ? "Pause" : "Resume") + '</button>' +
-                '<button data-act="del" data-i="' + i + '" style="' + S.link + '">Delete</button>' +
+                '<button type="button" data-act="edit" data-i="' + i + '" style="' + S.ghost + '">Edit</button>' +
+                '<button type="button" data-act="toggle" data-i="' + i + '" style="' + S.ghost + '">' + (s.enabled ? "Pause" : "Resume") + '</button>' +
+                '<button type="button" data-act="del" data-i="' + i + '" style="' + S.link + '">Delete</button>' +
               '</div>' +
             '</div>';
         }
@@ -942,8 +972,8 @@ const JS = `
 
       html += '<div style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;">';
       if (n < MAX) {
-        html += '<button id="ra-voice" style="' + S.mic + '">Describe another out loud</button>' +
-                '<button id="ra-new" style="' + S.ghost + '">Add with a form</button>';
+        html += '<button type="button" id="ra-voice" style="' + S.mic + '">Describe another out loud</button>' +
+                '<button type="button" id="ra-new" style="' + S.ghost + '">Add with a form</button>';
       } else {
         html += '<p style="' + S.itemMuted + '">You have reached the limit of ' + MAX + ' saved searches. Delete one to add another.</p>';
       }
@@ -1144,7 +1174,7 @@ const JS = `
             '<p style="' + S.itemMuted + 'margin:0;">' + zips.length + ' zip code' +
               (zips.length === 1 ? "" : "s") + (zips.length ? ' &middot; ' + esc(zips.join(", ")) : "") + '</p>' +
           '</div>' +
-          '<button id="ra-zone-open" style="' + S.link + 'flex:0 0 auto;">' +
+          '<button type="button" id="ra-zone-open" style="' + S.link + 'flex:0 0 auto;">' +
             (state.pickerOpen ? "Hide" : "Change") + '</button>' +
         '</div>';
     } else {
@@ -1155,7 +1185,7 @@ const JS = `
             '<p style="font-size:15px;font-weight:700;color:#0d2d4e;margin:0 0 2px;">Pick your zone</p>' +
             '<p style="' + S.hint + 'margin:0 0 10px;">Draw the area you would actually live in. Everything you say next applies inside it.</p>' +
             (state.pickerOpen ? "" :
-              '<button id="ra-zone-open" style="' + S.btn + '">Pick your zone</button>') +
+              '<button type="button" id="ra-zone-open" style="' + S.btn + '">Pick your zone</button>') +
           '</div>' +
         '</div>';
     }
@@ -1164,8 +1194,8 @@ const JS = `
       html +=
         '<p style="' + S.hint + 'margin:10px 0 6px;">Search a place, tap Draw Zone, then tap the map to trace the area.</p>' +
         '<div id="ra-picker-slot" style="border:1px solid #dde9e6;border-radius:10px;overflow:hidden;"></div>' +
-        '<button id="ra-zone-use" style="' + S.btn + 'margin-top:10px;width:100%;">Use this area</button>' +
-        '<button id="ra-zone-reset" style="' + S.ghost + 'margin-top:8px;width:100%;">Start over</button>' +
+        '<button type="button" id="ra-zone-use" style="' + S.btn + 'margin-top:10px;width:100%;">Use this area</button>' +
+        '<button type="button" id="ra-zone-reset" style="' + S.ghost + 'margin-top:8px;width:100%;">Start over</button>' +
         '<span id="ra-zone-msg" style="' + S.hint + 'display:block;margin-top:6px;"></span>';
     }
 
@@ -1205,7 +1235,7 @@ const JS = `
     // tools rather than one flow.
     if (!zoned) {
       html += '<div id="ra-note" style="' + S.note + '"></div>' +
-        '<div style="margin-top:6px;"><button id="ra-vback" style="' + S.link + '">Cancel</button></div>';
+        '<div style="margin-top:6px;"><button type="button" id="ra-vback" style="' + S.link + '">Cancel</button></div>';
       wrap.innerHTML = html;
       return;
     }
@@ -1218,24 +1248,24 @@ const JS = `
             : '<span style="color:#9aa8b8;">Your words will appear here.</span>') +
         '</div>' +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">' +
-          '<button id="ra-rec" style="' + (state.voice.active ? S.ghost : S.mic) + '">' +
+          '<button type="button" id="ra-rec" style="' + (state.voice.active ? S.ghost : S.mic) + '">' +
             (state.voice.active ? "Stop and use this" : (state.voice.transcript ? "Start over" : "Start talking")) + '</button>' +
           (state.voice.transcript && !state.voice.active
-            ? '<button id="ra-use" style="' + S.btn + '">Use this</button>' : "") +
-          '<button id="ra-vcancel" style="' + S.link + '">Type it instead</button>' +
+            ? '<button type="button" id="ra-use" style="' + S.btn + '">Use this</button>' : "") +
+          '<button type="button" id="ra-vcancel" style="' + S.link + '">Type it instead</button>' +
           // A DEAD END WAS THE BUG: "Type it instead" is a route FORWARD,
           // not a way back, so a renter who opened this by mistake was
           // stuck on it. Every view gets an exit.
-          '<button id="ra-vback" style="' + S.link + '">Cancel</button>' +
+          '<button type="button" id="ra-vback" style="' + S.link + '">Cancel</button>' +
         '</div>';
     } else {
       html +=
         '<p style="' + S.hint + '">This browser will not let us listen, so type it instead. Same result.</p>' +
         '<div id="ra-ta-mount" style="margin-bottom:12px;"></div>' +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
-          '<button id="ra-use" style="' + S.btn + '">Use this</button>' +
-          '<button id="ra-vcancel" style="' + S.link + '">Use the form instead</button>' +
-          '<button id="ra-vback" style="' + S.link + '">Cancel</button>' +
+          '<button type="button" id="ra-use" style="' + S.btn + '">Use this</button>' +
+          '<button type="button" id="ra-vcancel" style="' + S.link + '">Use the form instead</button>' +
+          '<button type="button" id="ra-vback" style="' + S.link + '">Cancel</button>' +
         '</div>';
     }
 
@@ -1516,13 +1546,13 @@ const JS = `
               }).join("") +
             '</select></div>' +
           '</div>' +
-          '<button data-optdel="' + oi + '" style="' + S.link + 'margin-top:6px;">Remove</button>' +
+          '<button type="button" data-optdel="' + oi + '" style="' + S.link + 'margin-top:6px;">Remove</button>' +
         '</div>';
     });
 
     html += '</div>';
     if ((d.extra || []).length < MAX_OPTIONS - 1) {
-      html += '<button id="ra-addopt" style="' + S.ghost + '">Add another option</button>';
+      html += '<button type="button" id="ra-addopt" style="' + S.ghost + '">Add another option</button>';
     } else {
       html += '<p style="' + S.itemMuted + '">That is the limit of ' + MAX_OPTIONS + ' options on one area.</p>';
     }
@@ -1530,7 +1560,7 @@ const JS = `
 
     // ---- refine ----
     html += '<div style="' + S.fold + '">' +
-      '<button id="ra-refine" style="' + S.ghost + '">' + (state.showRefine ? "Hide the details" : "Refine this search") + '</button>';
+      '<button type="button" id="ra-refine" style="' + S.ghost + '">' + (state.showRefine ? "Hide the details" : "Refine this search") + '</button>';
 
     if (state.showRefine) {
       var noSchema = !state.schema;
@@ -1626,8 +1656,8 @@ const JS = `
 
     html +=
       '<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">' +
-        '<button id="ra-save" style="' + S.btn + '">' + (isNew ? "Save this search" : "Save changes") + '</button>' +
-        '<button id="ra-cancel" style="' + S.ghost + '">Cancel</button>' +
+        '<button type="button" id="ra-save" style="' + S.btn + '">' + (isNew ? "Save this search" : "Save changes") + '</button>' +
+        '<button type="button" id="ra-cancel" style="' + S.ghost + '">Cancel</button>' +
       '</div>' +
       '<div id="ra-note" style="' + S.note + '"></div>';
 
