@@ -1,9 +1,56 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v32
+// alerts-card-js.js  —  ac-v34
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v34 CHANGE: THE THING HAS A NAME. IT IS A PERFECT SPOT.
+//
+// "Dream up your perfect spot and we will match it with available housing
+// inventory." That is the product, and it is not a search - searching is
+// what a renter does on a listings site at 11pm. This is describing what
+// they actually want and having it found for them, which is the whole
+// difference the company is built on.
+//
+// ⚠️ "HOUSING REQUEST" WAS NOT AVAILABLE. That name belongs to the
+// EXTERNAL Get Matched form, which lands in BD's leads box and is how
+// renters arrive on the system in the first place. Two objects sharing
+// one name is how a hub ends up describing two incompatible things at
+// once, which is exactly what lh-v4 had to undo.
+//
+// THE FULL SET, and it now holds on the card, in the hub, and in the
+// Bible:
+//   PERFECT SPOT      the object - one zone plus what would work in it
+//   ZONE              step one, where
+//   SPOT              step two, what
+//   HOUSING REQUEST   the external Get Matched form. Untouched.
+//
+// The graduation is legible: the form captures a housing request, the
+// tool builds their perfect spot. Empty state now says "Dream up your
+// perfect spot" in the renter's own words rather than "Start your
+// search" in a listings site's.
+//
+// ac-v33 CHANGE: ONE VOCABULARY. ZONE AND SPOT.
+//
+// Step one is your ZONE - where. Step two is your SPOT - what would work
+// there. "Pick your zone. Describe your spot." The card had been calling
+// step two three different things depending on where you stood: "Talk or
+// type your spot" on the voice screen, "Tell us about the place" on the
+// form, "Now tell us about the place" in the heading. Three names for one
+// step is how a renter loses track of how many steps there are.
+//
+// THE SET, and it now holds everywhere including the hub:
+//   ZONE             where they will live, drawn on the map
+//   SPOT             what would work inside it, said or typed
+//   HOUSING REQUEST  the two together - the internal object
+//   YOUR SEARCH      what the renter calls it on their dashboard
+//
+// "Spot" over "criteria" or "requirements" because it is what somebody
+// actually says - "we found a spot in Camas" - and because it names the
+// PLACE rather than a filter set. Wishlist was the other candidate and it
+// was wrong: it implies nice-to-haves, when the point of a deal breaker
+// is that it removes listings completely.
 //
 // ac-v32 CHANGE: THE FORM IS SEQUENTIAL TOO. A new search now shows ONLY
 // step one until a zone exists, exactly as the voice view has since
@@ -502,7 +549,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v32";
+const FN_VERSION = "ac-v34";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -1077,19 +1124,19 @@ const JS = `
     // "listing" is v68 vocabulary. The empty-state heading matches the
     // homepage teaser word for word on purpose.
     var html = n
-      ? '<h3 style="' + S.h + '">Your searches</h3>' +
-        '<p style="' + S.sub + '">Running searches match automatically. Add another or refine what is here.</p>'
-      : '<h3 style="' + S.h + '">Start your search</h3>' +
-        '<p style="' + S.sub + '">Type it or say it. When a verified home matches, we email you.</p>';
+      ? '<h3 style="' + S.h + '">Your perfect spots</h3>' +
+        '<p style="' + S.sub + '">Running spots match automatically. Add another or refine what is here.</p>'
+      : '<h3 style="' + S.h + '">Dream up your perfect spot</h3>' +
+        '<p style="' + S.sub + '">Pick your zone, then describe the place. When a verified home matches, we email you.</p>';
 
     var lc = legacyCount();
     if (lc) {
       html +=
         '<div style="' + S.warn + '">' +
           '<p style="' + S.warnTxt + 'font-weight:600;margin-bottom:6px;">' +
-            (lc === 1 ? "One search needs" : lc + " searches need") + ' a quick fix</p>' +
+            (lc === 1 ? "One perfect spot needs" : lc + " perfect spots need") + ' a quick fix</p>' +
           '<p style="' + S.warnTxt + '">The deal breakers saved on ' + (lc === 1 ? "it" : "them") +
-          ' were recorded in an older format we can no longer read correctly, so we are ignoring them rather than guessing. Open the search and re-pick them.</p>' +
+          ' were recorded in an older format we can no longer read correctly, so we are ignoring them rather than guessing. Open the spot and re-pick them.</p>' +
         '</div>';
     }
 
@@ -1177,10 +1224,10 @@ const JS = `
         // say WHAT, so neither read as the way to add a search. Every
         // entrance now begins with the verb, and the two states stay
         // parallel: Start / Add.
-        html += '<button type="button" id="ra-voice" style="' + S.mic + '">Add a search out loud</button>' +
-                '<button type="button" id="ra-new" style="' + S.ghost + '">Add a search with a form</button>';
+        html += '<button type="button" id="ra-voice" style="' + S.mic + '">Add a spot out loud</button>' +
+                '<button type="button" id="ra-new" style="' + S.ghost + '">Add a spot with a form</button>';
       } else {
-        html += '<p style="' + S.itemMuted + '">You have reached the limit of ' + MAX + ' saved searches. Delete one to add another.</p>';
+        html += '<p style="' + S.itemMuted + '">You have reached the limit of ' + MAX + ' perfect spots. Delete one to add another.</p>';
       }
       html += '</div>';
     }
@@ -1209,7 +1256,7 @@ const JS = `
 
     html +=
       '<div id="ra-note" style="' + S.note + '"></div>' +
-      '<p style="font-size:12px;color:#7a8ba1;margin:14px 0 0;">No matches, no email. Pause any search here, or from any email we send.</p>';
+      '<p style="font-size:12px;color:#7a8ba1;margin:14px 0 0;">No matches, no email. Pause any spot here, or from any email we send.</p>';
 
     wrap.innerHTML = html;
   }
@@ -1351,7 +1398,7 @@ const JS = `
           }
           if (act === "toggle") { s.enabled = !s.enabled; persist(mp, "Updated."); return; }
           if (act === "del") {
-            if (!window.confirm("Delete the search \\"" + s.name + "\\"?")) return;
+            if (!window.confirm("Delete \\"" + s.name + "\\"?")) return;
             deleteSearch(mp, s.id);
           }
         };
@@ -1439,7 +1486,7 @@ const JS = `
           '<span style="' + S.stepNum + '">2</span>' +
           '<div style="flex:1;">' +
             '<p style="font-size:15px;font-weight:700;color:#0d2d4e;margin:0 0 2px;">' + esc(stepTwoLabel) + '</p>' +
-            '<p style="' + S.hint + 'margin:0;">Inside ' + esc(d.zone.name || "that area") + '.</p>' +
+            '<p style="' + S.hint + 'margin:0;">What would work inside ' + esc(d.zone.name || "your zone") + '.</p>' +
           '</div>' +
         '</div>';
     }
@@ -1452,11 +1499,11 @@ const JS = `
     var d = state.draft || newDraft();
     var zoned = !!(d.zone && (d.zone.zips || []).length);
     var html =
-      '<h3 style="' + S.h + '">' + (zoned ? "Now tell us about the place" : "Start with where") + '</h3>' +
+      '<h3 style="' + S.h + '">' + (zoned ? "Describe your spot" : "Pick your zone") + '</h3>' +
       '<p style="' + S.sub + '">' + (zoned
         ? "Budget, size, timing, pets, anything that matters. Say it however you would say it to a friend and we will fill in the form."
-        : "Draw where you want to live, then tell us what you are looking for inside it.") + '</p>' +
-      zoneBlockHtml(d, "Talk or type your spot");
+        : "Draw where you want to live, then tell us what would work inside it.") + '</p>' +
+      zoneBlockHtml(d, "Describe your spot");
 
     // ac-v24: the mic does not exist until step one is done. Two live
     // controls with no order between them is what made this read as two
@@ -1722,7 +1769,12 @@ const JS = `
     var legacy = (c.legacy_breakers || []).length;
 
     var html =
-      '<h3 style="' + S.h + '">' + (isNew ? "New search" : "Edit search") + '</h3>';
+      // ac-v33: the heading names the step the renter is actually on, so
+      // the card and the two step badges say the same thing.
+      '<h3 style="' + S.h + '">' +
+        (isNew
+          ? ((d.zone && (d.zone.zips || []).length) ? "Describe your spot" : "Pick your zone")
+          : "Edit your spot") + '</h3>';
 
     if (state.voice.heard) {
       html +=
@@ -1734,12 +1786,12 @@ const JS = `
             : '') +
         '</div>';
     } else {
-      html += '<p style="' + S.sub + '">Where first, then what would work there. Open Refine if you want to be precise, and the more precise you are the fewer and better the emails.</p>';
+      html += '<p style="' + S.sub + '">Zone first, then the spot. Open Refine if you want to be precise, and the more precise you are the fewer and better the emails.</p>';
     }
 
     // ---- STEP ONE: WHERE ----------------------------------------------
     // Same block the voice view renders. One definition, two hosts.
-    html += zoneBlockHtml(d, "Tell us about the place");
+    html += zoneBlockHtml(d, "Describe your spot");
 
     // ⚠️ ac-v32: ON A NEW SEARCH THE FORM STOPS HERE UNTIL A ZONE EXISTS.
     // The voice view has gated its microphone on a zone since ac-v24, but
@@ -1923,7 +1975,7 @@ const JS = `
 
     html +=
       '<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">' +
-        '<button type="button" id="ra-save" style="' + S.btn + '">' + (isNew ? "Save this search" : "Save changes") + '</button>' +
+        '<button type="button" id="ra-save" style="' + S.btn + '">' + (isNew ? "Save this spot" : "Save changes") + '</button>' +
         '<button type="button" id="ra-cancel" style="' + S.ghost + '">Cancel</button>' +
       '</div>' +
       '<div id="ra-note" style="' + S.note + '"></div>';
