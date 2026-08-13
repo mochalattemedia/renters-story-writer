@@ -1,6 +1,55 @@
 // ==================================================================
-// alerts-prefs.js  —  ap-v8
+// alerts-prefs.js  —  ap-v9
 // Daily listing alerts: read + write renter alert preferences in BD.
+//
+// ap-v9 CHANGE: SCHEMA v4. A SEARCH IS NOW A ZONE PLUS PRICED OPTIONS.
+//
+// THE PROBLEM v3 COULD NOT EXPRESS. A renter draws one circle over SE
+// Portland and is open to THREE DIFFERENT THINGS INSIDE IT, each at its
+// own number: a house up to 2000, a condo up to 1000, a room in a third
+// floor apartment at 750. Under v3 that is one rent_max, so either the
+// condo ceiling is wrong or the house ceiling is. Splitting it into
+// three searches is worse - it burns three of five slots and pretends
+// three parts of one hunt are unrelated.
+//
+// SO A SEARCH GAINS TWO FIELDS:
+//   zone     { name, zips[], path[] }  - the circle, named by the renter
+//   options  [ { unit_types, rent_max, rent_stretch, rent_basis,
+//                beds, baths_min } ]   - what would work, and for how much
+//
+// A LISTING MATCHES IF IT SATISFIES ANY ONE OPTION, having first passed
+// the zone zips. That is what stops a 1900 condo firing on a 2000 house
+// budget, and a lead that fails on type or price fails twice - once for
+// the renter and once for the landlord who paid for it.
+//
+// ⚠️ BACK COMPAT IS LOAD-BEARING AND DELIBERATE, exactly as in ap-v6.
+// THE LIVE CARD IS ac-v16 AND IT READS criteria, NOT options. So:
+//   - criteria is UNCHANGED and still carries rent_max, beds,
+//     unit_types and baths_min. Nothing is stripped from it, ever.
+//   - options is ADDITIVE. When a stored search has none, option one is
+//     DERIVED from criteria on read, so every existing search reads as a
+//     one-option search and nothing needs migrating in place.
+//   - when a write arrives carrying options, option one is MIRRORED BACK
+//     into criteria. An older reader therefore sees the renter's primary
+//     option and never sees an empty budget.
+// Deploy order between this file and the card does not matter. That is
+// the point, and it is why nothing here moves a value backward.
+//
+// HOUSEHOLD MOVES UP TO THE MEMBER. how many people are moving in is a
+// property of the renter, not of a search, and asking it once per search
+// is how two records end up disagreeing. household { adults, total }
+// sits on the wrapper, migrated from the first search that carries the
+// v3 household_adults / household_kids pair. Those two stay on criteria
+// for back compat and are no longer the authority.
+//   ⚖️ FAIR HOUSING: a COUNT and an adults-of-total split is occupancy
+//   arithmetic and is standard. Ages, relationships and whether the
+//   others are children are NOT captured, and must not be added here.
+//   Occupancy against a landlord limit is conduct; inferring family
+//   status is not.
+//
+// CAP: 4 options per search. Same reasoning as the must-have cap - a
+// renter enumerating nine configurations is describing a market, not a
+// search, and the matcher cost is options x searches per member.
 //
 // ap-v8 CHANGE: SEARCH IDS ARE STABLE ACROSS READS. FIXES A LIVE BUG
 // THAT PREDATES v6 AND IS PRESENT IN ap-v5.
@@ -105,9 +154,12 @@
 //   it recurring.
 //
 // STORED SHAPE (v3, in alerts_criteria, long text):
-//   { "v": 3,
-//     "consent": { platform, off_platform, recorded_at },
+//   { "v": 4,
+//     "consent":   { platform, off_platform, recorded_at },
+//     "household": { adults, total },
 //     "searches": [ { id, name, created, updated, enabled, source,
+//                     zone: { name, zips, path },
+//                     options: [ {...} ],
 //                     criteria: {...} } ] }
 //
 // TRANSCRIPT HANDLING. Voice intake produces a verbatim transcript that
@@ -153,11 +205,14 @@ const https = require("https");
 const crypto = require("crypto");
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "ap-v8";
-const SCHEMA_VERSION = 3;
+const FN_VERSION = "ap-v9";
+const SCHEMA_VERSION = 4;
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const MAX_SEARCHES = 5;
 const MUST_HAVE_CAP = 3;
+const MAX_OPTIONS = 4;
+const ZONE_ZIP_CAP = 40;
+const ZONE_PATH_CAP = 120;
 const NOTES_MAX = 400;
 const TRANSCRIPT_EXCERPT_MAX = 600;
 const DEMAND_STORE = "alert-demand";
@@ -447,6 +502,183 @@ function sanitizeCriteria(raw) {
   };
 }
 
+// ------------------------------------------------------------------
+// ZONE. The circle the renter drew, as it arrives from zone-picker.html
+// in the renters_areas_zips message: a name, the zips it resolved to,
+// and the polygon path.
+//
+// THE PATH IS STORED EVEN THOUGH NOTHING MATCHES ON IT YET. BD cannot
+// hold it - service areas are a zip index and nothing more - so this is
+// the only place it can live. Capturing it costs a few hundred bytes
+// today and is the difference between point-in-polygon matching being a
+// build and being impossible, because a renter is never going to redraw
+// a zone a year from now to supply precision we chose not to save.
+// ------------------------------------------------------------------
+function sanitizeZone(raw) {
+  const z = raw && typeof raw === "object" ? raw : null;
+  if (!z) return null;
+
+  const zips = [];
+  const seen = {};
+  const src = Array.isArray(z.zips) ? z.zips : [];
+  for (let i = 0; i < src.length && zips.length < ZONE_ZIP_CAP; i++) {
+    // NO SLICING. "9999999" truncated to 5 chars is a syntactically valid
+    // zip that nobody typed, and a fabricated zip in a match key is worse
+    // than a dropped one. Exactly five digits or it does not count.
+    const v = String(src[i] || "").replace(/[^0-9]/g, "");
+    if (v.length === 5 && !seen[v]) { seen[v] = 1; zips.push(v); }
+  }
+
+  const path = [];
+  const rawPath = Array.isArray(z.path) ? z.path : [];
+  for (let i = 0; i < rawPath.length && path.length < ZONE_PATH_CAP; i++) {
+    const pt = rawPath[i];
+    if (!pt || typeof pt !== "object") continue;
+    const lat = Number(pt.lat);
+    const lng = Number(pt.lng);
+    if (!isFinite(lat) || !isFinite(lng)) continue;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
+    path.push({ lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 });
+  }
+
+  const name = str(z.name, 60);
+  if (!name && !zips.length) return null;
+
+  return {
+    name: name,
+    zips: zips,
+    // The renter typed this rather than accepting the geocoder's guess.
+    custom: z.custom === true,
+    path: path
+  };
+}
+
+// ------------------------------------------------------------------
+// OPTIONS. One configuration the renter would accept, with its OWN
+// ceiling. Everything that varies by what you are renting lives here;
+// everything that is true of the renter regardless (move-in window,
+// pets, voucher, must-haves, deal breakers, notes) stays on criteria.
+// ------------------------------------------------------------------
+function optionId() {
+  return "o" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+}
+
+function derivedOptionId(o) {
+  const seed = JSON.stringify(o || {});
+  return "od" + crypto.createHash("sha1").update(seed).digest("hex").slice(0, 10);
+}
+
+function sanitizeOption(raw) {
+  const o = raw && typeof raw === "object" ? raw : {};
+  const rent = num(o.rent_max);
+  const stretch = num(o.rent_stretch);
+  const body = {
+    unit_types: setFrom(o.unit_types, UNIT_TYPES, UNIT_TYPES.length),
+    rent_max: rent && rent > 0 ? Math.round(rent) : null,
+    rent_stretch: stretch && stretch > 0 ? Math.round(stretch) : null,
+    rent_basis: pickFrom(o.rent_basis, RENT_BASIS),
+    beds: setFrom(o.beds, BED_SIZES, BED_SIZES.length),
+    baths_min: num(o.baths_min),
+    label: str(o.label, 40)
+  };
+  return Object.assign(
+    { id: typeof o.id === "string" && o.id ? o.id.slice(0, 24) : derivedOptionId(body) },
+    body
+  );
+}
+
+function optionIsEmpty(o) {
+  if (!o) return true;
+  if (o.rent_max) return false;
+  if ((o.beds || []).length) return false;
+  if ((o.unit_types || []).length) return false;
+  if (o.baths_min !== null) return false;
+  return true;
+}
+
+// Give an option a readable label when the renter did not: "House up to
+// $2,000". This is what the card and the email say, so it is generated
+// once here rather than three times in three consumers.
+function optionLabel(o) {
+  if (o.label) return o.label;
+  const bits = [];
+  if ((o.unit_types || []).length === 1) {
+    bits.push(o.unit_types[0].charAt(0).toUpperCase() + o.unit_types[0].slice(1));
+  } else if ((o.unit_types || []).length > 1) {
+    bits.push(o.unit_types.length + " types");
+  }
+  const b = bedsLabel(o.beds);
+  if (b) bits.push(b);
+  if (o.rent_max) bits.push("up to $" + o.rent_max);
+  return bits.length ? bits.join(" ") : "Any place";
+}
+
+// v3 -> v4. A stored search with no options is a one-option search whose
+// option IS its criteria. Computed on read, persisted on the next write,
+// so a read-only visit never mutates a member record.
+function optionFromCriteria(c) {
+  return sanitizeOption({
+    unit_types: c.unit_types,
+    rent_max: c.rent_max,
+    rent_stretch: c.rent_stretch,
+    rent_basis: c.rent_basis,
+    beds: c.beds,
+    baths_min: c.baths_min
+  });
+}
+
+function sanitizeOptions(raw, criteria) {
+  const arr = Array.isArray(raw) ? raw : [];
+  const out = [];
+  for (let i = 0; i < arr.length && out.length < MAX_OPTIONS; i++) {
+    const o = sanitizeOption(arr[i]);
+    if (!optionIsEmpty(o)) out.push(o);
+  }
+  if (out.length) return out;
+
+  const derived = optionFromCriteria(criteria);
+  return optionIsEmpty(derived) ? [] : [derived];
+}
+
+// THE MIRROR. Option one is written back onto criteria so any reader
+// built against v3 - ac-v16 is live and is one - still sees a budget, a
+// bed set and a unit type. Without this, the day a renter saves options
+// their card would render a search with no numbers on it.
+function mirrorPrimaryOption(criteria, options) {
+  if (!options || !options.length) return criteria;
+  const p = options[0];
+  return Object.assign({}, criteria, {
+    rent_max: p.rent_max,
+    rent_stretch: p.rent_stretch,
+    rent_basis: p.rent_basis,
+    beds: p.beds,
+    baths_min: p.baths_min,
+    unit_types: p.unit_types
+  });
+}
+
+// ------------------------------------------------------------------
+// HOUSEHOLD. Per member, not per search. adults and total only.
+// See the Fair Housing note in the ap-v9 header before adding anything.
+// ------------------------------------------------------------------
+function sanitizeHousehold(raw, fallbackCriteria) {
+  const h = raw && typeof raw === "object" ? raw : null;
+  let adults = h ? int(h.adults, 12) : null;
+  let total = h ? int(h.total, 12) : null;
+
+  // v3 carried household_adults / household_kids on the FIRST search.
+  if (adults === null && total === null && fallbackCriteria) {
+    const a = fallbackCriteria.household_adults;
+    const k = fallbackCriteria.household_kids;
+    if (a !== null && a !== undefined) adults = a;
+    if (a !== null && a !== undefined) total = a + (k || 0);
+  }
+
+  if (adults === null && total === null) return null;
+  if (total !== null && adults !== null && total < adults) total = adults;
+  return { adults: adults, total: total };
+}
+
 function criteriaIsEmpty(c) {
   if (!c) return true;
   if (c.rent_max) return false;
@@ -500,10 +732,20 @@ function autoName(c) {
 
 function sanitizeSearch(raw, fallbackCreated) {
   const s = raw && typeof raw === "object" ? raw : {};
-  const criteria = sanitizeCriteria(s.criteria);
+  const zone = sanitizeZone(s.zone);
+  let criteria = sanitizeCriteria(s.criteria);
+  const options = sanitizeOptions(s.options, criteria);
+  // Option one is authoritative for rent, beds, baths and type. Writing
+  // it back onto criteria keeps every v3-era reader working.
+  criteria = mirrorPrimaryOption(criteria, options);
+
   const nowIso = new Date().toISOString();
   let name = str(s.name, 40);
+  // The renter already named the place. That beats a generated string,
+  // and it is what the match email will say.
+  if (!name && zone && zone.name) name = zone.name.slice(0, 40);
   if (!name) name = autoName(criteria);
+
   return {
     id: typeof s.id === "string" && s.id ? s.id.slice(0, 24) : newId(),
     name: name,
@@ -511,6 +753,8 @@ function sanitizeSearch(raw, fallbackCreated) {
     updated: nowIso,
     enabled: s.enabled === false ? false : true,
     source: pickFrom(s.source, SOURCES) || "form",
+    zone: zone,
+    options: options,
     criteria: criteria
   };
 }
@@ -553,7 +797,7 @@ function parseStored(rawStr, consentAt) {
   let o = null;
   try { o = JSON.parse(rawStr || "{}"); } catch (e) { o = null; }
   if (!o || typeof o !== "object") {
-    return { searches: [], consent: sanitizeConsent(null, null), migrated: false, fromVersion: null };
+    return { searches: [], consent: sanitizeConsent(null, null), household: null, migrated: false, fromVersion: null };
   }
 
   const fromVersion = Number(o.v) || null;
@@ -565,25 +809,35 @@ function parseStored(rawStr, consentAt) {
       .slice(0, MAX_SEARCHES)
       .map((s) => {
         const criteria = sanitizeCriteria(s.criteria);
-        const name = String(s.name || "My search").slice(0, 40);
+        const zone = sanitizeZone(s.zone);
+        // v3 records have no options. One is derived from criteria, so a
+        // v3 search reads as a one-option search with no write needed.
+        const options = sanitizeOptions(s.options, criteria);
+        const name = String(s.name || (zone && zone.name) || "My search").slice(0, 40);
         const created = String(s.created || consentAt || "").slice(0, 30);
         return {
           // Derived, not random, when storage has no id. A random id here
-          // changes on every read and breaks delete.
+          // changes on every read and breaks delete. Seeded from criteria
+          // ONLY - options are derived from criteria for these records, so
+          // folding them in would not change the hash but would make the
+          // seed depend on a computed value.
           id: String(s.id || derivedId(criteria, created, name)).slice(0, 24),
           name: name,
           created: created,
           updated: String(s.updated || "").slice(0, 30),
           enabled: s.enabled === false ? false : true,
           source: pickFrom(s.source, SOURCES) || "form",
+          zone: zone,
+          options: options,
           criteria: criteria
         };
       });
     return {
       searches: searches,
       consent: consent,
-      // v2 records read fine but are shaped as v3 on the way out, so the
-      // next write upgrades them.
+      household: sanitizeHousehold(o.household, searches.length ? searches[0].criteria : null),
+      // v2 and v3 records read fine but are shaped as v4 on the way out,
+      // so the next write upgrades them.
       migrated: fromVersion !== SCHEMA_VERSION,
       fromVersion: fromVersion
     };
@@ -592,7 +846,7 @@ function parseStored(rawStr, consentAt) {
   // Legacy ap-v3-era: bare criteria object, no searches key.
   const legacy = sanitizeCriteria(o);
   if (criteriaIsEmpty(legacy)) {
-    return { searches: [], consent: consent, migrated: false, fromVersion: fromVersion };
+    return { searches: [], consent: consent, household: null, migrated: false, fromVersion: fromVersion };
   }
 
   const legacyName = autoName(legacy);
@@ -605,9 +859,12 @@ function parseStored(rawStr, consentAt) {
       updated: legacyCreated || new Date().toISOString(),
       enabled: true,
       source: "form",
+      zone: null,
+      options: sanitizeOptions(null, legacy),
       criteria: legacy
     }],
     consent: consent,
+    household: sanitizeHousehold(null, legacy),
     migrated: true,
     fromVersion: fromVersion
   };
@@ -654,10 +911,11 @@ async function indexMember(memberId, enabled, consent, searches, transcripts) {
 }
 
 // ------------------------------------------------------------------
-async function writeSearches(memberId, enabled, consent, searches, transcripts) {
+async function writeSearches(memberId, enabled, consent, searches, transcripts, household) {
   const payload = JSON.stringify({
     v: SCHEMA_VERSION,
     consent: consent,
+    household: household || null,
     searches: searches
   });
 
@@ -705,8 +963,17 @@ function schemaBlock() {
   return {
     schemaVersion: SCHEMA_VERSION,
     maxSearches: MAX_SEARCHES,
+    maxOptions: MAX_OPTIONS,
     mustHaveCap: MUST_HAVE_CAP,
     notesMax: NOTES_MAX,
+    zoneZipCap: ZONE_ZIP_CAP,
+    zonePathCap: ZONE_PATH_CAP,
+    // v4. Everything that varies by WHAT you are renting lives on an
+    // option; everything true of the renter regardless stays on criteria.
+    optionKeys: ["unit_types", "rent_max", "rent_stretch", "rent_basis", "beds", "baths_min", "label"],
+    zoneKeys: ["name", "zips", "custom", "path"],
+    householdKeys: ["adults", "total"],
+    matchRule: "zone zips filter first, then a listing matches if it satisfies ANY ONE option",
     transcriptExcerptMax: TRANSCRIPT_EXCERPT_MAX,
     positiveChips: POSITIVE_CHIPS,
     breakerChips: BREAKER_CHIPS,
@@ -739,8 +1006,10 @@ exports.handler = async (event) => {
       authHeader: "X-Api-Key",
       bodyEncoding: "x-www-form-urlencoded",
       maxSearches: MAX_SEARCHES,
+      maxOptions: MAX_OPTIONS,
       mustHaveCap: MUST_HAVE_CAP,
       acceptsV2Payloads: true,
+      acceptsV3Payloads: true,
       blobsConfigured: !!(process.env.NETLIFY_SITE_ID && process.env.NETLIFY_BLOBS_TOKEN)
     });
   }
@@ -945,10 +1214,12 @@ exports.handler = async (event) => {
       schemaVersion: SCHEMA_VERSION,
       enabled: String(member.alerts_enabled || "0") === "1",
       maxSearches: MAX_SEARCHES,
+      maxOptions: MAX_OPTIONS,
       mustHaveCap: MUST_HAVE_CAP,
       storedVersion: parsed.fromVersion,
       migratedOnRead: parsed.migrated,
       consent: parsed.consent,
+      household: parsed.household,
       searches: parsed.searches
     });
   }
@@ -981,7 +1252,8 @@ exports.handler = async (event) => {
     const stillEnabled = kept.some((s) => s.enabled);
     // Deleting a search does not revoke consent. Consent is a separate
     // decision and is only changed when the member changes it.
-    const r = await writeSearches(pid, stillEnabled, parsed.consent, kept, null);
+    // Household survives a delete. It belongs to the member, not the search.
+    const r = await writeSearches(pid, stillEnabled, parsed.consent, kept, null, parsed.household);
 
     return json(200, {
       version: FN_VERSION,
@@ -1016,11 +1288,15 @@ exports.handler = async (event) => {
   const { member: existingMember } = await getMember(pid);
   const existing = existingMember
     ? parseStored(existingMember.alerts_criteria, existingMember.alerts_consent_at)
-    : { consent: sanitizeConsent(null, null), searches: [] };
+    : { consent: sanitizeConsent(null, null), searches: [], household: null };
 
+  // A search now survives on ANY of three things. Filtering on criteria
+  // alone would silently drop a zone the renter just drew when they had
+  // not yet said anything about the place - which is the exact moment
+  // the two-step builder saves.
   const clean = incoming
     .map((s) => sanitizeSearch(s, null))
-    .filter((s) => !criteriaIsEmpty(s.criteria));
+    .filter((s) => !(criteriaIsEmpty(s.criteria) && !(s.options || []).length && !s.zone));
 
   // Full verbatim transcripts go to the Blob, keyed by search id. The
   // excerpt inside criteria is for matching context only; this is the
@@ -1034,8 +1310,13 @@ exports.handler = async (event) => {
 
   const consent = sanitizeConsent(payload.consent, existing.consent);
   const enabled = payload.enabled === false ? false : clean.some((s) => s.enabled);
+  // An absent household on the payload PRESERVES what is stored rather
+  // than clearing it, so a card that does not yet ask cannot wipe it.
+  const household = payload.household
+    ? sanitizeHousehold(payload.household, null)
+    : (existing.household || null);
 
-  const r = await writeSearches(pid, enabled, consent, clean, transcripts);
+  const r = await writeSearches(pid, enabled, consent, clean, transcripts, household);
 
   return json(200, {
     version: FN_VERSION,
@@ -1043,9 +1324,11 @@ exports.handler = async (event) => {
     landed: r.landed,
     enabled: enabled,
     maxSearches: MAX_SEARCHES,
+    maxOptions: MAX_OPTIONS,
     mustHaveCap: MUST_HAVE_CAP,
     upgradedFrom: existing.fromVersion || null,
     consent: consent,
+    household: household,
     searches: clean,
     debug: r.landed ? undefined : {
       truncated: r.truncated,
@@ -1054,7 +1337,7 @@ exports.handler = async (event) => {
       writeMethod: r.w.method,
       writeHttpStatus: r.w.res ? r.w.res.status : null,
       hint: r.truncated
-        ? "alerts_criteria is truncating. Widen the column in BD Form Manager to long text. v3 carries more per search than v2 did."
+        ? "alerts_criteria is truncating. Widen the column in BD Form Manager to long text. v4 carries a zone path and up to 4 options per search, which is materially more than v3."
         : "field name or value mismatch on read-back"
     }
   });
