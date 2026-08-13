@@ -1,9 +1,46 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v18
+// alerts-card-js.js  —  ac-v19
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v19 CHANGE: THE MAP STOPS RESETTING ITSELF, AND THERE IS A WAY BACK
+// FROM A BAD SHAPE. Four defects, all found by drawing one polygon.
+//
+// 1. 🔴 THE CARD WAS REBUILDING THE MAP UNDER THE RENTER'S HAND.
+//    keepOrder() runs every 700ms and calls insertBefore to hold the
+//    card below #rdc-wiz. insertBefore MOVES a node - and MOVING A NODE
+//    THAT CONTAINS AN IFRAME DESTROYS AND RELOADS THE IFRAME. So the map
+//    reset roughly twice a second, which read as "glitchy and jumping"
+//    and threw away work in progress.
+//    The same wound from the other side: render() rebuilds this card's
+//    innerHTML on EVERY tap, so an iframe written as markup was a fresh
+//    Google Maps load every time anything redrew.
+//    TWO FIXES, BOTH NEEDED. keepOrder and the boot timer now stand down
+//    entirely while the map is open - position can wait, and this card
+//    has fought over position before (see the ELEMENT U mount notes).
+//    And the frame is now built ONCE, held on state, and re-appended to
+//    an empty #ra-picker-slot after each render rather than re-created.
+//    ⚠️ THE GENERAL LESSON, worth carrying anywhere else on this
+//    dashboard: A CONTAINER THAT RE-ASSERTS ITSELF ON A TIMER IS A BAD
+//    HOST FOR ANY LIVE EMBED. Anything stateful inside it - an iframe, a
+//    video, a canvas, a focused input - is destroyed by a reposition
+//    that looks harmless in the code.
+//
+// 2. NO WAY TO UNDO A BAD SHAPE. ?embed=1 hides the picker's save row,
+//    and zp-v6 deliberately takes Clear All with it on the reasoning
+//    that it belongs beside the save it partners with and the host will
+//    offer its own. The host never did. "Start over" is that button, and
+//    it drops the frame rather than trying to reach inside the picker.
+//
+// 3. THE MAP WAS TOO SHORT. 460px against a picker that carries a search
+//    row, a Draw Zone button and a zone list meant the controls scrolled
+//    out of reach inside the iframe's own scrollbar. 620px.
+//
+// 4. "USE THIS AREA" WAS A WHITE GHOST BUTTON diagonally opposite Draw
+//    Zone. It is the primary action of the step. Dark, full width,
+//    directly under the map, with Start over beneath it.
 //
 // ac-v18 CHANGE: BOTH DOORS START WITH THE ZONE, AND BOTH HAVE AN EXIT.
 //
@@ -199,7 +236,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v18";
+const FN_VERSION = "ac-v19";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -423,7 +460,7 @@ const JS = `
     searches: [], consent: { platform: false, off_platform: false },
     enabled: false, view: "list", editIdx: -1, draft: null,
     savedAt: null, busy: false, anchor: "", expanded: {},
-    household: null, pickerOpen: false, zoneWired: false,
+    household: null, pickerOpen: false, zoneWired: false, frame: null,
     schema: null, showRefine: false,
     voice: { active: false, transcript: "", interim: "", status: "", rec: null, heard: "", unclear: [] }
   };
@@ -897,14 +934,17 @@ const JS = `
     }
 
     if (state.pickerOpen) {
+      // An EMPTY SLOT, not an iframe. wireZone() puts the one live frame
+      // in here after the card is in the page. Writing an <iframe> tag
+      // into innerHTML on every render means a fresh map every time
+      // anything on this card redraws.
       html +=
-        '<div style="margin-top:10px;border:1px solid #e3e8ef;border-radius:10px;overflow:hidden;">' +
-          '<iframe id="ra-picker" src="' + PICKER + '?embed=1" ' +
-            'style="width:100%;height:460px;border:0;display:block;" ' +
-            'allow="geolocation"></iframe>' +
-        '</div>' +
-        '<button id="ra-zone-use" style="' + S.ghost + 'margin-top:8px;">Use this area</button>' +
-        '<span id="ra-zone-msg" style="' + S.hint + 'display:block;margin-top:6px;"></span>';
+        '<div id="ra-picker-slot" style="margin-top:10px;border:1px solid #e3e8ef;border-radius:10px;overflow:hidden;"></div>' +
+        '<button id="ra-zone-use" style="' + S.btn + 'margin-top:10px;width:100%;">Use this area</button>' +
+        '<button id="ra-zone-reset" style="' + S.ghost + 'margin-top:8px;width:100%;">Start over</button>' +
+        '<span id="ra-zone-msg" style="' + S.hint + 'display:block;margin-top:6px;">' +
+          'Search a place, tap Draw Zone, then tap the map to trace the area.' +
+        '</span>';
     }
 
     return html + '</div>';
@@ -1431,10 +1471,43 @@ const JS = `
   // whether a readForm() is safe. Calling it from the voice view would
   // dereference form fields that do not exist.
   function wireZone(mp, readsForm) {
+    // ---- THE ONE LIVE FRAME -------------------------------------------
+    // Built once, parked in the slot after every render. render() rebuilds
+    // this card's innerHTML on every tap, so an iframe written as markup
+    // would reload Google Maps and throw away a half-drawn polygon each
+    // time. Kept in a variable and re-appended instead.
+    var slot = document.getElementById("ra-picker-slot");
+    if (slot) {
+      if (!state.frame) {
+        var f = document.createElement("iframe");
+        f.id = "ra-picker";
+        f.src = PICKER + "?embed=1";
+        f.setAttribute("allow", "geolocation");
+        f.style.cssText = "width:100%;height:620px;border:0;display:block;";
+        state.frame = f;
+      }
+      if (state.frame.parentNode !== slot) slot.appendChild(state.frame);
+    }
+
+    var zr = document.getElementById("ra-zone-reset");
+    if (zr) zr.onclick = function () {
+      // ?embed=1 hides the picker's own save row, and Clear All lives in
+      // it - so an embedded picker has no way to undo a bad shape. This
+      // is that button. A fresh frame is the reliable clear.
+      if (readsForm) readForm();
+      state.frame = null;
+      var sl = document.getElementById("ra-picker-slot");
+      if (sl) sl.innerHTML = "";
+      render(mp);
+    };
+
     var zo = document.getElementById("ra-zone-open");
     if (zo) zo.onclick = function () {
       if (readsForm) readForm();
       state.pickerOpen = !state.pickerOpen;
+      // Closing drops the frame. Holding a detached iframe alive keeps
+      // Google Maps running behind a card nobody is looking at.
+      if (!state.pickerOpen) state.frame = null;
       render(mp);
     };
 
@@ -1497,6 +1570,7 @@ const JS = `
         }
 
         state.pickerOpen = false;
+        state.frame = null;
         render(mp);
       });
     }
@@ -1669,6 +1743,12 @@ const JS = `
 
   function keepOrder() {
     if (moves > MAX_MOVES) return;
+    // ac-v19: NEVER MOVE THE CARD WHILE THE MAP IS OPEN. insertBefore
+    // MOVES the node, and moving a node that contains an iframe tears the
+    // iframe down and reloads it. On a 700ms timer that is a map that
+    // resets itself under the renter's hand, which is exactly what it
+    // looked like. Position can wait until the map closes.
+    if (state.pickerOpen) return;
     var card = document.getElementById("rdc-alerts");
     if (!card) return;
     var wiz = document.getElementById("rdc-wiz");
@@ -1752,6 +1832,8 @@ const JS = `
           if (!m) { if (tries > 300) clearInterval(t); return; }
           var here = document.getElementById("rdc-alerts");
           if (!here) { render(m); return; }
+          // Nothing on this timer touches the card while the map is open.
+          if (state.pickerOpen) return;
           keepOrder();
           if (tries > 300) clearInterval(t);
         }, 700);
