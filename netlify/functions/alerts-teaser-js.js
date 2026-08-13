@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v17
+// alerts-teaser-js.js  —  at-v20
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,58 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v20: ONE RED THING, NOT THREE. at-v15 made recording unmissable by
+// turning the status text red, the transcript box red and the stop button
+// red simultaneously. It worked, and it overshot: three reds at once read
+// as an ERROR STATE, and a visitor mid-sentence should never be wondering
+// whether something has broken.
+// The pulsing dot keeps the whole signal - a single MOVING element is
+// more legible than three static ones, and movement is what says "now",
+// which is precisely the thing being communicated. Status text goes navy,
+// the box goes neutral with a teal edge, and stop becomes teal like the
+// mic button it replaces, so the screen does not change temperature just
+// because the microphone is on.
+//
+// at-v19: 🔴 THE TOKEN NEVER SURVIVED SIGNUP. The whole point of this
+// file is that a visitor builds a perfect spot logged out and finds it
+// waiting in their dashboard afterwards. It has never once worked.
+//
+// The token was parked in sessionStorage, WHICH IS PER TAB. BD's signup
+// chain does not reliably keep the visitor in the same tab, and at-v2
+// already recorded that it drops the ?claim= query param through its
+// redirects - so both handoffs failed and the token was gone. Confirmed
+// live on a fresh signup, member #4581: sessionStorage.getItem returned
+// null on the dashboard and the card showed its empty state.
+//
+// localStorage survives a new tab, a full navigation and a browser
+// restart. Both keys are written now, with a timestamp so a stale token
+// cannot attach itself to an account somebody creates weeks later on a
+// shared computer.
+//
+// ⚠️ alerts-claim-js (the DASHBOARD reader) must be updated to look in
+// localStorage too, or this fix does nothing on its own.
+//
+// at-v18: THE SCREENS NOW TELL THE TRUTH ABOUT WHAT IS KEPT. Two places
+// where correct behaviour was undermined by presentation.
+//
+// 1. RETURNING TO VOICE LOOKED LIKE STARTING OVER. "Keep describing out
+//    loud" opened onto an empty transcript box and a Start talking
+//    button - pixel-identical to the first visit. at-v12 made voice ADD
+//    rather than replace, but the screen said otherwise, and a visitor
+//    who believes they are about to lose their work simply will not tap
+//    it. The heading becomes "Add to your perfect spot" and an ALREADY
+//    SAVED line lists what is held: the place, the ceiling, the beds, the
+//    chip counts.
+//
+// 2. THE TRANSCRIPT WAS BURIED AT THE BOTTOM. It was appended into the
+//    notes box, which sits at the foot of the filters panel - so coming
+//    back from voice, the thing they had JUST SAID was the hardest thing
+//    on the page to find, and it truncated mid-word at 400 characters
+//    while duplicating fields already captured.
+//    It now has its own field and renders at the TOP of the form as
+//    "Here is what we heard" - the same position it occupied on the voice
+//    screen. Notes goes back to being what the visitor wants remembered.
 //
 // at-v17: 🔴 THE SIGNUP BUTTON WAS INVISIBLE. Not missing - INVISIBLE.
 // The anchor was in the DOM, correctly styled, with a working href to
@@ -218,7 +270,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v17";
+const FN_VERSION = "at-v20";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -257,7 +309,7 @@ const JS = `
     if (!document.getElementById("rdc-teaser-css")) {
       var st = document.createElement("style");
       st.id = "rdc-teaser-css";
-      st.textContent = "@keyframes rdcPulse{0%{box-shadow:0 0 0 0 rgba(192,57,43,.6)}70%{box-shadow:0 0 0 9px rgba(192,57,43,0)}100%{box-shadow:0 0 0 0 rgba(192,57,43,0)}}";
+      st.textContent = "@keyframes rdcPulse{0%{box-shadow:0 0 0 0 rgba(217,68,54,.5)}70%{box-shadow:0 0 0 8px rgba(217,68,54,0)}100%{box-shadow:0 0 0 0 rgba(217,68,54,0)}}";
       document.head.appendChild(st);
     }
   } catch (e) {}
@@ -275,6 +327,7 @@ const JS = `
     sub: "margin:0 0 18px;font-size:15px;color:#5b6b82;line-height:1.5;",
     lab: "display:block;font-size:13px;font-weight:600;color:" + NAVY + ";margin:0 0 6px;",
     hint: "font-size:12.5px;color:#6b7a8d;text-align:center;margin:8px 0 0;line-height:1.5;",
+    heard: "background:#eef7f4;border:1px solid #cfe6df;border-radius:11px;padding:13px 15px;margin:0 0 16px;text-align:left;",
     area: "width:100%;padding:11px 12px;border:1px solid #d7dee8;border-radius:9px;font-size:15px;font-family:inherit;line-height:1.45;box-sizing:border-box;resize:vertical;min-height:74px;",
     inp: "width:100%;padding:11px 13px;border:1px solid #d7dee8;border-radius:10px;font-size:15px;box-sizing:border-box;",
     row: "display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;",
@@ -318,7 +371,11 @@ const JS = `
     // interface refusing to say which one is the point.
     // Primary = the thing to do. Ghost = the alternative. Link = the way
     // out. Stop is RED because it ends a recording and matches the pulse.
-    stop: "background:#c0392b;color:#fff;border:0;border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;",
+    // Stop is the primary action while recording, but it is not a
+    // destructive one - it USES what was said. Teal, matching the mic
+    // button it replaces, so the screen does not change temperature just
+    // because the microphone is on.
+    stop: "background:" + TEAL + ";color:#fff;border:2px solid " + TEAL + ";border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;",
     quiet: "background:none;color:#5b6b82;border:0;border-radius:0;padding:13px 6px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:underline;",
     ghost: "background:#fff;color:" + NAVY + ";border:1px solid #d7dee8;border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;",
     live: "background:#f7f9fc;border:1px solid #e3e8ef;border-radius:12px;padding:16px;min-height:90px;font-size:16px;color:" + NAVY + ";line-height:1.5;margin:0 0 16px;text-align:left;",
@@ -328,16 +385,24 @@ const JS = `
     // the one moment where the visitor needs to know the microphone is
     // ACTUALLY ON was the quietest thing on screen. Red, a pulsing dot,
     // and the transcript box lights up with it.
-    vlive: "display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:#c0392b;margin:0 0 14px;min-height:16px;",
-    dot: "width:10px;height:10px;border-radius:50%;background:#c0392b;display:inline-block;box-shadow:0 0 0 0 rgba(192,57,43,.65);animation:rdcPulse 1.4s infinite;",
-    liveOn: "background:#fff6f5;border:2px solid #f0b8b2;border-radius:12px;padding:16px;min-height:90px;font-size:16px;color:" + NAVY + ";line-height:1.5;margin:0 0 16px;text-align:left;"
+    // at-v20. ONE RED THING, NOT THREE. at-v15 made recording obvious by
+    // turning the status text red, the box red and the stop button red at
+    // once - and three reds together read as an ERROR, not an activity.
+    // A visitor mid-sentence should not wonder whether something broke.
+    // THE DOT CARRIES THE SIGNAL. It is the only red left, it pulses, and
+    // a single moving element is more legible than three static ones.
+    // Everything else stays calm: dark text, a neutral box with a teal
+    // edge, and a teal-bordered stop that matches the mic it replaces.
+    vlive: "display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;color:" + NAVY + ";margin:0 0 14px;min-height:16px;",
+    dot: "width:9px;height:9px;border-radius:50%;background:#d94436;display:inline-block;box-shadow:0 0 0 0 rgba(217,68,54,.5);animation:rdcPulse 1.6s infinite;",
+    liveOn: "background:#f7fbfa;border:2px solid " + TEAL + ";border-radius:12px;padding:16px;min-height:90px;font-size:16px;color:" + NAVY + ";line-height:1.5;margin:0 0 16px;text-align:left;"
   };
 
   var wants = [];
   var musts = [];
   var MUST_CAP = 3;
   var voice = { active: false, transcript: "", interim: "", status: "", rec: null };
-  var seed = { rent_max:"", beds_min:"", baths_min:"", move_in_by:"", where:"", wants:null, musts:null, notes:"" };
+  var seed = { rent_max:"", beds_min:"", baths_min:"", move_in_by:"", where:"", wants:null, musts:null, notes:"", heard:"" };
   var seededFromVoice = false;
   var filtersOpen = false;
   var VIEW = "form";  // "form" | "voice"
@@ -405,6 +470,17 @@ const JS = `
         '<p style="' + S.concept + '">Type it or say it. When a verified home matches, we email you. No matches, no email.</p>' +
       '</div>' +
       '<div style="' + S.card + '">' +
+        // at-v18: WHAT WE HEARD, AT THE TOP. On the voice screen the
+        // transcript sits above everything; coming back to the form it
+        // used to be buried at the bottom inside the notes box, so the
+        // thing they just said was the hardest thing to find. Same place,
+        // same prominence, either side of the transition.
+        (seed.heard
+          ? '<div style="' + S.heard + '">' +
+              '<p style="font-size:12.5px;font-weight:700;color:#1f6b5e;margin:0 0 6px;">Here is what we heard</p>' +
+              '<p style="font-size:14px;color:#2c4f49;margin:0;line-height:1.5;">' + esc(seed.heard) + '</p>' +
+            '</div>'
+          : "") +
         '<div style="margin-bottom:10px;"><input id="rt-where" placeholder="Where do you want to live? City or ZIP" value="' + esc(seed.where) + '" style="' + S.bigInp + '"></div>' +
         '<div style="text-align:center;margin-bottom:22px;">' +
           '<button id="rt-toggle" type="button" style="' + S.addLink + '">' + (filtersOpen ? "Hide filters" : "Add filters (rent, beds, more)") + '</button>' +
@@ -526,13 +602,47 @@ const JS = `
     };
   }
 
+  // What the visitor has given us so far, in their terms. Used to prove
+  // on the voice screen that nothing is being thrown away.
+  function haveAnything() {
+    return !!(seed.where || seed.rent_max || seed.beds_min || seed.baths_min ||
+      seed.notes || (seed.musts || []).length || (seed.wants || []).length);
+  }
+
+  function soFar() {
+    var bits = [];
+    if (seed.where) bits.push(seed.where);
+    if (seed.rent_max) bits.push("up to " + money(seed.rent_max));
+    if (seed.beds_min) bits.push(seed.beds_min + "+ beds");
+    if (seed.baths_min) bits.push(seed.baths_min + "+ baths");
+    var m = (seed.musts || []).length;
+    var w = (seed.wants || []).length;
+    if (m) bits.push(m + " must have" + (m === 1 ? "" : "s"));
+    if (w) bits.push(w + " nice to have" + (w === 1 ? "" : "s"));
+    return bits.join("  \u00b7  ");
+  }
+
   // ---------------- VOICE VIEW ----------------
   function renderVoice() {
     mount.innerHTML =
       '<div style="' + S.head + '">' +
-        '<h2 style="' + S.title + '">Describe your ideal place</h2>' +
-        '<p style="' + S.concept + '">Talk the way you would tell a friend. Where you want to live, your budget, beds, pets, anything that matters. We turn it into a search you can tweak.</p>' +
+        // at-v18: RETURNING TO VOICE MUST NOT LOOK LIKE STARTING OVER.
+        // "Keep describing out loud" opened onto an empty transcript box
+        // and a Start talking button - identical to the first visit - so
+        // even though at-v12 made voice ADD rather than replace, the
+        // screen said otherwise and nobody would believe it. The heading
+        // changes, and a line lists what is already held.
+        '<h2 style="' + S.title + '">' + (haveAnything() ? "Add to your perfect spot" : "Describe your ideal place") + '</h2>' +
+        '<p style="' + S.concept + '">' + (haveAnything()
+          ? "Everything you have already given us is kept. Say whatever else matters and we will add it in."
+          : "Talk the way you would tell a friend. Where you want to live, your budget, beds, pets, anything that matters. We turn it into a search you can tweak.") + '</p>' +
       '</div>' +
+      (haveAnything()
+        ? '<div style="' + S.card + 'padding:14px 18px;margin-bottom:14px;">' +
+            '<p style="font-size:12.5px;font-weight:700;color:#1f6b5e;margin:0 0 4px;">Already saved</p>' +
+            '<p style="font-size:14px;color:#2c4f49;margin:0;line-height:1.5;">' + esc(soFar()) + '</p>' +
+          '</div>'
+        : "") +
       '<div style="' + S.card + '">' +
         '<div id="rt-live" style="' + (voice.active ? S.liveOn : S.live) + '">' + (esc(voice.transcript + voice.interim) || '<span style="color:#9aa8b8;">Your words will show up here.</span>') + '</div>' +
         (voice.active
@@ -545,7 +655,9 @@ const JS = `
           // "Start over" drops to ghost because it throws work away.
           '<button id="rt-rec" type="button" style="' +
             (voice.active ? S.stop : (voice.transcript ? S.ghost : S.mic)) + '">' +
-            (voice.active ? "Stop and use this" : (voice.transcript ? "Start over" : "Start talking")) + '</button>' +
+            (voice.active
+              ? "Stop and use this"
+              : (voice.transcript ? "Start over" : (haveAnything() ? "Start talking" : "Start talking"))) + '</button>' +
           (voice.transcript && !voice.active ? '<button id="rt-use" type="button" style="' + S.btn + 'width:auto;">Use this</button>' : "") +
           '<button id="rt-back" type="button" style="' + S.quiet + '">' +
             (voice.transcript ? "Type the rest instead" : "Type it instead") + '</button>' +
@@ -774,11 +886,20 @@ const JS = `
     // Anything they had already typed stays at the front. Their own words
     // are worth more than the transcript, and overwriting them is the
     // same mistake as clearing the form.
+    // at-v18: THE RAW TRANSCRIPT NO LONGER GOES INTO NOTES. It was being
+    // appended there, so the notes box filled with a wall of text that
+    // duplicated fields already captured and truncated mid-word at 400
+    // characters. The transcript is kept separately and SHOWN AT THE TOP
+    // of the form as "here is what we heard" - which is where the person
+    // looks for it, because that is where it sat on the voice screen.
+    // Notes stays what the visitor actually wants remembered.
     var noteBits = [];
     if (seed.notes) noteBits.push(seed.notes);
     if (c.notes) noteBits.push(c.notes);
-    if (transcript) noteBits.push(transcript);
     seed.notes = noteBits.join(" - ").slice(0, 400);
+    if (transcript) {
+      seed.heard = String(transcript).trim().slice(0, 600);
+    }
     // av-v1 ignores place names, so pull location from the transcript here.
     // Prefer an explicit criteria.where if a future schema ever provides one.
     // Only fill the location if it is still empty. A typed place beats a
@@ -878,7 +999,26 @@ const JS = `
   function renderWall(f, token) {
     // Robust handoff: stash the token same-origin so it survives BD's
     // signup redirects even if the query param is dropped.
-    try { window.sessionStorage.setItem("renters_claim_token", token); } catch (e) {}
+    // 🔴 at-v19: localStorage, NOT sessionStorage. THIS IS WHY NO PERFECT
+    // SPOT EVER REACHED A NEW ACCOUNT.
+    // sessionStorage is PER TAB. BD's signup chain does not reliably keep
+    // the visitor in the same tab, and at-v2 already recorded that it
+    // drops the ?claim= query param through its redirects - so BOTH
+    // handoffs failed and the token was simply gone. Confirmed live on a
+    // fresh signup, member #4581: sessionStorage.getItem returned null on
+    // the dashboard and the card rendered its empty state.
+    // localStorage survives a new tab, a full navigation and a browser
+    // restart, and is per ORIGIN rather than per tab. Both are written -
+    // sessionStorage costs nothing and the reader may still look there.
+    // A timestamp rides along so a stale token cannot claim onto an
+    // account somebody creates weeks later on a shared computer; the
+    // stash blob expires at 30 days and this matches it.
+    try {
+      var payload = JSON.stringify({ token: token, at: Date.now() });
+      window.localStorage.setItem("renters_claim", payload);
+      window.sessionStorage.setItem("renters_claim_token", token);
+      window.localStorage.setItem("renters_claim_token", token);
+    } catch (e) {}
 
     var signupReady = SIGNUP_URL.indexOf("SET_ME") === -1;
     var href = signupReady
