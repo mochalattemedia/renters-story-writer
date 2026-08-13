@@ -1,6 +1,37 @@
 // ==================================================================
-// alerts-prefs.js  —  ap-v9
+// alerts-prefs.js  —  ap-v10
 // Daily listing alerts: read + write renter alert preferences in BD.
+//
+// ap-v10 CHANGE: A DATE OUTSIDE A SANE WINDOW IS NO LONGER A VALID DATE.
+//
+// FOUND IN LIVE DATA, member 25, search "2BR/1BA near Hathaway Park":
+//   move_in_latest: "0026-09-12"
+// Year ZERO TWENTY-SIX. The renter said a date out loud, alerts-voice
+// built an ISO string with a two-digit year, and isoDate() accepted it
+// because "0026-09-12" is a correctly SHAPED ISO date. Ten characters,
+// digits in the right places, hyphens at 4 and 7. Every check passed.
+//
+// ⚠️ WHY THIS MATTERS MORE THAN IT LOOKS: it costs nothing today,
+// because no matcher reads it yet. The day one does, that search has a
+// move-in deadline two thousand years in the past, so every listing
+// fails the window test and the renter receives NOTHING, forever. The
+// symptom presents as "alerts are broken" and the cause is one digit in
+// one field on one record.
+// Same family as the #44 deal breakers: a value that STORED FINE and
+// means something nobody intended. Shape validation is not validation.
+//
+// THE FIX IS RANGE, NOT SHAPE. A move-in date belongs within a few
+// years either side of now. MIN_YEAR / MAX_YEAR reject anything else,
+// and the month and day are bounds-checked too - "2026-19-45" also
+// passed every ap-v9 check.
+//
+// ⭐ AND THE HALF THAT MATTERS FOR EXISTING RECORDS: a stored date that
+// fails the range is dropped to null ON READ, so the bad value stops
+// being matched on immediately, for every member, with no write and no
+// migration pass. Member 25 reads clean the moment this deploys.
+// NOTE THIS ONLY CLOSES THE STORE. alerts-voice can still BUILD a year
+// like that; it just cannot land one here any more. The producer needs
+// its own fix - see the open thread.
 //
 // ap-v9 CHANGE: SCHEMA v4. A SEARCH IS NOW A ZONE PLUS PRICED OPTIONS.
 //
@@ -205,12 +236,16 @@ const https = require("https");
 const crypto = require("crypto");
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "ap-v9";
+const FN_VERSION = "ap-v10";
 const SCHEMA_VERSION = 4;
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const MAX_SEARCHES = 5;
 const MUST_HAVE_CAP = 3;
 const MAX_OPTIONS = 4;
+// Move-in dates live near now. Anything outside this is a producer bug,
+// not a renter with unusual plans.
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
 const ZONE_ZIP_CAP = 40;
 const ZONE_PATH_CAP = 120;
 const NOTES_MAX = 400;
@@ -403,6 +438,21 @@ function isoDate(v) {
     if (i === 4 || i === 7) { if (ch !== 45) return null; continue; }
     if (ch < 48 || ch > 57) return null;
   }
+
+  // ap-v10: SHAPE IS NOT VALIDATION. "0026-09-12" and "2026-19-45" both
+  // pass every check above. Range them.
+  const y = Number(s.slice(0, 4));
+  const m = Number(s.slice(5, 7));
+  const d = Number(s.slice(8, 10));
+  if (y < MIN_YEAR || y > MAX_YEAR) return null;
+  if (m < 1 || m > 12) return null;
+  if (d < 1 || d > 31) return null;
+
+  // And the calendar itself: Feb 31 is shaped fine and does not exist.
+  // Date.UTC normalizes rather than rejecting, so compare it back.
+  const t = new Date(Date.UTC(y, m - 1, d));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== m - 1 || t.getUTCDate() !== d) return null;
+
   return s;
 }
 
@@ -968,6 +1018,10 @@ function schemaBlock() {
     notesMax: NOTES_MAX,
     zoneZipCap: ZONE_ZIP_CAP,
     zonePathCap: ZONE_PATH_CAP,
+    // Published so every producer validates the same way rather than
+    // each inventing its own idea of a plausible date.
+    dateMinYear: MIN_YEAR,
+    dateMaxYear: MAX_YEAR,
     // v4. Everything that varies by WHAT you are renting lives on an
     // option; everything true of the renter regardless stays on criteria.
     optionKeys: ["unit_types", "rent_max", "rent_stretch", "rent_basis", "beds", "baths_min", "label"],
