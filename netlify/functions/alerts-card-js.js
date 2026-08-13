@@ -1,9 +1,42 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v26
+// alerts-card-js.js  —  ac-v27
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v27 CHANGE: 🔴 THE ANSWER. /account/home RELOADS ITSELF, AND IT IS
+// BD DOING IT. Proven from a PRESERVED console log:
+//     BeforeUnload {sessionId: ...}        home:2657
+//     Navigated to https://www.renters.com/account/home
+// home:2657 is BD'S OWN PAGE SCRIPT. Grepped w195 for BeforeUnload and
+// sessionId: no match, so it is not ours. It logs a session id and
+// navigates to the same URL - a session-refresh shape. AND NO FORM SUBMIT
+// FIRED, so the ac-v26 button-type fix was a real bug but NOT THIS ONE.
+//
+// ⚠️ THIS IS WHAT COST FIVE VERSIONS OF WRONG DIAGNOSES. Every symptom
+// pointed inward - card gone, no error, nothing thrown, nothing removed -
+// and the card was fine every single time. The PAGE went away and came
+// back, and a draft living only in memory went with it.
+//
+// 📌 THE DIAGNOSTIC LESSON, worth more than the fix: "THE CONSOLE
+// RESTARTED" IS NOT A DETAIL ABOUT TOOLING, IT IS THE ANSWER. A cleared
+// console means the document reloaded, which rules out every in-page
+// explanation at once. And the tool that proves it is PRESERVE LOG - the
+// evidence had been destroyed by the reload every time we went looking
+// for it. Ask for Preserve log the FIRST time state vanishes with no
+// error, not the fifth.
+//
+// ⭐ AND THE FIX IS NOT TO STOP THE RELOAD - IT IS TO STOP CARING ABOUT
+// IT. The draft now persists to sessionStorage on every render and on the
+// way out, and is restored on load. A renter can reload for their own
+// reasons - back button, mistyped URL, a phone dropping the tab, a
+// platform session refresh nobody controls - and a form that loses ten
+// minutes of work to any of those is fragile regardless of the cause.
+// sessionStorage rather than localStorage, because this is one sitting's
+// work and should not outlive the tab. Keyed by member, so a shared
+// computer never restores one person's draft into another person's card.
+// Two hour ceiling, then it is somebody else's train of thought.
 //
 // ac-v26 CHANGE: 🔴 THE CARD WAS NOT DISAPPEARING. THE PAGE WAS
 // RELOADING. Every button on this card was submitting a BD form.
@@ -383,7 +416,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v26";
+const FN_VERSION = "ac-v27";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -482,6 +515,71 @@ const JS = `
 
   var id = memberId();
   if (!id) { console.log("[Renters alerts] no member id, standing down"); return; }
+
+  // ==================================================================
+  // ac-v27: THE DRAFT SURVIVES A PAGE RELOAD.
+  //
+  // WHY THIS EXISTS, and it is not defensive programming for its own
+  // sake: /account/home RELOADS ITSELF. Proven from a preserved console -
+  //   BeforeUnload {sessionId: ...}   home:2657
+  //   Navigated to https://www.renters.com/account/home
+  // home:2657 is BD'S OWN PAGE SCRIPT, not our head code (grepped: no
+  // match for BeforeUnload or sessionId in w195). It logs a session id
+  // and navigates to the same URL, which is a session-refresh shape.
+  // NO FORM SUBMIT FIRED - the ac-v26 button-type fix was a real bug but
+  // it was not this one.
+  //
+  // THAT COST FIVE VERSIONS OF WRONG DIAGNOSES, because every symptom
+  // pointed inward: card gone, no error, nothing thrown, nothing removed.
+  // The card was fine every time. The PAGE went away and came back, and a
+  // draft that lived only in memory went with it.
+  //
+  // ⭐ THE FIX IS NOT TO STOP THE RELOAD - IT IS TO STOP CARING ABOUT IT.
+  // A renter can reload for their own reasons: a mistyped URL, a back
+  // button, a phone dropping the tab, a session refresh from a platform
+  // we do not control. A form that loses ten minutes of work to any of
+  // those is fragile no matter who caused it.
+  //
+  // sessionStorage, not localStorage: this is one sitting's work, not a
+  // saved preference, and it should not outlive the tab. Keyed by member
+  // so a shared computer never restores one person's draft into another
+  // person's card. Cleared on save, on cancel, and on any read that finds
+  // stale or unreadable contents.
+  // ==================================================================
+  var DRAFT_KEY = "rdcAlertsDraft:" + id;
+  var DRAFT_MAX_AGE_MS = 2 * 60 * 60 * 1000;   // two hours
+
+  function saveDraft() {
+    try {
+      if (!state.draft || !draftHasWork(state.draft)) { clearDraft(); return; }
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+        at: Date.now(),
+        view: state.view === "voice" ? "voice" : "form",
+        editIdx: state.editIdx,
+        showRefine: !!state.showRefine,
+        pickerOpen: false,          // never restore straight into the map
+        draft: state.draft
+      }));
+    } catch (e) { /* private mode, quota, whatever - never break a save */ }
+  }
+
+  function clearDraft() {
+    try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) {}
+  }
+
+  function loadDraft() {
+    try {
+      var raw = sessionStorage.getItem(DRAFT_KEY);
+      if (!raw) return null;
+      var o = JSON.parse(raw);
+      if (!o || !o.draft) { clearDraft(); return null; }
+      // Old enough that restoring it would be surprising rather than
+      // helpful. Two hours is a sitting; a day later is somebody else's
+      // train of thought.
+      if (!o.at || (Date.now() - o.at) > DRAFT_MAX_AGE_MS) { clearDraft(); return null; }
+      return o;
+    } catch (e) { clearDraft(); return null; }
+  }
 
   // ---- RENTERS ONLY -------------------------------------------------
   // ALLOWLIST on the numeric plan level. This is the ac-v13 hardening.
@@ -863,6 +961,11 @@ const JS = `
 
     removeCard();
     wrap.id = "rdc-alerts";
+
+    // Every change on this card funnels through render(), so this is the
+    // one place a save has to happen. readForm() has already run for any
+    // path that touches an input.
+    saveDraft();
 
     try {
       if (state.view === "form") wireForm(mp);
@@ -1311,6 +1414,7 @@ const JS = `
     var back = document.getElementById("ra-vback");
     if (back) back.onclick = function () {
       stopRec();
+      clearDraft();
       state.draft = null;
       state.view = "list";
       state.editIdx = -1;
@@ -1754,6 +1858,15 @@ const JS = `
   // dereference form fields that do not exist.
   // Ask the picker to save. Separate from the click handler because a
   // busy answer has to be able to ask again.
+  // A reload can land between renders, so anything typed since the last
+  // one would be lost. This runs on the way out and costs nothing.
+  window.addEventListener("beforeunload", function () {
+    try {
+      if (state.view === "form" && state.draft) readForm();
+      saveDraft();
+    } catch (e) {}
+  });
+
   function askPickerToSave() {
     var f = document.getElementById("ra-picker");
     var msg = document.getElementById("ra-zone-msg");
@@ -1932,6 +2045,7 @@ const JS = `
     document.getElementById("ra-cancel").onclick = function () {
       // Order matters: the draft is cleared BEFORE the view changes, or
       // the ac-v21 guard reads a draft with work and puts the form back.
+      clearDraft();
       state.draft = null;
       state.view = "list";
       state.editIdx = -1;
@@ -1969,6 +2083,7 @@ const JS = `
       if (state.editIdx === -1) state.searches.push(rec);
       else state.searches[state.editIdx] = rec;
 
+      clearDraft();
       state.draft = null;
       state.view = "list";
       state.editIdx = -1;
@@ -2147,6 +2262,25 @@ const JS = `
           legacyBreakers: legacyCount(),
           consent: state.consent
         });
+
+        // ---- RESTORE AN UNFINISHED DRAFT --------------------------------
+        // The page reloads on its own (see the ac-v27 note above), so
+        // arriving here does NOT mean the renter started over. If there is
+        // recent work in sessionStorage, put them back where they were.
+        // The picker is deliberately NOT reopened - the zone is already
+        // captured and reopening a map on load would be startling.
+        var saved = loadDraft();
+        if (saved) {
+          state.draft = saved.draft;
+          state.editIdx = typeof saved.editIdx === "number" ? saved.editIdx : -1;
+          state.showRefine = !!saved.showRefine;
+          state.pickerOpen = false;
+          state.view = saved.view === "voice" ? "voice" : "form";
+          console.log("[Renters alerts] restored an unfinished search after a page reload", {
+            zone: state.draft.zone ? state.draft.zone.name : null,
+            options: (state.draft.extra || []).length + 1
+          });
+        }
 
         // ⚠️ ac-v23: THIS TIMER NO LONGER STOPS. It used to clear itself
         // after ~300 ticks, about three and a half minutes - so a card
