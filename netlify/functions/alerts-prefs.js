@@ -1,6 +1,50 @@
 // ==================================================================
-// alerts-prefs.js  —  ap-v10
+// alerts-prefs.js  —  ap-v11
 // Daily listing alerts: read + write renter alert preferences in BD.
+//
+// ap-v11 CHANGE: THE DEMAND INDEX CARRIES A WHOLE PACKET, AND THE HUB CAN
+// READ IT WITHOUT TOUCHING BD.
+//
+// THE PROBLEM IT SOLVES. The Lead Hub builds itself by walking BD lead
+// records ONE AT A TIME, climbing down from the newest id, six at a time
+// with a pause, because BD's list endpoint returns the OLDEST hundred and
+// ignores offset. That is why the hub says "built 5 days ago" instead of
+// showing live state. A housing request built from a search must not
+// inherit that: pins have to move on and off as a renter pauses a search,
+// and a nightly crawl cannot do that.
+//
+// ⭐ THE UNLOCK WAS ALREADY HERE. indexMember has been writing
+// m:{memberId} plus an "index" array of member ids on every landed save
+// since ap-v5. Enumerating every renter who has a search therefore needs
+// NO BD SCAN AT ALL - no climbing, no pacing, no throttle risk, and none
+// of the 400-that-looks-like-a-404 ambiguity that cost this project a
+// 21-hour outage and 39 versions of the members map.
+//
+// SO THREE ADDITIONS:
+//   1. CONTACT + HOUSEHOLD land in the demand blob. The POST path already
+//      reads the member, so this costs ZERO extra BD calls.
+//   2. GET ?demand=1&key=ADMIN returns the whole index in one response.
+//      That is the hub's read.
+//   3. Everything the packet needs is in one object: name, email, phone,
+//      current zip, then the zone, the priced options, household, pets,
+//      voucher, must-haves and will-not-accepts.
+//
+// ⚠️ WHAT IS DELIBERATELY NOT IN THE PACKET, and it is a decision, not an
+// oversight: NOTES. A renter's free text says things like "decent but not
+// great credit" and names a child's school - member 25's does both. Under
+// the old model that sat behind a per-field opt-in. Credit self-disclosure
+// and children travelling automatically to a landlord is how a good
+// feature becomes a Fair Housing problem. Notes stays for matching and
+// concierge, and never rides on an introduction. Income, credit and
+// employer are not here either.
+//
+// 🔑 FIELD NAMES ARE PROBED, NOT ASSUMED. The Bible's own rule: an export
+// column name is not necessarily the API field name, and a wrong field
+// name SILENTLY SUCCEEDS AND STORES NOTHING. Only zip_code, city and
+// state_code are confirmed on this platform. So contact keys are read by
+// trying a candidate list and RECORDING WHICH ONE WON in contactKeys, and
+// ?diag=1 still dumps everything BD returns. If a field comes back empty,
+// read contactKeys before changing anything.
 //
 // ap-v10 CHANGE: A DATE OUTSIDE A SANE WINDOW IS NO LONGER A VALID DATE.
 //
@@ -236,7 +280,7 @@ const https = require("https");
 const crypto = require("crypto");
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "ap-v10";
+const FN_VERSION = "ap-v11";
 const SCHEMA_VERSION = 4;
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const MAX_SEARCHES = 5;
@@ -934,13 +978,56 @@ function demandStore() {
   });
 }
 
-async function indexMember(memberId, enabled, consent, searches, transcripts) {
+// CONTACT. Read off the member record BD already returned. Candidate keys
+// rather than one guess, because a wrong BD field name does not error - it
+// returns undefined and the packet quietly ships without a phone number.
+// The winning key is recorded so a missing value can be diagnosed from the
+// data instead of from a hunch.
+const CONTACT_CANDIDATES = {
+  firstName: ["first_name", "user_first_name", "fname", "firstname"],
+  lastName: ["last_name", "user_last_name", "lname", "lastname"],
+  displayName: ["display_name", "full_name", "name", "company_name"],
+  email: ["email", "user_email", "email_address", "login_email"],
+  phone: ["phone", "user_phone", "phone_number", "telephone", "mobile"],
+  zip: ["zip_code", "zip", "postal_code"],
+  city: ["city", "user_city"],
+  state: ["state_code", "state", "adm_lvl_1_sn"],
+  verified: ["verified"]
+};
+
+function pickContact(member) {
+  const out = { contactKeys: {} };
+  if (!member || typeof member !== "object") return out;
+  Object.keys(CONTACT_CANDIDATES).forEach((field) => {
+    const keys = CONTACT_CANDIDATES[field];
+    for (let i = 0; i < keys.length; i++) {
+      const v = member[keys[i]];
+      if (v !== undefined && v !== null && String(v).trim() !== "") {
+        out[field] = String(v).trim().slice(0, 120);
+        out.contactKeys[field] = keys[i];
+        return;
+      }
+    }
+    out[field] = "";
+  });
+  if (!out.displayName) {
+    const n = [out.firstName, out.lastName].filter(Boolean).join(" ").trim();
+    if (n) out.displayName = n;
+  }
+  return out;
+}
+
+async function indexMember(memberId, enabled, consent, searches, transcripts, household, contact) {
   try {
     const s = demandStore();
     await s.setJSON("m:" + memberId, {
       memberId: String(memberId),
       enabled: !!enabled,
       consent: consent,
+      // Per member, not per search. See the ap-v9 note.
+      household: household || null,
+      // Name, email, phone, current zip. NEVER notes, income or credit.
+      contact: contact || null,
       searchCount: searches.length,
       searches: searches,
       transcripts: transcripts || {},
@@ -961,7 +1048,7 @@ async function indexMember(memberId, enabled, consent, searches, transcripts) {
 }
 
 // ------------------------------------------------------------------
-async function writeSearches(memberId, enabled, consent, searches, transcripts, household) {
+async function writeSearches(memberId, enabled, consent, searches, transcripts, household, contact) {
   const payload = JSON.stringify({
     v: SCHEMA_VERSION,
     consent: consent,
@@ -1003,7 +1090,7 @@ async function writeSearches(memberId, enabled, consent, searches, transcripts, 
     });
   }
 
-  if (landed) await indexMember(memberId, enabled, consent, searches, transcripts);
+  if (landed) await indexMember(memberId, enabled, consent, searches, transcripts, household, contact);
 
   return { landed, truncated, w, payloadLength: payload.length, gotLength: gotCriteria.length, member };
 }
@@ -1064,6 +1151,7 @@ exports.handler = async (event) => {
       mustHaveCap: MUST_HAVE_CAP,
       acceptsV2Payloads: true,
       acceptsV3Payloads: true,
+      demandEndpoint: !!(process.env.RDC_ADMIN_KEY || process.env.HUB_ADMIN_KEY),
       blobsConfigured: !!(process.env.NETLIFY_SITE_ID && process.env.NETLIFY_BLOBS_TOKEN)
     });
   }
@@ -1072,6 +1160,69 @@ exports.handler = async (event) => {
   // every consumer needs it. One definition beats three copies.
   if (q.schema) {
     return json(200, Object.assign({ version: FN_VERSION }, schemaBlock()));
+  }
+
+  // ---- THE HUB'S READ. Every renter with a search, in one response,
+  // WITHOUT TOUCHING BD. This is the whole point of ap-v11: the Lead Hub
+  // currently walks BD lead records one at a time because BD's list
+  // endpoint returns the oldest hundred and ignores offset. Searches do
+  // not have to inherit that, because indexMember has been writing this
+  // index on every save since ap-v5.
+  // ADMIN GATED: it returns names, emails and phone numbers.
+  if (q.demand) {
+    const want = process.env.RDC_ADMIN_KEY || process.env.HUB_ADMIN_KEY || "";
+    // No key configured means the door does not exist. An admin door that
+    // opens when a variable is missing is worse than no door - the same
+    // rule renter-search follows.
+    if (!want) return json(404, { version: FN_VERSION, error: "not found" });
+    const given = String(q.key || "");
+    if (given.length !== want.length ||
+        !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(want))) {
+      return json(403, { version: FN_VERSION, error: "bad key" });
+    }
+
+    const st = demandStore();
+    let ids = [];
+    try { ids = await st.get("index", { type: "json" }); } catch (e) { ids = []; }
+    if (!Array.isArray(ids)) ids = [];
+
+    const limit = Math.min(Math.max(parseInt(q.limit, 10) || 500, 1), 2000);
+    ids = ids.slice(0, limit);
+
+    // CAPPED PARALLEL, NOT Promise.all OVER EVERYTHING. vl-v2 fired every
+    // blob read at once, tripped a Blobs concurrency limit, and - because
+    // it swallowed errors - SILENTLY DROPPED the failures so the list came
+    // back short with no sign anything was missing. Chunks of 8, and a
+    // missing count that cannot hide.
+    const out = [];
+    let missing = 0;
+    for (let i = 0; i < ids.length; i += 8) {
+      const chunk = ids.slice(i, i + 8);
+      const got = await Promise.all(chunk.map(async (mid) => {
+        try {
+          const rec = await st.get("m:" + mid, { type: "json" });
+          return rec || null;
+        } catch (e) { return null; }
+      }));
+      got.forEach((r) => { if (r) out.push(r); else missing++; });
+    }
+
+    // Only searches the renter is actually running are live requests.
+    // Pausing one is how a renter withdraws it, so the hub can filter on
+    // this rather than on a separate consent flag.
+    const running = out.reduce((n, m) => n + (m.searches || []).filter((s2) => s2.enabled).length, 0);
+
+    return json(200, {
+      version: FN_VERSION,
+      schemaVersion: SCHEMA_VERSION,
+      indexed: ids.length,
+      returned: out.length,
+      missing: missing,
+      runningSearches: running,
+      // The packet is contact + the request. Notes, income and credit are
+      // deliberately absent - see the ap-v11 header.
+      members: out
+    });
   }
 
   if (!process.env.BD_API_KEY) {
@@ -1307,7 +1458,7 @@ exports.handler = async (event) => {
     // Deleting a search does not revoke consent. Consent is a separate
     // decision and is only changed when the member changes it.
     // Household survives a delete. It belongs to the member, not the search.
-    const r = await writeSearches(pid, stillEnabled, parsed.consent, kept, null, parsed.household);
+    const r = await writeSearches(pid, stillEnabled, parsed.consent, kept, null, parsed.household, pickContact(member));
 
     return json(200, {
       version: FN_VERSION,
@@ -1370,7 +1521,9 @@ exports.handler = async (event) => {
     ? sanitizeHousehold(payload.household, null)
     : (existing.household || null);
 
-  const r = await writeSearches(pid, enabled, consent, clean, transcripts, household);
+  // The member was already read above for consent and migration, so the
+  // contact packet is free here - no extra BD call.
+  const r = await writeSearches(pid, enabled, consent, clean, transcripts, household, pickContact(existingMember));
 
   return json(200, {
     version: FN_VERSION,
