@@ -1,9 +1,33 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v29
+// alerts-card-js.js  —  ac-v32
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v32 CHANGE: THE FORM IS SEQUENTIAL TOO. A new search now shows ONLY
+// step one until a zone exists, exactly as the voice view has since
+// ac-v24. The form was rendering everything at once, so "Pick your zone"
+// sat above budget, size and move-in with nothing saying which came
+// first - and reaching the bottom of the form still being asked for a
+// zone reads as the tool losing track rather than as a step.
+//
+// ⚠️ EDITING IS EXEMPT AND MUST STAY THAT WAY. Every search made before
+// ac-v17 has zone null. Gating those would make them PERMANENTLY
+// UNEDITABLE - a renter could not fix a budget without first drawing a
+// zone they never had. Old searches open fully; the zone block sits at
+// the top as an invitation.
+//
+// ac-v31 CHANGE: THE VOICE BUTTON IS NAVY. On this card the step badges
+// carry the colour logic - TEAL MEANS DONE, NAVY MEANS DO THIS NEXT - so
+// a teal mic sitting under a navy "2 Talk or type your spot" was the
+// badge and the button disagreeing about what the renter should do.
+// Teal now only ever means completion.
+//
+// ac-v30 CHANGE: "programme" -> "program" on the voucher field. US
+// audience, US spelling. Swept every live file for the rest of the
+// British forms and this placeholder was the ONLY one a renter ever sees;
+// the other hits were all in code comments, which nobody reads but us.
 //
 // ac-v29 CHANGE: NAMING, NEGATIVE NUMBERS, AND NAMES CUT MID-WORD.
 //
@@ -478,7 +502,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v29";
+const FN_VERSION = "ac-v32";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -749,7 +773,13 @@ const JS = `
     chipNo: "border:1px solid #eceff3;background:#fff;color:#c0c8d2;border-radius:999px;padding:8px 14px;font-size:13px;cursor:not-allowed;",
     btn: "background:#0f2545;color:#fff;border:0;border-radius:10px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer;",
     ghost: "background:#fff;color:#0f2545;border:1px solid #d7dee8;border-radius:10px;padding:9px 16px;font-size:14px;font-weight:600;cursor:pointer;",
-    mic: "background:#3a9e8f;color:#fff;border:0;border-radius:10px;padding:12px 20px;font-size:15px;font-weight:600;cursor:pointer;",
+    // ac-v31: NAVY, NOT TEAL. The step badges carry the colour logic on
+    // this card - teal means DONE (step one, once a zone exists) and navy
+    // means DO THIS NEXT. The mic sat under a navy "2 Talk or type your
+    // spot" heading in teal, so the badge said "next" and the button said
+    // something else. Matching S.btn ties the action to the step that
+    // asks for it. Teal stays reserved for completion.
+    mic: "background:#0f2545;color:#fff;border:0;border-radius:10px;padding:12px 22px;font-size:15px;font-weight:600;cursor:pointer;",
     link: "background:none;border:0;color:#5b6b82;font-size:13px;cursor:pointer;padding:6px 8px;text-decoration:underline;",
     note: "font-size:13px;margin-top:10px;min-height:18px;",
     pillOn: "display:inline-block;background:#e7f4ed;color:#1a7f52;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:700;",
@@ -1711,6 +1741,27 @@ const JS = `
     // Same block the voice view renders. One definition, two hosts.
     html += zoneBlockHtml(d, "Tell us about the place");
 
+    // ⚠️ ac-v32: ON A NEW SEARCH THE FORM STOPS HERE UNTIL A ZONE EXISTS.
+    // The voice view has gated its microphone on a zone since ac-v24, but
+    // the form rendered EVERYTHING at once - so "Pick your zone" sat above
+    // budget, size and move-in dates with nothing telling the renter which
+    // came first. Reaching the bottom of the form and still being asked
+    // for a zone reads as the tool losing track, not as a step.
+    // Now it is one flow on both paths: answer where, then the rest
+    // appears. Same reason the mic is hidden until step one is done.
+    //
+    // EDITING IS EXEMPT, and it has to be: every search created before
+    // ac-v17 has zone null, and gating those would make them PERMANENTLY
+    // UNEDITABLE - a renter could not fix a budget without first drawing
+    // a zone they never had. Old searches open fully, with the zone block
+    // sitting at the top as an invitation rather than a gate.
+    if (isNew && !(d.zone && (d.zone.zips || []).length)) {
+      html += '<div id="ra-note" style="' + S.note + '"></div>' +
+        '<div style="margin-top:10px;"><button type="button" id="ra-cancel" style="' + S.link + '">Cancel</button></div>';
+      wrap.innerHTML = html;
+      return;
+    }
+
     // ---- the three questions ----
     html +=
       '<div style="' + S.row + '">' +
@@ -1837,7 +1888,7 @@ const JS = `
             '<input type="checkbox" id="ra-voucher" style="' + S.cBox + '"' + (c.voucher ? " checked" : "") + '>' +
             '<span style="' + S.cLab + '">I am using a housing voucher or rental assistance. We will only send places that accept it.</span>' +
           '</label>' +
-          '<input id="ra-voucher-prog" maxlength="40" placeholder="Which programme, if you know" value="' + esc(val(c.voucher_program)) + '" style="' + S.inp + '">' +
+          '<input id="ra-voucher-prog" maxlength="40" placeholder="Which program, if you know" value="' + esc(val(c.voucher_program)) + '" style="' + S.inp + '">' +
         '</div>';
 
       if (!noSchema) {
@@ -2164,7 +2215,11 @@ const JS = `
       render(mp);
     };
 
-    document.getElementById("ra-cancel").onclick = function () {
+    // ac-v32: guarded. The zone-gated view renders Cancel but NOT Save,
+    // so an unguarded lookup here would throw - and a throw in wiring
+    // leaves a card with dead buttons.
+    var cx = document.getElementById("ra-cancel");
+    if (cx) cx.onclick = function () {
       // Order matters: the draft is cleared BEFORE the view changes, or
       // the ac-v21 guard reads a draft with work and puts the form back.
       clearDraft();
@@ -2176,7 +2231,8 @@ const JS = `
       render(mp);
     };
 
-    document.getElementById("ra-save").onclick = function () {
+    var sv = document.getElementById("ra-save");
+    if (sv) sv.onclick = function () {
       readForm();
       var c = state.draft.criteria;
 
