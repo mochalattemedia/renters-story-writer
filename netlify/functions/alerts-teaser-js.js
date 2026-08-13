@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v11
+// alerts-teaser-js.js  —  at-v13
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -23,7 +23,40 @@
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
 //
-// at-v11: scroll so the TOP of the wall clears the fixed nav bar. v10
+// at-v13: THE BUTTONS SAY WHERE YOU ARE. Once voice has filled the form,
+// "Describe it out loud" reads like starting over - which is precisely
+// what it did before at-v12 - so it becomes "Keep describing out loud"
+// with a line saying the fields above are theirs to correct. And the
+// submit changes from "Notify me when this matches" to "This is my
+// perfect spot", because after speaking a whole description the visitor
+// is confirming, not requesting.
+// A behaviour change nobody can see is a behaviour change nobody trusts.
+//
+// at-v12: VOICE ADDS, IT DOES NOT REPLACE. Plus a readable notes field
+// and the Perfect Spot vocabulary.
+//
+// 1. 🔴 TAPPING "Describe it out loud" WIPED THE FORM. The handler jumped
+//    straight to renderVoice(), and every render rebuilds the form from
+//    `seed` - which was EMPTY unless voice had already filled it. So a
+//    visitor who typed a rent, beds, baths, tapped a chip and wrote a
+//    note, then reached for the microphone, lost all of it before the mic
+//    even opened. captureIntoSeed() now runs first, and the voice result
+//    MERGES: chips are added to the ones already tapped, notes keep the
+//    visitor's own words at the front, and a typed location is never
+//    overwritten by one guessed out of a transcript.
+//    Same failure as ac-v28 on the dashboard, same principle: THE
+//    TRANSCRIPT OWNS WHAT IT MENTIONS AND NOTHING ELSE.
+//
+// 2. NOTES IS A TEXTAREA NOW. It was a one-line input - the single field
+//    voice fills with a whole paragraph - so the text ran off the right
+//    edge with no way to read it back. Three rows, 400 characters,
+//    matching what aclaim-v2 stores.
+//
+// 3. VOCABULARY. "Dream up your perfect spot" and "Your perfect spot is
+//    ready", matching the dashboard card. A PERFECT SPOT is the object; a
+//    HOUSING REQUEST is the separate external Get Matched form.
+//
+// PRIOR - at-v11: scroll so the TOP of the wall clears the fixed nav bar. v10
 // centered the card, but the wall is taller than the phone screen, so
 // centering pushed the "Your search is ready" title up under the nav.
 // Now we compute the card's absolute top, subtract a nav-height offset,
@@ -113,7 +146,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v11";
+const FN_VERSION = "at-v13";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -158,6 +191,8 @@ const JS = `
     h: "margin:0 0 6px;font-size:22px;font-weight:800;color:" + NAVY + ";",
     sub: "margin:0 0 18px;font-size:15px;color:#5b6b82;line-height:1.5;",
     lab: "display:block;font-size:13px;font-weight:600;color:" + NAVY + ";margin:0 0 6px;",
+    hint: "font-size:12.5px;color:#6b7a8d;text-align:center;margin:8px 0 0;line-height:1.5;",
+    area: "width:100%;padding:11px 12px;border:1px solid #d7dee8;border-radius:9px;font-size:15px;font-family:inherit;line-height:1.45;box-sizing:border-box;resize:vertical;min-height:74px;",
     inp: "width:100%;padding:11px 13px;border:1px solid #d7dee8;border-radius:10px;font-size:15px;box-sizing:border-box;",
     row: "display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;",
     chips: "display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px;",
@@ -200,6 +235,19 @@ const JS = `
   }
 
   function val(id) { var el = document.getElementById(id); return el ? el.value : ""; }
+  // Snapshot whatever is on screen into seed, so any re-render restores
+  // it. Called on the way to the voice view and before the wall.
+  function captureIntoSeed() {
+    var f = readForm();
+    seed.rent_max = f.rent_max;
+    seed.beds_min = f.beds_min;
+    seed.baths_min = f.baths_min;
+    seed.move_in_by = f.move_in_by;
+    seed.where = f.where;
+    seed.notes = f.notes;
+    seed.wants = wants.slice();
+  }
+
   function readForm() {
     return {
       rent_max: val("rt-rent"),
@@ -222,7 +270,7 @@ const JS = `
 
     mount.innerHTML =
       '<div style="' + S.head + '">' +
-        '<h2 style="' + S.title + '">Start your search</h2>' +
+        '<h2 style="' + S.title + '">Dream up your perfect spot</h2>' +
         '<p style="' + S.concept + '">Type it or say it. When a verified home matches, we email you. No matches, no email.</p>' +
       '</div>' +
       '<div style="' + S.card + '">' +
@@ -245,14 +293,30 @@ const JS = `
             '<span style="' + S.lab + '">Nice to have</span>' +
             '<div id="rt-chips" style="' + S.chips + '"></div>' +
             '<div style="margin-bottom:4px;"><span style="' + S.lab + '">Anything else that matters?</span>' +
-              '<input id="rt-notes" maxlength="200" placeholder="Quiet street, close to the light rail" value="' + esc(seed.notes) + '" style="' + S.inp + '"></div>' +
+              // at-v12: A TEXTAREA, NOT AN INPUT. This is the field voice
+              // fills with a whole paragraph, and in a single-line input
+              // the text ran off the right edge with no way to read it
+              // back. 400 chars now, matching what the claim stores.
+              '<textarea id="rt-notes" maxlength="400" rows="3" placeholder="Quiet street, close to the light rail" style="' + S.area + '">' + esc(seed.notes) + '</textarea></div>' +
           '</div>' +
         '</div>' +
+        // at-v13: THE BUTTONS REPORT WHERE THE VISITOR IS. Before voice
+        // has run, the mic is an invitation. AFTER it has run, "Describe
+        // it out loud" reads like starting over - which is exactly what
+        // it used to do - so it becomes "Keep describing out loud", and a
+        // line underneath says the form below is theirs to correct. The
+        // whole point of at-v12 was that voice adds rather than replaces;
+        // the label has to say so or nobody will risk tapping it twice.
         (speechOK()
-          ? '<button id="rt-voice" type="button" style="' + S.mic + '">🎙 Describe it out loud</button>' +
+          ? '<button id="rt-voice" type="button" style="' + S.mic + '">🎙 ' +
+              (seededFromVoice ? "Keep describing out loud" : "Describe it out loud") + '</button>' +
+            (seededFromVoice
+              ? '<p style="' + S.hint + '">We filled in what we heard. Say more, or fix anything above by typing, then submit.</p>'
+              : '') +
             '<div style="height:12px;"></div>'
           : "") +
-        '<button id="rt-go" style="' + S.btn + '">Notify me when this matches</button>' +
+        '<button id="rt-go" style="' + S.btn + '">' +
+          (seededFromVoice ? "This is my perfect spot" : "Notify me when this matches") + '</button>' +
         '<div id="rt-err" style="' + S.err + 'text-align:center;"></div>' +
       '</div>';
 
@@ -288,7 +352,18 @@ const JS = `
     document.getElementById("rt-go").onclick = submit;
 
     var vb = document.getElementById("rt-voice");
-    if (vb) vb.onclick = function () { VIEW = "voice"; voice = { active:false, transcript:"", interim:"", status:"", rec:null }; renderVoice(); };
+    if (vb) vb.onclick = function () {
+      // 🔴 at-v12: READ THE FORM FIRST. Leaving for the voice view used to
+      // jump straight to renderVoice(), and coming back rebuilt the form
+      // from seed - which was EMPTY unless voice had filled it. So a
+      // visitor who typed a rent, beds, baths, a chip and a note, then
+      // tapped Describe it out loud, watched all of it vanish.
+      // Voice is meant to ADD to what is there, never replace it.
+      captureIntoSeed();
+      VIEW = "voice";
+      voice = { active:false, transcript:"", interim:"", status:"", rec:null };
+      renderVoice();
+    };
   }
 
   // ---------------- VOICE VIEW ----------------
@@ -494,17 +569,28 @@ const JS = `
     [].concat(c.must_have || [], c.nice_to_have || [], c.wants || []).forEach(function (k) {
       for (var i = 0; i < CHIPS.length; i++) if (CHIPS[i][0] === k && picked.indexOf(k) === -1) picked.push(k);
     });
-    seed.wants = picked;
+    // MERGE, not replace. A chip the visitor tapped before talking is
+    // still true afterwards - the transcript simply did not mention it.
+    var existingWants = Array.isArray(seed.wants) ? seed.wants.slice() : [];
+    picked.forEach(function (k) { if (existingWants.indexOf(k) === -1) existingWants.push(k); });
+    seed.wants = existingWants;
     // notes: preserve the transcript, plus any model notes
+    // Anything they had already typed stays at the front. Their own words
+    // are worth more than the transcript, and overwriting them is the
+    // same mistake as clearing the form.
     var noteBits = [];
+    if (seed.notes) noteBits.push(seed.notes);
     if (c.notes) noteBits.push(c.notes);
     if (transcript) noteBits.push(transcript);
-    seed.notes = noteBits.join(" — ").slice(0, 200);
+    seed.notes = noteBits.join(" - ").slice(0, 400);
     // av-v1 ignores place names, so pull location from the transcript here.
     // Prefer an explicit criteria.where if a future schema ever provides one.
-    seed.where = (c.where && String(c.where).trim())
+    // Only fill the location if it is still empty. A typed place beats a
+    // guess pulled out of a transcript.
+    var spoken = (c.where && String(c.where).trim())
       ? String(c.where).slice(0, 80)
       : locationFromTranscript(transcript);
+    if (!seed.where && spoken) seed.where = spoken;
     seededFromVoice = true;
   }
 
@@ -603,13 +689,13 @@ const JS = `
     mount.innerHTML =
       '<div style="' + S.card + '">' +
         '<div style="' + S.wallWrap + '">' +
-          '<h3 style="' + S.wallH + '">Your search is ready</h3>' +
+          '<h3 style="' + S.wallH + '">Your perfect spot is ready</h3>' +
           '<p style="' + S.wallP + '">Create a free account and the moment a verified home matches what you asked for, we will email you. No matches, no email.</p>' +
           recap(f) +
           (signupReady
             ? '<a href="' + href + '" style="' + S.btnGo + '">Create my free account</a>'
             : '<button style="' + S.btn + '" onclick="alert(\\'Signup URL not set yet. Set SIGNUP_URL in alerts-teaser-js.\\');">Create my free account</button>') +
-          '<button id="rt-back" style="' + S.back + '">Edit my search</button>' +
+          '<button id="rt-back" style="' + S.back + '">Edit my spot</button>' +
         '</div>' +
       '</div>';
 
