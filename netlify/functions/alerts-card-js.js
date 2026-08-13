@@ -1,9 +1,21 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v21
+// alerts-card-js.js  —  ac-v22
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v22 CHANGE: THE CARD LOOKS LIKE THE PRIMARY TOOL. Cosmetic only, no
+// logic touched. Soft teal wash, 3px teal top edge, 22px/800 heading, and
+// the search rows go WHITE so they read as items inside the tool rather
+// than more page furniture. Paused rows drop to a dashed outline on the
+// wash, which makes running-versus-paused visible at a glance instead of
+// only in the chip.
+// TINT, NOT INVERSION: the "Get started" button above and the My Profile
+// buttons below are navy and blue. A navy card would fight them for
+// attention rather than lead. Two things also had to invert to white to
+// survive the tinted background - the zone step panel and the form inputs
+// - because a grey panel on a tinted card disappears.
 //
 // ac-v21 CHANGE: 🔴 A DRAFT CARRYING WORK CAN NO LONGER BE RENDERED AWAY.
 //
@@ -270,7 +282,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v21";
+const FN_VERSION = "ac-v22";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -454,13 +466,23 @@ const JS = `
   function start() {
 
   var S = {
-    card: "background:#fff;border:1px solid #e3e8ef;border-radius:14px;padding:20px 20px 28px;margin:16px 0;font-family:inherit;",
-    h: "margin:0 0 4px;font-size:18px;font-weight:700;color:#0f2545;",
-    sub: "margin:0 0 16px;font-size:14px;color:#5b6b82;line-height:1.45;",
+    // ac-v22. THE CARD READS AS THE PRIMARY TOOL NOW.
+    // It was white, hairline-bordered, with an 18px heading, sitting
+    // between BD's white blocks and under a heading the same weight. It
+    // looked like one more block on a page made of blocks.
+    // TINT RATHER THAN INVERSION, and the reason is the neighbours: the
+    // "Get started" button above and the My Profile buttons below are
+    // navy and blue. A navy card here would FIGHT them for attention
+    // rather than lead. A soft teal wash separates it from every white
+    // block without shouting, and the 3px teal top edge does the "this
+    // one is different" work that colour alone cannot at a glance.
+    card: "background:#f4f9f8;border:1px solid #d8e8e4;border-top:3px solid #3a9e8f;border-radius:14px;padding:22px 22px 28px;margin:18px 0;font-family:inherit;box-shadow:0 1px 3px rgba(13,45,78,.06);",
+    h: "margin:0 0 5px;font-size:22px;font-weight:800;color:#0d2d4e;letter-spacing:-.2px;",
+    sub: "margin:0 0 18px;font-size:14.5px;color:#4a6076;line-height:1.5;",
     row: "display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;",
     lab: "display:block;font-size:13px;font-weight:600;color:#0f2545;margin:0 0 6px;",
     hint: "display:block;font-size:12px;color:#7a8ba1;margin:0 0 8px;line-height:1.4;",
-    inp: "width:100%;padding:10px 12px;border:1px solid #d7dee8;border-radius:9px;font-size:15px;box-sizing:border-box;",
+    inp: "width:100%;padding:10px 12px;border:1px solid #cfdbd7;border-radius:9px;font-size:15px;box-sizing:border-box;background:#fff;",
     chip: "border:1px solid #d7dee8;background:#fff;color:#33475f;border-radius:999px;padding:8px 14px;font-size:13px;cursor:pointer;",
     chipOn: "border:1px solid #0f2545;background:#0f2545;color:#fff;border-radius:999px;padding:8px 14px;font-size:13px;cursor:pointer;",
     chipNo: "border:1px solid #eceff3;background:#fff;color:#c0c8d2;border-radius:999px;padding:8px 14px;font-size:13px;cursor:not-allowed;",
@@ -471,8 +493,12 @@ const JS = `
     note: "font-size:13px;margin-top:10px;min-height:18px;",
     pillOn: "display:inline-block;background:#e7f4ed;color:#1a7f52;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:700;",
     pillOff: "display:inline-block;background:#eef1f5;color:#5b6b82;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:700;",
-    item: "border:1px solid #e3e8ef;border-radius:11px;padding:14px 16px;margin:0 0 10px;background:#fff;",
-    itemOff: "border:1px solid #eceff3;border-radius:11px;padding:14px 16px;margin:0 0 10px;background:#fafbfc;",
+    // White on the tint, so a search reads as an item INSIDE the tool
+    // rather than another box on the page. Paused rows lose the white and
+    // sit back into the wash, which is the whole visual difference
+    // between running and not.
+    item: "border:1px solid #dde9e6;border-radius:11px;padding:14px 16px;margin:0 0 10px;background:#fff;box-shadow:0 1px 2px rgba(13,45,78,.04);",
+    itemOff: "border:1px dashed #cfdedb;border-radius:11px;padding:14px 16px;margin:0 0 10px;background:transparent;",
     itemName: "font-size:15px;font-weight:700;color:#0f2545;margin:0;display:inline-block;",
     itemLine: "font-size:14px;color:#33475f;margin:6px 0 2px;",
     itemMuted: "font-size:12px;color:#7a8ba1;margin:0;",
@@ -481,8 +507,12 @@ const JS = `
     warnTxt: "font-size:13px;color:#7a5c14;margin:0;line-height:1.5;",
     heard: "background:#f2f9f7;border:1px solid #cfe8e2;border-radius:11px;padding:14px 16px;margin:0 0 14px;",
     fold: "border-top:1px solid #eceff3;margin:18px 0 0;padding-top:16px;",
-    zoneBox: "background:#f7f9fc;border:1px solid #e3e8ef;border-radius:12px;padding:14px;margin-bottom:16px;",
-    optRow: "border:1px solid #e3e8ef;border-radius:10px;padding:10px;margin-bottom:8px;background:#fff;",
+    // On a white card this was a soft grey panel. On the tinted card it
+    // would disappear into the background, so it inverts to white - the
+    // zone step is the first thing the renter does and it has to look
+    // like a step.
+    zoneBox: "background:#fff;border:1px solid #dde9e6;border-radius:12px;padding:16px;margin-bottom:18px;",
+    optRow: "border:1px solid #dde9e6;border-radius:10px;padding:10px;margin-bottom:8px;background:#fff;",
     consent: "border-top:1px solid #eceff3;margin:18px 0 0;padding-top:16px;",
     cRow: "display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;cursor:pointer;",
     cBox: "margin:2px 0 0;flex:0 0 auto;width:17px;height:17px;cursor:pointer;",
