@@ -1,9 +1,39 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v27
+// alerts-card-js.js  —  ac-v28
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v28 CHANGE: THE ZONE SURVIVES THE VOICE PROPOSAL, AND THE CARD
+// STOPS LANDING OUTSIDE THE CONTENT COLUMN.
+//
+// 1. 🔴 THE VOICE PATH WAS THROWING THE ZONE AWAY. Proven on a live save:
+//    every field from the transcript present, "zone": null. The renter
+//    drew a zone, talked, and the proposal handler built a WHOLE NEW
+//    draft object - discarding the zone and the extra options with it.
+//    The zone had survived a page reload and the ac-v21 guard, and was
+//    lost at the last step.
+//    THE PRINCIPLE: THE TRANSCRIPT OWNS CRITERIA, NOT LOCATION.
+//    alerts-voice deliberately ignores place names, so it has nothing to
+//    say about a zone and must never be able to erase one. zone and extra
+//    are now carried across, and the zone name becomes the search name
+//    when the transcript did not suggest one.
+//
+// 2. THE MOUNT FALLBACK WAS PUTTING THE CARD OUTSIDE THE COLUMN.
+//    #rdc-wiz is the right anchor but mounts async, and the old chain
+//    fell straight through to main - which on /account/home is the whole
+//    page. That is the full-bleed, left-clipped card sitting under
+//    everything, and it appeared after head-code edits because changing
+//    head-code size changes who wins the race.
+//    .member_accounts now sits between them, and a card that settled for
+//    a worse anchor MOVES UP when a better one appears. The wizard
+//    arriving late is the normal case, not an edge case.
+//
+// 3. The "by voice" chip is removed. It told the renter something they
+//    already knew and changed nothing about the search. source is still
+//    stored and still reaches the demand index, where dictate-versus-type
+//    is a question worth answering.
 //
 // ac-v27 CHANGE: 🔴 THE ANSWER. /account/home RELOADS ITSELF, AND IT IS
 // BD DOING IT. Proven from a PRESERVED console log:
@@ -416,7 +446,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v27";
+const FN_VERSION = "ac-v28";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -1028,7 +1058,12 @@ const JS = `
             '<div data-act="expand" data-i="' + i + '" style="cursor:pointer;">' +
               '<p style="margin:0 0 2px;"><span style="' + S.itemName + '">' + esc(s.name) + '</span> ' +
                 '<span style="' + (s.enabled ? S.pillOn : S.pillOff) + '">' + (s.enabled ? "Running" : "Paused") + '</span>' +
-                (s.source === "voice" ? ' <span style="' + S.pillOff + '">by voice</span>' : "") +
+                // ac-v28: the "by voice" chip is gone. It told the renter
+                // how they made the search, which they already know, and it
+                // changes nothing about what the search does. The source is
+                // still stored and still reaches the demand index, where it
+                // is genuinely useful - how many people dictate versus type
+                // is our question, not theirs.
                 (legacy ? ' <span style="' + S.pillOff + 'color:#a07c1c;">needs a fix</span>' : "") +
                 ' <span style="color:#9aa9bd;font-size:12px;">' + caret + '</span>' +
               '</p>' +
@@ -1534,11 +1569,28 @@ const JS = `
         if (got[k] !== undefined && got[k] !== null) c[k] = got[k];
       });
 
+      // 🔴 ac-v28: KEEP THE ZONE. The proposal used to build a WHOLE NEW
+      // draft object, which silently discarded the zone the renter had
+      // just drawn one screen earlier - and the extra options with it.
+      // Proven on a live save: every field from the transcript present,
+      // "zone": null. The zone survived the reload, survived the guard,
+      // and was thrown away here at the last step.
+      // The transcript owns CRITERIA. It does not own where they want to
+      // live: alerts-voice deliberately ignores place names, so it has
+      // nothing to say about a zone and must not be allowed to erase one.
+      var prev = state.draft || {};
       state.draft = {
         id: "", name: d.suggested_name || "", created: "", enabled: true,
         source: "voice", transcript_full: d.transcript_full || transcript,
+        zone: prev.zone || null,
+        extra: prev.extra || [],
         criteria: c
       };
+      // The renter's own words for the place beat a generated name, but
+      // only when the transcript did not produce one.
+      if (!state.draft.name && prev.zone && prev.zone.name) {
+        state.draft.name = prev.zone.name.slice(0, 40);
+      }
       state.editIdx = -1;
       state.voice.heard = d.heard || "";
       state.voice.unclear = Array.isArray(d.unclear) ? d.unclear : [];
@@ -2167,11 +2219,36 @@ const JS = `
 
   // ---- MOUNT ORDER. Unchanged from ac-v11. -------------------------
   function mount() {
+    // ac-v28: THE FALLBACK WAS PUTTING THE CARD OUTSIDE THE CONTENT
+    // COLUMN. #rdc-wiz is the renter wizard and it is the right anchor -
+    // but it mounts async, so when this runs first the old chain fell
+    // straight through to main, which on /account/home is the WHOLE
+    // PAGE. That is the full-bleed, left-clipped card sitting under
+    // everything, and it appeared after head-code changes because
+    // changing head-code size changes who wins the race.
+    // The column is .col-md-9 ... .member_accounts - confirmed live from
+    // the console as the parent the card lands in when it goes RIGHT.
+    // Ordered best to worst, and main is last rather than second.
     var wiz = document.getElementById("rdc-wiz");
     if (wiz && wiz.parentNode) return { parent: wiz.parentNode, before: wiz.nextSibling, anchor: "wiz" };
+
+    var col = document.querySelector(".member_accounts");
+    if (col) return { parent: col, before: null, anchor: "column" };
+
     var main = document.querySelector(".page-content, .main-content, main");
     if (main) return { parent: main, before: null, anchor: "main" };
     return null;
+  }
+
+  // A card that settled for a WORSE anchor should move to a better one
+  // when it appears. The wizard arriving late is the normal case, not an
+  // edge case, so this is how the card ends up in the right place rather
+  // than merely the first place available.
+  function betterAnchorAvailable() {
+    if (state.anchor === "wiz") return false;
+    if (document.getElementById("rdc-wiz")) return true;
+    if (state.anchor === "main" && document.querySelector(".member_accounts")) return true;
+    return false;
   }
 
   var moves = 0;
@@ -2304,6 +2381,16 @@ const JS = `
           // Nothing on this timer touches the card while the map is open:
           // moving a node that contains an iframe reloads the iframe.
           if (state.pickerOpen) return;
+
+          // Landed somewhere worse than it could have. Re-render into the
+          // better parent. Only ever runs while the map is closed, and
+          // only while the position is still settling.
+          if (tries <= 300 && betterAnchorAvailable()) {
+            console.log("[Renters alerts] moving to a better anchor");
+            render(m);
+            return;
+          }
+
           if (tries <= 300) keepOrder();
         }, 700);
       })
