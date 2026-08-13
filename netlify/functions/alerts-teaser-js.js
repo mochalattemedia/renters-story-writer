@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v14
+// alerts-teaser-js.js  —  at-v16
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,40 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v16: BUTTON HIERARCHY, AND "TYPE IT INSTEAD" STOPS THROWING AWAY
+// WHAT WAS SAID.
+//
+// 1. EVERY CONTROL ON THE VOICE SCREEN WAS WHITE. "Stop and use this" and
+//    "Type it instead" looked identical, and so did "Start over" and "Use
+//    this" on the next state. Two buttons of equal weight side by side is
+//    the interface refusing to say which one is the point.
+//    Three levels now: PRIMARY is the thing to do, GHOST is the
+//    alternative, LINK is the way out. Stop is RED, matching the
+//    recording pulse, because it ends the recording. After recording,
+//    "Use this" takes the primary and "Start over" drops to ghost - it
+//    throws work away and should not look like the obvious next step.
+//
+// 2. 🔴 "Type it instead" DISCARDED THE TRANSCRIPT. Someone who talked for
+//    thirty seconds and then decided to finish by typing was dropped back
+//    at an empty form with every word gone. It means TYPE THE REST - a
+//    change of input method, not an abandonment. It now runs the same
+//    extraction "Use this" runs, so they land in a filled form, and the
+//    label says "Type the rest instead" once there is something to keep.
+//    Third instance of this bug in two days: ac-v28 on the dashboard,
+//    at-v12 on the teaser form, and now here. THE PATTERN IS ALWAYS THE
+//    SAME - a path that changes view without carrying state forward.
+//
+// at-v15: LISTENING LOOKS LIKE LISTENING. "Listening. Take your time."
+// was grey 13px body text - the same weight as every other hint on the
+// page - so the one moment where a visitor needs certainty that the
+// microphone is ACTUALLY ON was the quietest thing on screen. Somebody
+// unsure whether it is recording stops talking, and a half-sentence is a
+// worse perfect spot than no perfect spot.
+// Now: red bold text, a pulsing red dot, and the transcript box itself
+// turns warm with a red border while it runs. All three revert the
+// instant recording stops, so the state is never ambiguous in either
+// direction.
 //
 // at-v14: MUST HAVE AND NICE TO HAVE, AND NO NEGATIVE NUMBERS.
 //
@@ -168,7 +202,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v14";
+const FN_VERSION = "at-v16";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -200,6 +234,17 @@ const JS = `
   var CHIPS = ${JSON.stringify(CHIPS)};
   var MOUNT_SELECTOR = "#renters-alert-teaser";
   console.log("[Renters teaser] version: " + V);
+
+  // The pulse keyframes. Injected once; a style tag in the mount HTML
+  // would be re-created on every render.
+  try {
+    if (!document.getElementById("rdc-teaser-css")) {
+      var st = document.createElement("style");
+      st.id = "rdc-teaser-css";
+      st.textContent = "@keyframes rdcPulse{0%{box-shadow:0 0 0 0 rgba(192,57,43,.6)}70%{box-shadow:0 0 0 9px rgba(192,57,43,0)}100%{box-shadow:0 0 0 0 rgba(192,57,43,0)}}";
+      document.head.appendChild(st);
+    }
+  } catch (e) {}
 
   var mount = document.querySelector(MOUNT_SELECTOR);
   if (!mount) { console.log("[Renters teaser] no mount " + MOUNT_SELECTOR + ", standing down"); return; }
@@ -238,9 +283,26 @@ const JS = `
     concept: "margin:0 auto;max-width:560px;font-size:clamp(15px,2vw,17px);color:#5b6b82;line-height:1.5;",
     err: "color:#b3261e;font-size:13px;margin-top:10px;min-height:16px;",
     mic: "background:#fff;color:" + TEAL + ";border:2px solid " + TEAL + ";border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;width:100%;max-width:360px;display:block;margin:0 auto;",
+    // at-v16. THREE LEVELS, NOT ONE. On the voice screen every control was
+    // a white button, so "Stop and use this" and "Type it instead" looked
+    // identical - and so did "Start over" and "Use this" on the next
+    // state. Two buttons of equal weight sitting side by side is the
+    // interface refusing to say which one is the point.
+    // Primary = the thing to do. Ghost = the alternative. Link = the way
+    // out. Stop is RED because it ends a recording and matches the pulse.
+    stop: "background:#c0392b;color:#fff;border:0;border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;",
+    quiet: "background:none;color:#5b6b82;border:0;border-radius:0;padding:13px 6px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:underline;",
     ghost: "background:#fff;color:" + NAVY + ";border:1px solid #d7dee8;border-radius:11px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;",
     live: "background:#f7f9fc;border:1px solid #e3e8ef;border-radius:12px;padding:16px;min-height:90px;font-size:16px;color:" + NAVY + ";line-height:1.5;margin:0 0 16px;text-align:left;",
-    vstatus: "font-size:13px;color:#5b6b82;margin:0 0 14px;min-height:16px;"
+    vstatus: "font-size:13px;color:#5b6b82;margin:0 0 14px;min-height:16px;",
+    // at-v15. LISTENING HAS TO LOOK LIKE LISTENING. It read as grey 13px
+    // body text - the same weight as every other hint on the page - so
+    // the one moment where the visitor needs to know the microphone is
+    // ACTUALLY ON was the quietest thing on screen. Red, a pulsing dot,
+    // and the transcript box lights up with it.
+    vlive: "display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:#c0392b;margin:0 0 14px;min-height:16px;",
+    dot: "width:10px;height:10px;border-radius:50%;background:#c0392b;display:inline-block;box-shadow:0 0 0 0 rgba(192,57,43,.65);animation:rdcPulse 1.4s infinite;",
+    liveOn: "background:#fff6f5;border:2px solid #f0b8b2;border-radius:12px;padding:16px;min-height:90px;font-size:16px;color:" + NAVY + ";line-height:1.5;margin:0 0 16px;text-align:left;"
   };
 
   var wants = [];
@@ -444,18 +506,40 @@ const JS = `
         '<p style="' + S.concept + '">Talk the way you would tell a friend. Where you want to live, your budget, beds, pets, anything that matters. We turn it into a search you can tweak.</p>' +
       '</div>' +
       '<div style="' + S.card + '">' +
-        '<div id="rt-live" style="' + S.live + '">' + (esc(voice.transcript + voice.interim) || '<span style="color:#9aa8b8;">Your words will show up here.</span>') + '</div>' +
-        '<div id="rt-vstatus" style="' + S.vstatus + '">' + esc(voice.status) + '</div>' +
+        '<div id="rt-live" style="' + (voice.active ? S.liveOn : S.live) + '">' + (esc(voice.transcript + voice.interim) || '<span style="color:#9aa8b8;">Your words will show up here.</span>') + '</div>' +
+        (voice.active
+          ? '<div id="rt-vstatus" style="' + S.vlive + '">' +
+              '<span style="' + S.dot + '"></span>' + esc(voice.status || "Listening") + '</div>'
+          : '<div id="rt-vstatus" style="' + S.vstatus + '">' + esc(voice.status) + '</div>') +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
-          '<button id="rt-rec" type="button" style="' + (voice.active ? S.ghost : S.mic) + '">' +
+          // WHILE RECORDING: stop is the only thing to do, and it is red.
+          // AFTER RECORDING: "Use this" is the point and takes the primary;
+          // "Start over" drops to ghost because it throws work away.
+          '<button id="rt-rec" type="button" style="' +
+            (voice.active ? S.stop : (voice.transcript ? S.ghost : S.mic)) + '">' +
             (voice.active ? "Stop and use this" : (voice.transcript ? "Start over" : "Start talking")) + '</button>' +
-          (voice.transcript && !voice.active ? '<button id="rt-use" type="button" style="' + S.mic + '">Use this</button>' : "") +
-          '<button id="rt-back" type="button" style="' + S.ghost + '">Type it instead</button>' +
+          (voice.transcript && !voice.active ? '<button id="rt-use" type="button" style="' + S.btn + 'width:auto;">Use this</button>' : "") +
+          '<button id="rt-back" type="button" style="' + S.quiet + '">' +
+            (voice.transcript ? "Type the rest instead" : "Type it instead") + '</button>' +
         '</div>' +
         '<div id="rt-note" style="' + S.err + '"></div>' +
       '</div>';
 
-    document.getElementById("rt-back").onclick = function () { stopRec(); VIEW = "form"; renderForm(); };
+    document.getElementById("rt-back").onclick = function () {
+      stopRec();
+      // 🔴 at-v16: THIS WAS DISCARDING THE TRANSCRIPT. Someone who had
+      // talked for thirty seconds and then decided to finish by typing
+      // was dropped back at an empty form with every word gone. "Type it
+      // instead" means TYPE THE REST - it is a change of input method,
+      // not an abandonment.
+      // Enough words to work with: run the same extraction "Use this"
+      // runs, so they land in a form already filled. Too few: just go
+      // back, since there is nothing to lose.
+      var text = String(voice.transcript || "").trim();
+      if (text.length >= 12) { extractVoice(text); return; }
+      VIEW = "form";
+      renderForm();
+    };
 
     var rec = document.getElementById("rt-rec");
     rec.onclick = function () {
