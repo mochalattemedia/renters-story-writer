@@ -1,9 +1,23 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v24
+// alerts-card-js.js  —  ac-v25
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v25 CHANGE: "Use this area" NO LONGER HANGS. Diagnosed from a
+// console that showed NO ERROR AT ALL, which is what made it slow to find.
+//
+// zone-picker saveZones() REFUSES to save while any zone still carries
+// loading true: it posts renters_areas_busy and RETURNS. The host read
+// busy as "in progress", printed "Working on it..." and waited for a
+// message that was never coming. The renter had drawn the zone and could
+// see its zip codes resolved on screen, and the button did nothing.
+//
+// ⭐ THE LESSON: A REFUSAL IS NOT PROGRESS. Any message that means "not
+// now" needs a retry or an answer - never a spinner. Twelve retries at
+// 800ms, then it says plainly that the area will not resolve and to draw
+// it again.
 //
 // ac-v24 CHANGE: ONE FLOW, TWO NUMBERED STEPS. Pairs with zp-v10.
 //
@@ -341,7 +355,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v24";
+const FN_VERSION = "ac-v25";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -588,7 +602,7 @@ const JS = `
     searches: [], consent: { platform: false, off_platform: false },
     enabled: false, view: "list", editIdx: -1, draft: null,
     savedAt: null, busy: false, anchor: "", expanded: {},
-    household: null, pickerOpen: false, zoneWired: false, frame: null, frameH: 0,
+    household: null, pickerOpen: false, zoneWired: false, frame: null, frameH: 0, zoneTries: 0,
     schema: null, showRefine: false,
     voice: { active: false, transcript: "", interim: "", status: "", rec: null, heard: "", unclear: [] }
   };
@@ -1708,6 +1722,17 @@ const JS = `
   // re-rendering; the voice view has none to read, so the caller says
   // whether a readForm() is safe. Calling it from the voice view would
   // dereference form fields that do not exist.
+  // Ask the picker to save. Separate from the click handler because a
+  // busy answer has to be able to ask again.
+  function askPickerToSave() {
+    var f = document.getElementById("ra-picker");
+    var msg = document.getElementById("ra-zone-msg");
+    if (!f || !f.contentWindow) return;
+    if (msg && !state.zoneTries) msg.textContent = "Saving that area...";
+    // zp-v4 contract: the host asks, the picker saves and answers.
+    f.contentWindow.postMessage({ type: "renters_areas_save" }, "*");
+  }
+
   function wireZone(mp, readsForm) {
     // ---- THE ONE LIVE FRAME -------------------------------------------
     // Built once, parked in the slot after every render. render() rebuilds
@@ -1754,12 +1779,8 @@ const JS = `
 
     var zu = document.getElementById("ra-zone-use");
     if (zu) zu.onclick = function () {
-      var f = document.getElementById("ra-picker");
-      var msg = document.getElementById("ra-zone-msg");
-      if (!f || !f.contentWindow) return;
-      if (msg) msg.textContent = "Saving that area...";
-      // zp-v4 contract: the host asks, the picker saves and answers.
-      f.contentWindow.postMessage({ type: "renters_areas_save" }, "*");
+      state.zoneTries = 0;
+      askPickerToSave();
     };
 
     // Bound ONCE for the life of the card. render() runs on every tap and
@@ -1783,11 +1804,26 @@ const JS = `
         }
 
         if (d.type === "renters_areas_none") {
+          state.zoneTries = 0;
           if (msg) msg.textContent = "Draw an area on the map first.";
           return;
         }
         if (d.type === "renters_areas_busy") {
-          if (msg) msg.textContent = "Working on it...";
+          // ⚠️ ac-v25: BUSY IS A REFUSAL, NOT PROGRESS, AND THAT COST AN
+          // HOUR. zone-picker's saveZones() returns WITHOUT SAVING when any
+          // zone still has loading true - it posts busy and stops. The host
+          // showed "Working on it..." and then waited forever, because
+          // nothing was coming. No error, no crash, just a dead end: the
+          // renter had drawn a zone, the zips were resolved on screen, and
+          // Use this area did nothing.
+          // A REFUSAL NEEDS A RETRY OR AN ANSWER. Never a spinner.
+          state.zoneTries = (state.zoneTries || 0) + 1;
+          if (state.zoneTries <= 12) {
+            if (msg) msg.textContent = "Finishing the zip codes for that area...";
+            setTimeout(askPickerToSave, 800);
+          } else if (msg) {
+            msg.textContent = "That area is taking too long to resolve. Tap Start over and draw it again.";
+          }
           return;
         }
         if (d.type !== "renters_areas_zips") return;
@@ -1821,6 +1857,7 @@ const JS = `
           console.log("[Renters alerts] rdcAreasAdd unavailable", err);
         }
 
+        state.zoneTries = 0;
         state.pickerOpen = false;
         state.frame = null;
         render(mp);
