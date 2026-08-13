@@ -1,9 +1,39 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v23
+// alerts-card-js.js  —  ac-v24
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v24 CHANGE: ONE FLOW, TWO NUMBERED STEPS. Pairs with zp-v10.
+//
+// THE COMPLAINT, and it was right: it read as a map with a form stacked
+// under it. Two tools, no connection, and the renter had to work out that
+// one fed the other. Both were visible and live at once, so neither was
+// obviously first.
+//
+// FOUR CHANGES:
+//   1. STEP ONE COLLAPSES WHEN IT IS DONE. Once a zone is drawn the panel
+//      shrinks to a receipt - a teal tick, the area name, and every zip
+//      it caught - with a quiet Change. A finished step should take up
+//      the space of a finished step.
+//   2. STEP TWO DOES NOT EXIST UNTIL STEP ONE IS ANSWERED. On the voice
+//      screen the microphone is not rendered at all until there is a
+//      zone. Two live controls with no order between them is precisely
+//      what made this read as two tools.
+//   3. THE SECOND STEP NAMES THE FIRST: "Inside SE Portland." The
+//      connection is stated rather than implied by adjacency.
+//   4. The heading changes with progress - "Start with where" becomes
+//      "Now tell us about the place" - so the card itself reports which
+//      step the renter is on.
+//
+// ⭐ AND THE RENAME IS GONE FROM THE EMBED (zp-v10). Naming a zone
+// mattered when the label rendered on a PUBLIC RENTER PROFILE and a
+// landlord read it. v69 removed the profile. Nothing reads the label now,
+// the search takes its name from what the renter says in step two, and
+// "Area in CO" was a chore that produced nothing. THE ZIPS STAY - not
+// because the renter acts on them, but because they are the honest
+// receipt for what the polygon actually caught.
 //
 // ac-v23 CHANGE: 🔴 THE CARD CAN NO LONGER DISAPPEAR. This is the real
 // fix for the vanishing search; ac-v21 guessed the view was resetting and
@@ -311,7 +341,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v23";
+const FN_VERSION = "ac-v24";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -541,6 +571,11 @@ const JS = `
     // zone step is the first thing the renter does and it has to look
     // like a step.
     zoneBox: "background:#fff;border:1px solid #dde9e6;border-radius:12px;padding:16px;margin-bottom:18px;",
+    // Once a zone exists step one shrinks to a receipt. Teal wash and a
+    // tick, so it reads as DONE rather than as another thing to do.
+    zoneDone: "background:#eaf5f2;border:1px solid #cfe6df;border-radius:12px;padding:12px 14px;margin-bottom:14px;",
+    stepNum: "flex:0 0 auto;width:22px;height:22px;border-radius:999px;background:#0d2d4e;color:#fff;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-top:1px;",
+    stepTick: "flex:0 0 auto;width:22px;height:22px;border-radius:999px;background:#3a9e8f;color:#fff;font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-top:1px;",
     optRow: "border:1px solid #dde9e6;border-radius:10px;padding:10px;margin-bottom:8px;background:#fff;",
     consent: "border-top:1px solid #eceff3;margin:18px 0 0;padding-top:16px;",
     cRow: "display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;cursor:pointer;",
@@ -1071,46 +1106,95 @@ const JS = `
   // first question is where. av-v1 deliberately ignores place names, so
   // a renter who talks would otherwise never be asked at all - which is
   // how a search ends up matching inventory in a state nobody mentioned.
-  function zoneBlockHtml(d) {
-    var html = '<div style="' + S.zoneBox + '">' +
-      '<span style="' + S.lab + '">Where do you want to live?</span>';
+  function zoneBlockHtml(d, stepTwoLabel) {
+    var picked = !!(d.zone && (d.zone.zips || []).length);
 
-    if (d.zone && d.zone.name) {
+    // ---- STEP ONE, and it is a STEP now, not a panel that sits there ----
+    // ac-v24: once a zone is drawn this collapses to a single receipt line
+    // and the next question follows immediately underneath. Before, the
+    // map and the form sat stacked as two separate tools and the renter
+    // had to work out that one fed the other.
+    var html = '<div style="' + (picked ? S.zoneDone : S.zoneBox) + '">';
+
+    if (picked) {
+      var zips = d.zone.zips || [];
       html +=
-        '<p style="font-size:15px;font-weight:700;color:#0f2545;margin:2px 0 2px;">' + esc(d.zone.name) + '</p>' +
-        '<p style="' + S.itemMuted + 'margin:0 0 8px;">' + (d.zone.zips || []).length + ' zip code' +
-          ((d.zone.zips || []).length === 1 ? "" : "s") + ' in this area</p>' +
-        '<button id="ra-zone-open" style="' + S.ghost + '">' + (state.pickerOpen ? "Hide the map" : "Change your zone") + '</button>';
+        '<div style="display:flex;align-items:flex-start;gap:10px;">' +
+          '<span style="' + S.stepTick + '">1</span>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<p style="font-size:15px;font-weight:700;color:#0d2d4e;margin:0 0 2px;">' +
+              esc(d.zone.name || "Your area") + '</p>' +
+            // The zips are the receipt for what the polygon actually
+            // caught. The renter does nothing with them; they are here so
+            // the tool is not silent about what it took.
+            '<p style="' + S.itemMuted + 'margin:0;">' + zips.length + ' zip code' +
+              (zips.length === 1 ? "" : "s") + (zips.length ? ' &middot; ' + esc(zips.join(", ")) : "") + '</p>' +
+          '</div>' +
+          '<button id="ra-zone-open" style="' + S.link + 'flex:0 0 auto;">' +
+            (state.pickerOpen ? "Hide" : "Change") + '</button>' +
+        '</div>';
     } else {
       html +=
-        '<p style="' + S.hint + 'margin:2px 0 8px;">Draw the area you would actually live in. Everything you say next applies inside it.</p>' +
-        '<button id="ra-zone-open" style="' + S.ghost + '">' + (state.pickerOpen ? "Hide the map" : "Pick your zone") + '</button>';
+        '<div style="display:flex;align-items:flex-start;gap:10px;">' +
+          '<span style="' + S.stepNum + '">1</span>' +
+          '<div style="flex:1;">' +
+            '<p style="font-size:15px;font-weight:700;color:#0d2d4e;margin:0 0 2px;">Pick your zone</p>' +
+            '<p style="' + S.hint + 'margin:0 0 10px;">Draw the area you would actually live in. Everything you say next applies inside it.</p>' +
+            (state.pickerOpen ? "" :
+              '<button id="ra-zone-open" style="' + S.btn + '">Pick your zone</button>') +
+          '</div>' +
+        '</div>';
     }
 
     if (state.pickerOpen) {
-      // An EMPTY SLOT, not an iframe. wireZone() puts the one live frame
-      // in here after the card is in the page. Writing an <iframe> tag
-      // into innerHTML on every render means a fresh map every time
-      // anything on this card redraws.
       html +=
-        '<div id="ra-picker-slot" style="margin-top:10px;border:1px solid #e3e8ef;border-radius:10px;overflow:hidden;"></div>' +
+        '<p style="' + S.hint + 'margin:10px 0 6px;">Search a place, tap Draw Zone, then tap the map to trace the area.</p>' +
+        '<div id="ra-picker-slot" style="border:1px solid #dde9e6;border-radius:10px;overflow:hidden;"></div>' +
         '<button id="ra-zone-use" style="' + S.btn + 'margin-top:10px;width:100%;">Use this area</button>' +
         '<button id="ra-zone-reset" style="' + S.ghost + 'margin-top:8px;width:100%;">Start over</button>' +
-        '<span id="ra-zone-msg" style="' + S.hint + 'display:block;margin-top:6px;">' +
-          'Search a place, tap Draw Zone, then tap the map to trace the area.' +
-        '</span>';
+        '<span id="ra-zone-msg" style="' + S.hint + 'display:block;margin-top:6px;"></span>';
     }
 
-    return html + '</div>';
+    html += '</div>';
+
+    // ---- STEP TWO HEADER, rendered only once step one is done ----------
+    // This is the interconnection: the second question does not exist
+    // until the first is answered, so the flow reads as one movement
+    // instead of two tools stacked on top of each other.
+    if (picked && stepTwoLabel) {
+      html +=
+        '<div style="display:flex;align-items:flex-start;gap:10px;margin:0 0 14px;">' +
+          '<span style="' + S.stepNum + '">2</span>' +
+          '<div style="flex:1;">' +
+            '<p style="font-size:15px;font-weight:700;color:#0d2d4e;margin:0 0 2px;">' + esc(stepTwoLabel) + '</p>' +
+            '<p style="' + S.hint + 'margin:0;">Inside ' + esc(d.zone.name || "that area") + '.</p>' +
+          '</div>' +
+        '</div>';
+    }
+
+    return html;
   }
 
   function renderVoice(wrap) {
     var supported = speechSupported();
     var d = state.draft || newDraft();
+    var zoned = !!(d.zone && (d.zone.zips || []).length);
     var html =
-      '<h3 style="' + S.h + '">Tell us what you are looking for</h3>' +
-      '<p style="' + S.sub + '">Where first, then say the rest however you would say it to a friend. Budget, size, timing, pets, anything that matters. We will fill in the form and you can fix anything we get wrong.</p>' +
-      zoneBlockHtml(d);
+      '<h3 style="' + S.h + '">' + (zoned ? "Now tell us about the place" : "Start with where") + '</h3>' +
+      '<p style="' + S.sub + '">' + (zoned
+        ? "Budget, size, timing, pets, anything that matters. Say it however you would say it to a friend and we will fill in the form."
+        : "Draw where you want to live, then tell us what you are looking for inside it.") + '</p>' +
+      zoneBlockHtml(d, "Talk or type your spot");
+
+    // ac-v24: the mic does not exist until step one is done. Two live
+    // controls with no order between them is what made this read as two
+    // tools rather than one flow.
+    if (!zoned) {
+      html += '<div id="ra-note" style="' + S.note + '"></div>' +
+        '<div style="margin-top:6px;"><button id="ra-vback" style="' + S.link + '">Cancel</button></div>';
+      wrap.innerHTML = html;
+      return;
+    }
 
     if (supported) {
       html +=
@@ -1365,7 +1449,7 @@ const JS = `
 
     // ---- STEP ONE: WHERE ----------------------------------------------
     // Same block the voice view renders. One definition, two hosts.
-    html += zoneBlockHtml(d);
+    html += zoneBlockHtml(d, "Tell us about the place");
 
     // ---- the three questions ----
     html +=
