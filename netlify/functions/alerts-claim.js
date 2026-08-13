@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-claim.js  —  aclaim-v1
+// alerts-claim.js  —  aclaim-v2
 // The bridge between the logged-OUT homepage teaser and the logged-IN
 // dashboard. A visitor's search is parked here under a random token, and
 // claimed onto their new member record after signup.
@@ -15,6 +15,34 @@
 // siteID + token passed explicitly (it only throws on read/write, not on
 // creation).
 //
+// aclaim-v2 CHANGES. Two of these are data-loss fixes, not features.
+//
+// 1. 🔴 THE CLAIM WAS WIPING CONSENT AND HOUSEHOLD. It wrote
+//    { v: 2, searches: merged } - a wrapper with NO consent key and NO
+//    household key - straight over alerts_criteria. Anything the member
+//    already had in those two fields was gone. It also stamped a v4
+//    record back down to v2. Harmless while claims only ever landed on
+//    brand new accounts, and a live data-loss path the moment one does
+//    not. The merge now READS the existing wrapper and carries consent
+//    and household through untouched, and writes v4.
+//
+// 2. 🔴 THE TEASER'S LOCATION DIED AT THE HANDOFF. The visitor typed a
+//    place - the ONE required field on the teaser - and it was stored as
+//    criteria.where. There is no `where` field in ANY schema version, so
+//    the first time alerts-prefs read that record sanitizeCriteria threw
+//    it away. A renter arrived on the dashboard with their budget, beds
+//    and chips intact and no trace of the city they had asked for.
+//    ⭐ IT NOW BECOMES A ZONE NAME: zone { name: "Portland, OR", zips: [] }.
+//    A zone with a name and no zips is EXACTLY the right half-state -
+//    ap-v10 stores it, the dashboard card still treats step one as
+//    unanswered (it tests zips.length, not the name), and the picker can
+//    open pre-centred on the place they typed. Confirm-or-redraw instead
+//    of start-from-nothing, and the name is not lost either way.
+//
+// 3. The stashed search is written in SCHEMA v4 shape: an options[] entry
+//    built from the rent and beds, mirrored onto criteria so any older
+//    reader still sees a budget. beds_min becomes a beds[] set.
+//
 // SECURITY NOTES:
 //   - A token is a bearer capability: whoever has it can attach that
 //     search to a member id they supply. That is acceptable because the
@@ -24,10 +52,9 @@
 //     ap-v5. It does NOT trust the stashed data blindly: criteria is
 //     re-sanitised and chip keys are re-whitelisted here too.
 //   - Location from the teaser is a free-text place ("Portland, OR"), NOT
-//     zones. It is stored in criteria.notes-adjacent field `where` and
-//     surfaced to the member so they can convert it to real Search Areas
-//     on the dashboard. The nightly cron must treat a search whose areas
-//     are unset as "not yet matchable" (same gate the card shows).
+//     a drawn zone. It lands as zone.name with an empty zips list, which
+//     is a deliberate half-state: the matcher must treat a zone with no
+//     zips as NOT YET MATCHABLE, and the dashboard asks them to draw it.
 //
 // Env: BD_API_KEY, BD_API_BASE (default v2), NETLIFY_SITE_ID,
 //      NETLIFY_BLOBS_TOKEN.
@@ -37,11 +64,13 @@ const https = require("https");
 const crypto = require("crypto");
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "aclaim-v1";
+const FN_VERSION = "aclaim-v2";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const STORE_NAME = "alert-stash";
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_SEARCHES = 5;
+const SCHEMA_VERSION = 4;
+const BED_SIZES = ["studio", "1", "2", "3", "4plus"];
 
 const CHIPS = [
   "move_in_special", "pets_dog", "pets_cat", "large_dog_ok",
@@ -162,7 +191,76 @@ function autoName(c) {
   if (c.beds_min) bits.push(c.beds_min + "BR");
   if (c.rent_max) bits.push("under $" + c.rent_max);
   if (c.where) bits.push("in " + c.where);
-  return bits.length ? bits.join(" ") : "My search";
+  return bits.length ? bits.join(" ").slice(0, 40) : "My perfect spot";
+}
+
+// ---- v2 teaser shape -> v4 perfect spot -----------------------------
+// The teaser still captures beds_min as a single minimum. Schema v4 wants
+// a SET of acceptable sizes, so a minimum of 2 means 2, 3 and 4plus all
+// work - which is what "at least two bedrooms" actually means and is how
+// ap-v6 migrated the same field.
+function bedsFromMin(min) {
+  const n = num(min);
+  if (n === null) return [];
+  const from = Math.max(0, Math.min(4, Math.round(n)));
+  return BED_SIZES.slice(from);
+}
+
+// ⭐ THE LOCATION SURVIVES AS A ZONE NAME WITH NO ZIPS. Deliberate
+// half-state: ap-v10 stores it, the card still treats step one as
+// unanswered because it tests zips.length rather than the name, and the
+// picker opens pre-centred on what they typed.
+function zoneFromWhere(where) {
+  const w = typeof where === "string" ? where.trim().slice(0, 60) : "";
+  if (!w) return null;
+  return { name: w, zips: [], custom: false, path: [] };
+}
+
+function optionFromTeaser(c) {
+  const beds = bedsFromMin(c.beds_min);
+  const rent = num(c.rent_max);
+  if (!rent && !beds.length && c.baths_min === null) return null;
+  return {
+    unit_types: [],
+    rent_max: rent && rent > 0 ? Math.round(rent) : null,
+    rent_stretch: null,
+    rent_basis: null,
+    beds: beds,
+    baths_min: num(c.baths_min),
+    label: ""
+  };
+}
+
+// criteria in v4 shape. The chip keys the teaser collects are WANTS, and
+// v3 renamed that pair to must_have / nice_to_have. A teaser chip is a
+// preference, not a filter that removes listings, so it lands as
+// nice_to_have - putting them in must_have would silently narrow a search
+// the visitor thought they were widening.
+function criteriaFromTeaser(c) {
+  const beds = bedsFromMin(c.beds_min);
+  const rent = num(c.rent_max);
+  return {
+    rent_max: rent && rent > 0 ? Math.round(rent) : null,
+    rent_stretch: null,
+    rent_basis: null,
+    beds: beds,
+    baths_min: num(c.baths_min),
+    unit_types: [],
+    move_in_earliest: null,
+    move_in_latest: typeof c.move_in_by === "string" && c.move_in_by.length === 10 ? c.move_in_by : null,
+    lease_terms: [],
+    household_adults: null,
+    household_kids: null,
+    pets: [],
+    voucher: false,
+    voucher_program: "",
+    must_have: [],
+    nice_to_have: (c.wants || []).slice(0, 6),
+    deal_breakers: [],
+    legacy_breakers: [],
+    notes: c.notes || "",
+    transcript_excerpt: ""
+  };
 }
 
 exports.handler = async (event) => {
@@ -238,10 +336,17 @@ exports.handler = async (event) => {
     const { member } = await getMember(memberId);
     if (!member) return json(502, { version: FN_VERSION, error: "member read failed" });
 
+    // 🔴 READ THE WHOLE WRAPPER, not just the searches. aclaim-v1 rebuilt
+    // it as { v: 2, searches } and destroyed consent and household in the
+    // process. Anything not understood here is carried through untouched.
     let existing = [];
+    let priorConsent = null;
+    let priorHousehold = null;
     try {
       const parsed = JSON.parse(member.alerts_criteria || "{}");
       if (Array.isArray(parsed.searches)) existing = parsed.searches;
+      if (parsed.consent && typeof parsed.consent === "object") priorConsent = parsed.consent;
+      if (parsed.household && typeof parsed.household === "object") priorHousehold = parsed.household;
     } catch (e) { existing = []; }
 
     if (existing.length >= MAX_SEARCHES) {
@@ -251,16 +356,33 @@ exports.handler = async (event) => {
     }
 
     const nowIso = new Date().toISOString();
+    const zone = zoneFromWhere(search.where);
+    const opt = optionFromTeaser(search);
     const rec2 = {
       id: newId(),
-      name: autoName(search),
+      /* The place they typed is the best name available, and it is what
+         the card would have used anyway once a zone exists. */
+      name: (zone && zone.name ? zone.name.slice(0, 40) : autoName(search)),
       created: nowIso,
       updated: nowIso,
       enabled: true,
-      criteria: search
+      source: "form",
+      zone: zone,
+      options: opt ? [opt] : [],
+      criteria: criteriaFromTeaser(search)
     };
     const merged = existing.concat([rec2]).slice(0, MAX_SEARCHES);
-    const payload = JSON.stringify({ v: 2, searches: merged });
+
+    /* v4, and consent and household are carried rather than dropped.
+       A brand new member has neither, so both are usually null - the
+       point is that a claim onto an EXISTING member no longer destroys
+       them. */
+    const payload = JSON.stringify({
+      v: SCHEMA_VERSION,
+      consent: priorConsent,
+      household: priorHousehold,
+      searches: merged
+    });
 
     const w = await updateMember({
       user_id: memberId,
@@ -291,8 +413,12 @@ exports.handler = async (event) => {
       version: FN_VERSION,
       claimed: true,
       searchName: rec2.name,
-      needsAreas: true,   // teaser location is free text, not zones
-      where: search.where
+      /* Still true, and now actionable: the zone has a NAME but no zips,
+         so the dashboard knows both that a zone is needed AND where to
+         centre the picker when it asks. */
+      needsAreas: true,
+      where: search.where,
+      zoneName: zone ? zone.name : ""
     });
   }
 
