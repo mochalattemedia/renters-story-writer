@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v20
+// alerts-teaser-js.js  —  at-v22
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,35 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v22: THE MIC OPENS IN PLACE. Tapping "Keep describing out loud"
+// swapped the whole card for the voice screen - top of the page, a
+// different heading, an empty transcript box. at-v12 had already made
+// voice ADDITIVE and at-v18 added an "Already saved" line saying so, but
+// a caption promising nothing was lost is weak next to a screen that
+// looks exactly like a fresh start.
+//
+// ⭐ NOW IT RECORDS WHERE THE BUTTON IS. Every filled field stays on
+// screen above the transcript while they speak, so "this is being added
+// to what I have" is something they SEE rather than something they are
+// asked to believe. Stop and add this, or Never mind.
+// The full voice screen still opens on the FIRST use, when the form is
+// empty - there is nothing on screen to reassure them about, and it is
+// the better first impression.
+//
+// While recording inline, only the transcript line is repainted. A full
+// renderForm() on every interim result would rebuild the inputs
+// underneath the renter and steal focus from anything they were typing.
+//
+// at-v21: WAITING GETS ITS OWN SCREEN. "Working out what you need." was
+// one line of grey 13px text sitting under an unchanged transcript box,
+// so the two or three seconds of extraction looked exactly like nothing
+// happening. Somebody who thinks nothing is happening taps the button
+// again, or leaves - and this is the moment right after they have spoken
+// a whole description, which is the most expensive thing to lose.
+// Now: a spinner, the sentence at real size, and every button REMOVED
+// while it runs so there is nothing to press by mistake. Both handlers
+// are null-guarded, since the controls genuinely are not in the DOM.
 //
 // at-v20: ONE RED THING, NOT THREE. at-v15 made recording unmissable by
 // turning the status text red, the transcript box red and the stop button
@@ -270,7 +299,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v20";
+const FN_VERSION = "at-v22";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -309,7 +338,7 @@ const JS = `
     if (!document.getElementById("rdc-teaser-css")) {
       var st = document.createElement("style");
       st.id = "rdc-teaser-css";
-      st.textContent = "@keyframes rdcPulse{0%{box-shadow:0 0 0 0 rgba(217,68,54,.5)}70%{box-shadow:0 0 0 8px rgba(217,68,54,0)}100%{box-shadow:0 0 0 0 rgba(217,68,54,0)}}";
+      st.textContent = "@keyframes rdcPulse{0%{box-shadow:0 0 0 0 rgba(217,68,54,.5)}70%{box-shadow:0 0 0 8px rgba(217,68,54,0)}100%{box-shadow:0 0 0 0 rgba(217,68,54,0)}}@keyframes rdcSpin{to{transform:rotate(360deg)}}";
       document.head.appendChild(st);
     }
   } catch (e) {}
@@ -327,6 +356,9 @@ const JS = `
     sub: "margin:0 0 18px;font-size:15px;color:#5b6b82;line-height:1.5;",
     lab: "display:block;font-size:13px;font-weight:600;color:" + NAVY + ";margin:0 0 6px;",
     hint: "font-size:12.5px;color:#6b7a8d;text-align:center;margin:8px 0 0;line-height:1.5;",
+    inlineBox: "background:#f4faf8;border:1px solid #cfe6df;border-radius:12px;padding:14px 15px;margin:0 0 14px;text-align:left;",
+    busyBox: "background:#f7fbfa;border:2px solid " + TEAL + ";border-radius:12px;padding:28px 16px;margin:0 0 16px;text-align:center;",
+    spin: "display:inline-block;width:30px;height:30px;border-radius:50%;border:3px solid #d7e8e4;border-top-color:" + TEAL + ";animation:rdcSpin .8s linear infinite;",
     heard: "background:#eef7f4;border:1px solid #cfe6df;border-radius:11px;padding:13px 15px;margin:0 0 16px;text-align:left;",
     area: "width:100%;padding:11px 12px;border:1px solid #d7dee8;border-radius:9px;font-size:15px;font-family:inherit;line-height:1.45;box-sizing:border-box;resize:vertical;min-height:74px;",
     inp: "width:100%;padding:11px 13px;border:1px solid #d7dee8;border-radius:10px;font-size:15px;box-sizing:border-box;",
@@ -404,6 +436,7 @@ const JS = `
   var voice = { active: false, transcript: "", interim: "", status: "", rec: null };
   var seed = { rent_max:"", beds_min:"", baths_min:"", move_in_by:"", where:"", wants:null, musts:null, notes:"", heard:"" };
   var seededFromVoice = false;
+  var inlineRec = false;
   var filtersOpen = false;
   var VIEW = "form";  // "form" | "voice"
 
@@ -526,7 +559,37 @@ const JS = `
         // line underneath says the form below is theirs to correct. The
         // whole point of at-v12 was that voice adds rather than replaces;
         // the label has to say so or nobody will risk tapping it twice.
-        (speechOK()
+        // at-v22: THE MIC OPENS RIGHT HERE. Tapping it used to swap the
+        // whole card for the voice screen - a jump to the top of the page,
+        // a different heading and an empty transcript box - which read as
+        // starting over even though at-v12 made it additive. Recording
+        // INLINE keeps every filled field visible while they speak, so
+        // "this is being added to what I already have" is something they
+        // can SEE rather than something a caption has to promise.
+        (voice.busy && inlineRec
+          ? '<div style="' + S.busyBox + '">' +
+              '<span style="' + S.spin + '"></span>' +
+              '<p style="font-size:16px;font-weight:700;color:' + NAVY + ';margin:14px 0 4px;">Adding what you said</p>' +
+              '<p style="font-size:13.5px;color:#5b6b82;margin:0;">A couple of seconds.</p>' +
+            '</div>'
+          : "") +
+        (inlineRec && !voice.busy
+          ? '<div style="' + S.inlineBox + '">' +
+              '<p style="font-size:13px;font-weight:700;color:#1f6b5e;margin:0 0 8px;">Say whatever else matters. We will add it to what is above.</p>' +
+              '<div id="rt-inline-live" style="' + (voice.active ? S.liveOn : S.live) + '">' +
+                (esc(voice.transcript + voice.interim) || '<span style="color:#9aa8b8;">Your words will show up here.</span>') +
+              '</div>' +
+              '<div id="rt-inline-status" style="' + (voice.active ? S.vlive : S.vstatus) + '">' +
+                (voice.active ? '<span style="' + S.dot + '"></span>' + esc(voice.status || "Listening") : esc(voice.status || "")) +
+              '</div>' +
+              '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">' +
+                '<button id="rt-inline-rec" type="button" style="' + S.stop + '">' +
+                  (voice.active ? "Stop and add this" : "Start talking") + '</button>' +
+                '<button id="rt-inline-cancel" type="button" style="' + S.quiet + '">Never mind</button>' +
+              '</div>' +
+            '</div>'
+          : "") +
+        (speechOK() && !inlineRec
           ? '<button id="rt-voice" type="button" style="' + S.mic + '">🎙 ' +
               (seededFromVoice ? "Keep describing out loud" : "Describe it out loud") + '</button>' +
             (seededFromVoice
@@ -587,6 +650,30 @@ const JS = `
 
     document.getElementById("rt-go").onclick = submit;
 
+    var ir = document.getElementById("rt-inline-rec");
+    if (ir) ir.onclick = function () {
+      if (voice.active) {
+        stopRec();
+        var text = String(voice.transcript || "").trim();
+        if (text.length < 12) {
+          voice.status = "A little more detail and we can work with it.";
+          paint();
+          return;
+        }
+        extractVoice(text);
+        return;
+      }
+      startRec();
+    };
+
+    var ic = document.getElementById("rt-inline-cancel");
+    if (ic) ic.onclick = function () {
+      stopRec();
+      inlineRec = false;
+      captureIntoSeed();
+      renderForm();
+    };
+
     var vb = document.getElementById("rt-voice");
     if (vb) vb.onclick = function () {
       // 🔴 at-v12: READ THE FORM FIRST. Leaving for the voice view used to
@@ -596,8 +683,19 @@ const JS = `
       // tapped Describe it out loud, watched all of it vanish.
       // Voice is meant to ADD to what is there, never replace it.
       captureIntoSeed();
+      voice = { active:false, busy:false, transcript:"", interim:"", status:"", rec:null };
+
+      // Something already filled in? Record HERE, in place, so it is
+      // visibly an addition. Nothing yet? The full voice screen is the
+      // better first impression and there is nothing on screen to lose.
+      if (haveAnything()) {
+        inlineRec = true;
+        renderForm();
+        startRec();
+        return;
+      }
+
       VIEW = "voice";
-      voice = { active:false, transcript:"", interim:"", status:"", rec:null };
       renderVoice();
     };
   }
@@ -622,6 +720,38 @@ const JS = `
     return bits.join("  \u00b7  ");
   }
 
+  // at-v22: ONE PAINTER. The mic can now run INSIDE the form as well as
+  // on its own screen, so everything that used to call renderVoice()
+  // directly has to draw whichever surface is actually showing.
+  // While recording inline, only the transcript line is touched - a full
+  // renderForm() on every interim result would rebuild the inputs
+  // underneath the renter and steal focus from anything they were typing.
+  function paint() {
+    if (VIEW === "form" && inlineRec) {
+      var box = document.getElementById("rt-inline-live");
+      if (box) {
+        var txt = voice.transcript + voice.interim;
+        box.innerHTML = txt
+          ? esc(txt)
+          : '<span style="color:#9aa8b8;">Your words will show up here.</span>';
+        box.style.cssText = voice.active ? S.liveOn : S.live;
+      }
+      var st = document.getElementById("rt-inline-status");
+      if (st) {
+        st.style.cssText = voice.active ? S.vlive : S.vstatus;
+        st.innerHTML = voice.active
+          ? '<span style="' + S.dot + '"></span>' + esc(voice.status || "Listening")
+          : esc(voice.status || "");
+      }
+      var rb = document.getElementById("rt-inline-rec");
+      if (rb) rb.textContent = voice.active ? "Stop and add this" : "Start talking";
+      if (!box) renderForm();
+      return;
+    }
+    if (VIEW === "form") { renderForm(); return; }
+    renderVoice();
+  }
+
   // ---------------- VOICE VIEW ----------------
   function renderVoice() {
     mount.innerHTML =
@@ -644,28 +774,45 @@ const JS = `
           '</div>'
         : "") +
       '<div style="' + S.card + '">' +
-        '<div id="rt-live" style="' + (voice.active ? S.liveOn : S.live) + '">' + (esc(voice.transcript + voice.interim) || '<span style="color:#9aa8b8;">Your words will show up here.</span>') + '</div>' +
-        (voice.active
-          ? '<div id="rt-vstatus" style="' + S.vlive + '">' +
-              '<span style="' + S.dot + '"></span>' + esc(voice.status || "Listening") + '</div>'
-          : '<div id="rt-vstatus" style="' + S.vstatus + '">' + esc(voice.status) + '</div>') +
-        '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
+        // at-v21: WAITING NEEDS ITS OWN SCREEN. "Working out what you
+        // need." was one line of grey 13px text under an unchanged
+        // transcript box, so the two or three seconds of extraction looked
+        // exactly like nothing happening - and somebody who thinks nothing
+        // is happening taps the button again or leaves.
+        // A spinner, the sentence at real size, and the buttons removed so
+        // there is nothing to press by mistake while it runs.
+        (voice.busy
+          ? '<div style="' + S.busyBox + '">' +
+              '<span style="' + S.spin + '"></span>' +
+              '<p style="font-size:16px;font-weight:700;color:' + NAVY + ';margin:14px 0 4px;">Working out what you need</p>' +
+              '<p style="font-size:13.5px;color:#5b6b82;margin:0;">A couple of seconds. We are turning what you said into a perfect spot.</p>' +
+            '</div>'
+          : '<div id="rt-live" style="' + (voice.active ? S.liveOn : S.live) + '">' + (esc(voice.transcript + voice.interim) || '<span style="color:#9aa8b8;">Your words will show up here.</span>') + '</div>') +
+        (voice.busy
+          ? ""
+          : (voice.active
+            ? '<div id="rt-vstatus" style="' + S.vlive + '">' +
+                '<span style="' + S.dot + '"></span>' + esc(voice.status || "Listening") + '</div>'
+            : '<div id="rt-vstatus" style="' + S.vstatus + '">' + esc(voice.status) + '</div>')) +
+        (voice.busy ? "" : '<div style="display:flex;gap:10px;flex-wrap:wrap;">') +
           // WHILE RECORDING: stop is the only thing to do, and it is red.
           // AFTER RECORDING: "Use this" is the point and takes the primary;
           // "Start over" drops to ghost because it throws work away.
-          '<button id="rt-rec" type="button" style="' +
+          (voice.busy ? "" : '<button id="rt-rec" type="button" style="' +
             (voice.active ? S.stop : (voice.transcript ? S.ghost : S.mic)) + '">' +
             (voice.active
               ? "Stop and use this"
-              : (voice.transcript ? "Start over" : (haveAnything() ? "Start talking" : "Start talking"))) + '</button>' +
-          (voice.transcript && !voice.active ? '<button id="rt-use" type="button" style="' + S.btn + 'width:auto;">Use this</button>' : "") +
-          '<button id="rt-back" type="button" style="' + S.quiet + '">' +
-            (voice.transcript ? "Type the rest instead" : "Type it instead") + '</button>' +
-        '</div>' +
+              : (voice.transcript ? "Start over" : (haveAnything() ? "Start talking" : "Start talking"))) + '</button>') +
+          (voice.busy ? "" : (voice.transcript && !voice.active ? '<button id="rt-use" type="button" style="' + S.btn + 'width:auto;">Use this</button>' : "")) +
+          (voice.busy ? "" :
+            '<button id="rt-back" type="button" style="' + S.quiet + '">' +
+              (voice.transcript ? "Type the rest instead" : "Type it instead") + '</button>') +
+        (voice.busy ? "" : '</div>') +
         '<div id="rt-note" style="' + S.err + '"></div>' +
       '</div>';
 
-    document.getElementById("rt-back").onclick = function () {
+    var backEl = document.getElementById("rt-back");
+    if (backEl) backEl.onclick = function () {
       stopRec();
       // 🔴 at-v16: THIS WAS DISCARDING THE TRANSCRIPT. Someone who had
       // talked for thirty seconds and then decided to finish by typing
@@ -682,8 +829,8 @@ const JS = `
     };
 
     var rec = document.getElementById("rt-rec");
-    rec.onclick = function () {
-      if (voice.active) { stopRec(); renderVoice(); return; }
+    if (rec) rec.onclick = function () {
+      if (voice.active) { stopRec(); paint(); return; }
       if (voice.transcript && !voice.active) { voice.transcript = ""; voice.interim = ""; }
       startRec();
     };
@@ -692,7 +839,7 @@ const JS = `
     if (use) use.onclick = function () {
       stopRec();
       var text = String(voice.transcript || "").trim();
-      if (text.length < 12) { voice.status = "A little more detail and we can work with it."; renderVoice(); return; }
+      if (text.length < 12) { voice.status = "A little more detail and we can work with it."; paint(); return; }
       extractVoice(text);
     };
   }
@@ -700,7 +847,7 @@ const JS = `
   function startRec() {
     var Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
     var r;
-    try { r = new Ctor(); } catch (e) { voice.status = "We could not start the microphone. Type it instead."; renderVoice(); return; }
+    try { r = new Ctor(); } catch (e) { voice.status = "We could not start the microphone. Type it instead."; paint(); return; }
     r.continuous = true; r.interimResults = true; r.lang = "en-US";
     voice.transcript = ""; voice.interim = ""; voice.status = "Listening. Take your time."; voice.active = true; voice.rec = r;
     r.onresult = function (ev) {
@@ -710,7 +857,8 @@ const JS = `
         if (ev.results[i].isFinal) voice.transcript += t; else interim += t;
       }
       voice.interim = interim;
-      var live = document.getElementById("rt-live");
+      // Touch only the live line. Whichever surface is showing.
+      var live = document.getElementById("rt-live") || document.getElementById("rt-inline-live");
       if (live) live.textContent = voice.transcript + voice.interim;
     };
     r.onerror = function (ev) {
@@ -718,11 +866,11 @@ const JS = `
       voice.status = (ev && ev.error === "not-allowed")
         ? "Microphone permission was declined. Type it instead."
         : "The microphone stopped. Try again or type it instead.";
-      renderVoice();
+      paint();
     };
-    r.onend = function () { if (!voice.active) return; voice.active = false; voice.interim = ""; renderVoice(); };
+    r.onend = function () { if (!voice.active) return; voice.active = false; voice.interim = ""; paint(); };
     try { r.start(); } catch (e) { voice.active = false; voice.status = "We could not start the microphone. Type it instead."; }
-    renderVoice();
+    paint();
   }
 
   function stopRec() {
@@ -733,16 +881,24 @@ const JS = `
   // Send transcript to the SAME backend the dashboard uses (av-v1).
   // memberId is omitted; av-v1 rate-limits by IP when it is absent.
   function extractVoice(transcript) {
+    // at-v21: a real waiting state, not a line of grey text.
+    voice.busy = true;
     voice.status = "Working out what you need.";
-    renderVoice();
+    // Inline recording gets the busy panel too, so the form does not just
+    // sit there looking finished while the extraction runs.
+    if (VIEW === "form" && inlineRec) renderForm(); else renderVoice();
 
     fetch(VOICE, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ transcript: transcript })
     }).then(function (r) { return r.json(); }).then(function (d) {
+      voice.busy = false;
+      inlineRec = false;
       applyExtraction(d, transcript);
     }).catch(function (e) {
+      voice.busy = false;
+      inlineRec = false;
       console.error("[Renters teaser] voice call failed", e);
       // Keep their words: drop to the form with the transcript in notes.
       seedFormFromVoice({}, transcript);
@@ -1044,7 +1200,8 @@ const JS = `
       scrollWallIntoView();
     } catch (e) {}
 
-    document.getElementById("rt-back").onclick = function () {
+    var backEl = document.getElementById("rt-back");
+    if (backEl) backEl.onclick = function () {
       mount.removeAttribute("data-rendered");
       mount.setAttribute("data-rendered", "1");
       renderForm();
