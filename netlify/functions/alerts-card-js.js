@@ -1,9 +1,45 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v34
+// alerts-card-js.js  —  ac-v36
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v36 CHANGE: 🔴 A CLAIMED PERFECT SPOT WAS BEING WIPED BY THE NEXT
+// SAVE. Not a transfer failure - a RACE, and it destroyed real data.
+//
+// This card reads the member's spots ONCE on boot and holds them in
+// memory, and every save REPLACES THE WHOLE SET. alerts-claim-js writes a
+// claimed spot to BD moments after boot, straight past this card. So the
+// card is still holding the list as it was BEFORE the claim, and the next
+// time the renter saves anything, the claimed spot is gone.
+//
+// Seen live on a fresh signup: the banner said "Your perfect spot is
+// saved. We kept Denver, Colorado" - and the member's record held exactly
+// one spot, source "voice", criteria entirely empty. That was the one
+// they built by hand afterwards. The Denver spot had been overwritten by
+// their own next save, minutes after being told it was safe.
+//
+// window.rdcAlertsReload() now exists. aclaimjs-v2 has been calling it
+// since it shipped; it was calling into nothing, because I wrote the
+// caller and not the callee.
+// It refuses to re-render while a form is open, so it can never yank a
+// renter out of something they are filling in.
+//
+// 📌 THE GENERAL SHAPE, worth carrying anywhere else on this dashboard:
+// ANY SURFACE THAT CACHES A COLLECTION AND WRITES IT BACK WHOLE must be
+// re-readable by whatever else can write the same record. Last-write-wins
+// is only safe when the last writer has read the latest state.
+//
+// ac-v35 CHANGE: THE MAP OPENS WHERE THEY ALREADY SAID. Pairs with
+// zp-v11. When a spot carries a zone NAME but no zips - which is exactly
+// what aclaim-v2 creates from a teaser handoff - the picker is loaded
+// with ?place=THAT NAME and centres itself there.
+// The renter typed "Denver, Colorado" before they had an account. Handing
+// them a map of the entire United States and asking where they want to
+// live is asking the same question twice and throwing away the first
+// answer. Starting where they said turns drawing a zone from STARTING
+// OVER into CONFIRMING.
 //
 // ac-v34 CHANGE: THE THING HAS A NAME. IT IS A PERFECT SPOT.
 //
@@ -549,7 +585,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v34";
+const FN_VERSION = "ac-v36";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -2112,7 +2148,17 @@ const JS = `
       if (!state.frame) {
         var f = document.createElement("iframe");
         f.id = "ra-picker";
-        f.src = PICKER + "?embed=1";
+        // ac-v35: hand the picker the place they already named, so it
+        // opens THERE. A zone carrying a name but no zips is exactly the
+        // half-state aclaim-v2 creates from the teaser - the renter typed
+        // "Denver, Colorado" before signing up, and without this they get
+        // a map of the whole country and the same question a second time.
+        var place = "";
+        try {
+          var dz = state.draft && state.draft.zone;
+          if (dz && dz.name && !(dz.zips || []).length) place = dz.name;
+        } catch (e) {}
+        f.src = PICKER + "?embed=1" + (place ? "&place=" + encodeURIComponent(place) : "");
         f.setAttribute("allow", "geolocation");
         // Starting height only. zp-v8 measures itself and posts
         // rdcZoneHeight, and the listener below sizes the frame to fit so
@@ -2576,6 +2622,44 @@ const JS = `
         console.log("[Renters alerts] status read failed, standing down", e);
       });
   }
+
+  // ⚠️ ac-v36: RELOAD HOOK. THIS CLOSES A DATA-LOSS RACE.
+  // The card reads the member's spots ONCE on boot and holds them in
+  // memory, and every save REPLACES THE WHOLE SET. alerts-claim-js writes
+  // a claimed perfect spot to BD moments later, straight past this card -
+  // so the card is still holding the list as it was BEFORE the claim, and
+  // the next time the renter saves anything, THE CLAIMED SPOT IS WIPED.
+  // Seen live: a new member's record held one spot with source "voice"
+  // and empty criteria - the one they built by hand - and no trace of the
+  // Denver spot the banner had just told them was saved.
+  // aclaimjs-v2 already calls window.rdcAlertsReload() after a successful
+  // claim. It was calling into nothing, because this never existed.
+  //
+  // 📌 THE GENERAL SHAPE: any surface that caches a collection and writes
+  // it back WHOLE must be re-readable by whatever else can write to the
+  // same record. A last-write-wins save is only safe if the last writer
+  // has read the latest state.
+  try {
+    window.rdcAlertsReload = function () {
+      console.log("[Renters alerts] reloading after an external write");
+      fetch(PREFS + "?status=1&memberId=" + id)
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d || d.error) return;
+          state.searches = Array.isArray(d.searches) ? d.searches : [];
+          state.enabled = d.enabled !== false;
+          if (d.consent) state.consent = d.consent;
+          if (d.household) state.household = d.household;
+          // Never yank a renter out of a form they are filling in.
+          if (state.view === "list") {
+            var m = mount();
+            if (m) render(m);
+          }
+          console.log("[Renters alerts] reloaded", { searches: state.searches.length });
+        })
+        .catch(function (e) { console.log("[Renters alerts] reload failed", e); });
+    };
+  } catch (e) {}
   } // end start()
 })();
 `;

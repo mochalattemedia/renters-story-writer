@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-claim.js  —  aclaim-v2
+// alerts-claim.js  —  aclaim-v3
 // The bridge between the logged-OUT homepage teaser and the logged-IN
 // dashboard. A visitor's search is parked here under a random token, and
 // claimed onto their new member record after signup.
@@ -14,6 +14,19 @@
 // a claim or a peek past expiry is treated as not-found. getStore() gets
 // siteID + token passed explicitly (it only throws on read/write, not on
 // creation).
+//
+// aclaim-v3: MUST-HAVES WERE BEING DROPPED AT THE DOOR. at-v14 split the
+// teaser's single chip row into MUST HAVE and NICE TO HAVE - a genuine
+// distinction, since a must-have REMOVES every listing without it while a
+// nice-to-have only ranks them. This sanitiser still only knew about
+// `wants`, so every must-have a visitor deliberately marked was silently
+// discarded on the way in, and criteriaFromTeaser then wrote must_have as
+// an empty array unconditionally.
+// Now whitelisted, capped at 3 like the dashboard, and a key can only sit
+// in one list.
+// 📌 THE PATTERN: a producer gained a field and the consumer did not know.
+// Anything crossing this boundary needs BOTH sides changed in the same
+// pass, or the new field vanishes without an error anywhere.
 //
 // aclaim-v2 CHANGES. Two of these are data-loss fixes, not features.
 //
@@ -64,7 +77,7 @@ const https = require("https");
 const crypto = require("crypto");
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "aclaim-v2";
+const FN_VERSION = "aclaim-v3";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const STORE_NAME = "alert-stash";
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -77,6 +90,7 @@ const CHIPS = [
   "washer_dryer_in_unit", "parking", "yard", "ground_floor",
   "no_stairs", "furnished", "utilities_included"
 ];
+const MUST_CAP = 3;
 
 const cors = {
   "content-type": "application/json",
@@ -164,7 +178,17 @@ function num(v) {
 
 function sanitizeSearch(raw) {
   const s = raw && typeof raw === "object" ? raw : {};
-  const wants = Array.isArray(s.wants) ? s.wants.filter((k) => CHIPS.indexOf(k) !== -1).slice(0, 11) : [];
+  // 🔴 aclaim-v3: MUSTS WERE BEING DROPPED AT THE DOOR. at-v14 split the
+  // teaser's one chip row into MUST HAVE and NICE TO HAVE, and this
+  // sanitiser only knew about `wants` - so every must-have a visitor
+  // picked was silently discarded on the way in. Whitelisted here, capped
+  // at 3 like the dashboard, and a key can only be in one list.
+  const musts = Array.isArray(s.musts)
+    ? s.musts.filter((k) => CHIPS.indexOf(k) !== -1).slice(0, MUST_CAP)
+    : [];
+  const wants = Array.isArray(s.wants)
+    ? s.wants.filter((k) => CHIPS.indexOf(k) !== -1 && musts.indexOf(k) === -1).slice(0, 11)
+    : [];
   const rent = num(s.rent_max);
   return {
     rent_max: rent && rent > 0 ? Math.round(rent) : null,
@@ -172,6 +196,7 @@ function sanitizeSearch(raw) {
     baths_min: num(s.baths_min),
     move_in_by: typeof s.move_in_by === "string" ? s.move_in_by.slice(0, 10) : null,
     wants: wants,
+    musts: musts,
     deal_breakers: [],
     notes: typeof s.notes === "string" ? s.notes.slice(0, 200) : "",
     // Free-text location from the teaser. NOT zones. Surfaced to the member
@@ -254,7 +279,10 @@ function criteriaFromTeaser(c) {
     pets: [],
     voucher: false,
     voucher_program: "",
-    must_have: [],
+    // A must-have REMOVES listings that lack it. Only the ones the visitor
+    // deliberately marked as such land here - never a nice-to-have
+    // promoted by accident, which would silently narrow their spot.
+    must_have: (c.musts || []).slice(0, MUST_CAP),
     nice_to_have: (c.wants || []).slice(0, 6),
     deal_breakers: [],
     legacy_breakers: [],
@@ -286,7 +314,8 @@ exports.handler = async (event) => {
 
     const search = sanitizeSearch(body.search);
     const empty = !search.rent_max && !search.beds_min && !search.baths_min &&
-                  !search.move_in_by && !search.notes && !search.where && !search.wants.length;
+                  !search.move_in_by && !search.notes && !search.where &&
+                  !search.wants.length && !search.musts.length;
     if (empty) return json(400, { version: FN_VERSION, error: "empty search" });
 
     const token = newToken();
