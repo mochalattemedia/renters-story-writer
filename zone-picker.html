@@ -5,7 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>My Areas - Renters.com</title>
-<!-- zone-picker.html  zp-v8
+<!-- zone-picker.html  zp-v10
+     zp-v10: embedded, this is a DRAWING SURFACE, not an area manager.
+     Rename, the cap banner, the "Your Zones" heading and the "2 of 15"
+     profile-pool status are all hidden - they describe a profile-wide
+     pool that stopped existing when the public profile went in v69. Every
+     zip is shown rather than three and an ellipsis. /account/locations is
+     untouched and still has all of it.
+     zp-v9: "click to rename" now RENAMES. It was an inert label beside
+     the contenteditable name, so clicking the words did nothing. It now
+     focuses and selects the name, so typing replaces the generated one.
      zp-v8: embedded hosts get NO inner scrollbar. html/body overflow
      hidden, the map flexes to fill, and the page posts rdcZoneHeight up so
      the host can size the frame. All of it gated on ?embed=1, so BD's
@@ -92,7 +101,11 @@ body { font-family: 'Open Sans', sans-serif; background: #fff; color: #0d2d4e; }
 }
 .zp-zone-name:hover { border-color: #e8eceb; background: #fff; }
 .zp-zone-name:focus { border-color: #3a9e8f; background: #fff; outline: none; }
-.zp-zone-rename { font-size: 11px; color: #8a9aa8; margin-left: 6px; font-weight: 400; }
+.zp-zone-rename {
+  font-size: 11px; color: #8a9aa8; margin-left: 6px; font-weight: 400;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.zp-zone-rename:hover { color: #3a9e8f; }
 
 .zp-cap {
   padding: 10px 20px; background: #fdf0ee; border-left: 3px solid #c0392b;
@@ -562,13 +575,26 @@ function renderZoneList() {
     html += '<div>';
     html += '<span class="zp-zone-name" contenteditable="true" spellcheck="false" data-index="' + i + '" onblur="renameZone(this)" onkeydown="zoneKey(event, this)">' + escapeHtml(zone.name) + '</span>';
     if (!zone.customName && !zone.loading) {
-      html += '<span class="zp-zone-rename">click to rename</span>';
+      /* zp-v9: THE HINT IS NOW A CONTROL. It used to be an inert label
+         sitting NEXT TO the contenteditable name, so a renter who did
+         exactly what it said - clicked the words "click to rename" -
+         got nothing. The editable element was the name itself, one span
+         to the left. A hint that instructs you to click something
+         unclickable is worse than no hint. */
+      html += '<span class="zp-zone-rename" onclick="focusZoneName(this)">click to rename</span>';
     }
     if (zone.loading) {
       html += '<div class="zp-zone-zips">Identifying neighborhoods and zip codes...</div>';
     } else {
-      var displayZips = (zone.displayZips || zone.zips.slice(0, 3));
-      var zipStr = displayZips.length > 0 ? ' - ' + displayZips.join(', ') + (zone.zips.length > displayZips.length ? '...' : '') : '';
+      /* zp-v10: embedded, show EVERY zip rather than three and an
+         ellipsis. This line is the receipt for what the polygon caught,
+         and a receipt that trails off is not one. On /account/locations
+         the list can be long and the truncation still earns its place. */
+      var showAll = window.RDC_EMBED === true;
+      var displayZips = showAll ? zone.zips : (zone.displayZips || zone.zips.slice(0, 3));
+      var zipStr = displayZips.length > 0
+        ? ' - ' + displayZips.join(', ') + ((!showAll && zone.zips.length > displayZips.length) ? '...' : '')
+        : '';
       var totalStr = zone.zips.length > 0
         ? zone.zips.length + ' zip code' + (zone.zips.length !== 1 ? 's' : '') + zipStr
         : 'No zip codes found, try a larger zone';
@@ -589,6 +615,23 @@ function zoneKey(e, el) {
 // The renter names the zone in their own words. This label is a Renters.com
 // field: it rides up in the postMessage, it never goes to BD (BD stores zips
 // only), and once the renter sets it we never auto-overwrite it.
+/* zp-v9: put the caret in the name and select it, so a tap on the hint
+   behaves exactly like a tap on the name. Selecting rather than just
+   focusing means typing REPLACES the auto-generated name instead of
+   appending to it, which is what someone renaming "Area in NE" wants. */
+function focusZoneName(hint) {
+  var name = hint.previousElementSibling;
+  if (!name) return;
+  name.focus();
+  try {
+    var r = document.createRange();
+    r.selectNodeContents(name);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+  } catch (e) {}
+}
+
 function renameZone(el) {
   var i = parseInt(el.getAttribute('data-index'), 10);
   if (isNaN(i) || !zones[i]) return;
@@ -679,7 +722,7 @@ window.addEventListener('message', function(e) {
     existingCount = d.existing || 0;
     if (typeof d.cap === 'number') MAX_ZIPS = d.cap;
     renderZoneList();
-    if (existingCount > 0 && zones.length === 0) {
+    if (existingCount > 0 && zones.length === 0 && window.RDC_EMBED !== true) {
       setStatus('You have ' + existingCount + ' of ' + MAX_ZIPS + ' areas saved. Draw a zone to add more.');
     }
   }
@@ -705,6 +748,12 @@ window.addEventListener('message', function(e) {
     } else if (d.skipped > 0) {
       el.classList.add('warn');
       setStatus('Saved ' + d.saved + '. Skipped ' + d.skipped + ', you hit the ' + d.cap + ' area limit.');
+    } else if (window.RDC_EMBED === true) {
+      /* zp-v10: "you now have 2 of 15" is a PROFILE POOL count and the
+         renter is building one search. Say what happened here, nothing
+         about a running total somewhere else. */
+      el.classList.remove('warn');
+      setStatus('Area saved.');
     } else {
       el.classList.remove('warn');
       setStatus('Saved ' + d.saved + ' area' + (d.saved !== 1 ? 's' : '') + '. You now have ' + d.existing + ' of ' + d.cap + '.');
@@ -743,6 +792,39 @@ function setStatus(msg) {
        listener lives in BD head code and reacting to this one would resize
        the wrong element.
        BD's /account/locations passes no flag, so none of this runs there. */
+    /* zp-v10: EMBEDDED, THIS IS A DRAWING SURFACE - NOT AN AREA MANAGER.
+       Everything below exists because areas used to be a PROFILE-WIDE
+       POOL that rendered on a public renter profile. The profile went in
+       v69 and zones now belong to a single search, so the pool vocabulary
+       is describing a model that no longer exists:
+         - RENAME. The label was worth typing when a landlord read it on a
+           public profile. Nothing reads it now, the search gets its name
+           from what the renter actually says in step 2, and "Area in CO"
+           is a chore that produces nothing.
+         - THE CAP BANNER and "you now have 2 of 15" - that is a count of
+           the profile pool, not of this search. A renter building ONE
+           search should not be told about a running total somewhere else.
+         - "YOUR ZONES" as a heading, when there is one zone and the host
+           already asked "Where do you want to live?".
+       WHAT STAYS: the zip count and the zips themselves. Not because the
+       renter does anything with them, but because they are the honest
+       statement of what the drawing actually captured.
+       None of this runs on /account/locations, which is still the area
+       manager and still needs every bit of it. */
+    var embedCss = document.createElement('style');
+    embedCss.textContent =
+      '#zp-cap{display:none !important}' +
+      '#zp-zones-title{display:none !important}' +
+      '.zp-zone-rename{display:none !important}' +
+      /* The name stays visible - it is the neighbourhood the geocoder
+         found and it is useful - but it stops advertising itself as
+         editable, because in this host it is not. */
+      '.zp-zone-name{cursor:default !important;border-color:transparent !important;background:none !important}' +
+      '.zp-zone-name:hover{border-color:transparent !important;background:none !important}' +
+      '#zp-zones{border-top:1px solid #eef2f1;padding-top:10px}';
+    document.head.appendChild(embedCss);
+    window.RDC_EMBED = true;
+
     var scrollCss = document.createElement('style');
     scrollCss.textContent =
       'html,body{height:100%;overflow:hidden}' +
