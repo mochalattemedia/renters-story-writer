@@ -1,15 +1,24 @@
-// interest.js — int-v2
+// interest.js — int-v3
+// Product-interest capture from the dashboard card (head code w191, block pic1a).
+//
 // int-v1 -> int-v2: CORS headers + OPTIONS preflight (the card is served from
-// www.renters.com and calls this cross-origin), and getStore() moved INSIDE
-// the try/catch. In v1 it sat at handler scope, so any throw crashed the
-// function and Netlify returned a 502 instead of our JSON error.
-// GET  ?memberId=NNNN                    -> current ticks
-// POST {memberId, audience, interests[]} -> save + read back
+//   www.renters.com and calls this cross-origin), and getStore() moved INSIDE
+//   the try/catch — at handler scope any throw crashed the function and Netlify
+//   returned a bare 502 with no JSON body to diagnose from.
+// int-v2 -> int-v3: getStore() replaced with the rdcStore() wrapper. Auto-context
+//   threw "The environment has not been configured to use Netlify Blobs" — the
+//   SAME failure documented July 6 for plaid-link-token. Falls back to explicit
+//   NETLIFY_SITE_ID + NETLIFY_BLOBS_TOKEN, both already set in Netlify.
+//   RULE: never call bare getStore() in a new function. Always rdcStore().
+//
+// GET  ?memberId=NNNN                    -> current ticks for that member
+// POST {memberId, audience, interests[]} -> save, then READ BACK and verify
 // GET  ?admin=KEY&counts=1               -> aggregate. 404s if RDC_ADMIN_KEY unset.
+// GET  ?version=1                        -> version stamp
 
 const { getStore } = require('@netlify/blobs');
 
-const FN_VERSION = 'int-v2';
+const FN_VERSION = 'int-v3';
 
 const ORIGINS = ['https://www.renters.com', 'https://renters.com'];
 
@@ -18,6 +27,18 @@ const VALID = {
   landlord: ['accept_guarantees', 'landlord_insurance', 'deposit_coverage'],
   pm:       ['accept_guarantees'],
 };
+
+function rdcStore(name) {
+  try {
+    return getStore(name);
+  } catch (e) {
+    return getStore({
+      name: name,
+      siteID: process.env.NETLIFY_SITE_ID,
+      token: process.env.NETLIFY_BLOBS_TOKEN,
+    });
+  }
+}
 
 exports.handler = async (event) => {
   const origin = (event.headers && (event.headers.origin || event.headers.Origin)) || '';
@@ -36,6 +57,7 @@ exports.handler = async (event) => {
   if (q.version) return json(200, { _v: FN_VERSION }, cors);
 
   try {
+    // Admin counts. FAILS CLOSED: no env var, no door.
     if (q.admin || q.counts) {
       const adminKey = process.env.RDC_ADMIN_KEY;
       if (!adminKey || q.admin !== adminKey) {
@@ -44,7 +66,7 @@ exports.handler = async (event) => {
       return json(200, await counts(), cors);
     }
 
-    const store = getStore('rdc-interest');
+    const store = rdcStore('rdc-interest');
 
     if (event.httpMethod === 'GET') {
       const memberId = String(q.memberId || '').trim();
@@ -72,6 +94,8 @@ exports.handler = async (event) => {
     if (!/^\d+$/.test(memberId)) return json(400, { error: 'bad_member' }, cors);
     if (!VALID[audience]) return json(400, { error: 'bad_audience' }, cors);
 
+    // Only ever store keys valid for THIS audience. A renter cannot post
+    // landlord_insurance by editing the request.
     const allowed = VALID[audience];
     const interests = (Array.isArray(body.interests) ? body.interests : [])
       .map(function (s) { return String(s); })
@@ -87,7 +111,9 @@ exports.handler = async (event) => {
 
     await store.setJSON('member:' + memberId, record);
 
-    // READ BACK. A tick that silently fails to land is worse than no card.
+    // READ BACK AND VERIFY. Same discipline as vis7's intro cap — a tick that
+    // silently fails to land is worse than no card, because the member believes
+    // they told us something they did not.
     let back = null;
     try { back = await store.get('member:' + memberId, { type: 'json' }); }
     catch (e) { back = null; }
@@ -104,15 +130,15 @@ exports.handler = async (event) => {
     return json(200, { ok: true, _v: FN_VERSION, landed: true, interests: interests }, cors);
 
   } catch (e) {
-    // Never let anything escape - an uncaught throw becomes a 502 with no
-    // JSON body, which is what int-v1 was doing.
+    // Never let anything escape. An uncaught throw becomes a 502 with no body,
+    // which is exactly what int-v1 was doing and what cost the diagnosis time.
     console.error('interest_error', e && e.message, e && e.stack);
-    return json(500, { error: 'server_error', detail: String(e && e.message || e) }, cors);
+    return json(500, { error: 'server_error', detail: String((e && e.message) || e) }, cors);
   }
 };
 
 async function counts() {
-  const store = getStore('rdc-interest');
+  const store = rdcStore('rdc-interest');
   const tally = {};
   const byAudience = {};
   let members = 0;
@@ -121,8 +147,9 @@ async function counts() {
   do {
     const page = await store.list({ prefix: 'member:', cursor: cursor });
     const keys = page.blobs || [];
-    // Capped parallelism - firing every read at once trips the Blobs
-    // concurrency limit and silently drops records (vl-v4 lesson).
+    // CAPPED PARALLELISM, chunks of 8. vl-v4's lesson: firing every read at
+    // once trips a Blobs concurrency limit, and a .catch(()=>null) over that
+    // batch silently drops records so the count looks fine and is wrong.
     for (let i = 0; i < keys.length; i += 8) {
       const chunk = keys.slice(i, i + 8);
       const recs = await Promise.all(chunk.map(async function (b) {
