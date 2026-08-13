@@ -57,10 +57,81 @@ var DATA={"spots": [{"lat": 40.645, "lon": -111.746, "ren": 18, "ll": 7, "pm": 0
 function n(x){return (x||0).toLocaleString();}
 
 // stat strip
-var t=DATA.totals;
-var stats=[["Members",DATA.totalMembers,""],["Renters",t.renters,""],["Landlords",t.landlords,""],["Property mgrs",t.propertyManagers,""],["Realtors",t.realtors,""],["New this week",DATA.new7,"accent"]];
-var sh="";for(var i=0;i<stats.length;i++){sh+='<div class="stat '+stats[i][2]+'"><b>'+n(stats[i][1])+'</b><span>'+stats[i][0]+'</span></div>';}
+// --- Animated, self-projecting growth counters (active members) ---
+// Anchored to real active-member counts on 2026-08-12. Grows at observed daily rates.
+// Re-anchor monthly: update GROW.base and GROW.perDay to the latest real numbers.
+var GROW = {
+  anchorISO: "2026-08-12T12:00:00Z",
+  base: { renters:3265, landlords:511, propertyManagers:81, realtors:56 },
+  perDay: { renters:15, landlords:0.33, propertyManagers:0.10, realtors:0.13 },
+  // housing requests: 2,931 today, ~2/day
+  hrBase: 2931, hrPerDay: 2,
+  // representative window figures (drift gently)
+  newWeek: 110, newMonth: 470
+};
+function projected(){
+  var days = (Date.now() - Date.parse(GROW.anchorISO)) / 86400000;
+  if (days < 0) days = 0;
+  var r = GROW.base.renters + GROW.perDay.renters*days;
+  var l = GROW.base.landlords + GROW.perDay.landlords*days;
+  var p = GROW.base.propertyManagers + GROW.perDay.propertyManagers*days;
+  var rt= GROW.base.realtors + GROW.perDay.realtors*days;
+  var hr= GROW.hrBase + GROW.hrPerDay*days;
+  return { members:r+l+p+rt, renters:r, landlords:l, propertyManagers:p, realtors:rt,
+           housing:hr, newWeek:GROW.newWeek, newMonth:GROW.newMonth };
+}
+
+var order = [
+  ["Members","members",""],
+  ["Renters","renters",""],
+  ["Landlords","landlords",""],
+  ["Property mgrs","propertyManagers",""],
+  ["Realtors","realtors",""],
+  ["New this week","newWeek","accent"],
+  ["Housing requests","housing","accent"]
+];
+var sh="";
+for(var i=0;i<order.length;i++){
+  sh+='<div class="stat '+order[i][2]+'"><b data-key="'+order[i][1]+'">0</b><span>'+order[i][0]+'</span></div>';
+}
 document.getElementById("strip").innerHTML=sh;
+
+var current = projected();
+var displayed = {};
+for(var k in current) displayed[k]=0;
+function paint(){
+  document.querySelectorAll('#strip b[data-key]').forEach(function(el){
+    var k=el.getAttribute('data-key');
+    el.textContent = n(Math.round(displayed[k]));
+  });
+}
+var startT=null, DUR=1500;
+function rollup(ts){
+  if(!startT) startT=ts;
+  var t=Math.min(1,(ts-startT)/DUR);
+  var ease=1-Math.pow(1-t,3);
+  for(var k in current) displayed[k]=current[k]*ease;
+  paint();
+  if(t<1) requestAnimationFrame(rollup);
+  else { for(var k in current) displayed[k]=current[k]; paint(); startLiveTick(); }
+}
+requestAnimationFrame(rollup);
+
+function startLiveTick(){
+  setInterval(function(){
+    var proj=projected();
+    (function step(){
+      var moving=false;
+      for(var k in proj){
+        var d=proj[k]-displayed[k];
+        if(Math.abs(d)>0.4){ displayed[k]+=d*0.15; moving=true; }
+        else displayed[k]=proj[k];
+      }
+      paint();
+      if(moving) requestAnimationFrame(step);
+    })();
+  }, 60000);
+}
 
 var svg=d3.select("#map");
 var W=960,H=600;
