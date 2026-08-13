@@ -1,9 +1,38 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v22
+// alerts-card-js.js  —  ac-v23
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v23 CHANGE: 🔴 THE CARD CAN NO LONGER DISAPPEAR. This is the real
+// fix for the vanishing search; ac-v21 guessed the view was resetting and
+// it was not. Console settled it: the card was GONE FROM THE DOM.
+//
+// WHAT WAS ACTUALLY HAPPENING. render() removed the old card FIRST, then
+// built and inserted the new one. Anything throwing in between left the
+// page with NO CARD AT ALL - and the boot timer cleared itself after
+// ~300 ticks, roughly three and a half minutes, so there was no recovery
+// by the time a renter had drawn a zone and started describing a place.
+// A THROWN RENDER WAS A ONE-WAY DOOR, and the window it opened widened
+// the longer someone stayed on the page.
+//
+// FOUR CHANGES:
+//   1. INSERT THE NEW CARD BEFORE REMOVING THE OLD ONE. Never take the
+//      working thing away first. A failure now leaves the previous card
+//      standing rather than an empty page.
+//   2. The view is validated first: a form or voice view with no draft is
+//      the exact shape that throws, so it falls back instead.
+//   3. The render runs inside try/catch and degrades to the list, LOUDLY.
+//      A silent fallback would have hidden this fault while looking fine,
+//      which is how it survived three sessions.
+//   4. THE RECOVERY TIMER NO LONGER STOPS. Only the position settling
+//      stops on schedule; the "is the card still there" check runs for
+//      the life of the page and costs one getElementById every 700ms.
+//
+// ⭐ THE RULE: A REPAINT MUST NOT DESTROY THE ONLY COPY OF WHAT IT IS
+// REPLACING. Build, insert, then remove - in that order - anywhere a
+// failure would leave a surface empty.
 //
 // ac-v22 CHANGE: THE CARD LOOKS LIKE THE PRIMARY TOOL. Cosmetic only, no
 // logic touched. Soft teal wash, 3px teal top edge, 22px/800 heading, and
@@ -282,7 +311,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v22";
+const FN_VERSION = "ac-v23";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -700,35 +729,71 @@ const JS = `
   }
 
   function render(mp) {
-    // ⚠️ ac-v21 SAFETY NET. THE BUG: a renter picked a zone, went to
-    // describe the place, and the whole in-progress search vanished. The
-    // draft was still in memory - the VIEW had fallen back to "list", so
-    // render() drew the list over the top of live work.
-    // Rather than chase every path that can reset the view (the boot
-    // timer, a stray picker message, a re-entrant render), this makes the
-    // drop IMPOSSIBLE: a draft carrying work can never be rendered away.
-    // The renter leaves the form by Cancel or Save, and nothing else.
+    // ⚠️ ac-v23 SAFETY NET. THE BUG: the card vanished from the page
+    // entirely - not the wrong view, the whole element gone, with nothing
+    // putting it back.
+    // CAUSE: render() removed the old card FIRST and inserted the new one
+    // after. Anything throwing in between left the page with NO CARD, and
+    // because the boot timer clears itself after ~300 ticks (3.5 minutes),
+    // a renter who had been on the page a while had no recovery at all.
+    // A THROWN RENDER WAS A ONE-WAY DOOR.
+    // THREE CHANGES, and the third is the one that makes it impossible:
+    //   1. the view is validated before rendering - a form or voice view
+    //      with no draft is the shape that throws, so it falls back
+    //   2. the render runs inside try/catch and degrades to the list
+    //   3. THE NEW CARD IS BUILT AND INSERTED BEFORE THE OLD ONE IS
+    //      REMOVED, so a failure leaves the previous card standing rather
+    //      than an empty page. Never take the working thing away first.
+    if ((state.view === "form" || state.view === "voice") && !state.draft) {
+      console.log("[Renters alerts] view wanted a draft and there was none, standing down to the list");
+      state.view = "list";
+    }
+
+    // The ac-v21 guard: a draft holding real work is never rendered away.
     if (state.view === "list" && draftHasWork(state.draft)) {
       console.log("[Renters alerts] held the draft, view tried to reset to list");
       state.view = state.draft.source === "voice" && !state.voice.heard ? "voice" : "form";
     }
 
-    removeCard();
     var wrap = document.createElement("div");
-    wrap.id = "rdc-alerts";
+    wrap.id = "rdc-alerts-new";
     wrap.style.cssText = S.card;
 
-    if (state.view === "form") renderForm(wrap);
-    else if (state.view === "voice") renderVoice(wrap);
-    else renderList(wrap);
+    try {
+      if (state.view === "form") renderForm(wrap);
+      else if (state.view === "voice") renderVoice(wrap);
+      else renderList(wrap);
+    } catch (e) {
+      // Log LOUD. A silent fallback here would hide the real fault while
+      // looking fine, which is how the original bug survived three
+      // sessions.
+      console.error("[Renters alerts] render threw, falling back to the list", e);
+      state.view = "list";
+      wrap.innerHTML = "";
+      try { renderList(wrap); }
+      catch (e2) {
+        console.error("[Renters alerts] the list threw too, leaving the old card up", e2);
+        return;   // old card is still on the page, untouched
+      }
+    }
 
+    // Insert the new one, THEN remove the old. Order is the fix.
     state.anchor = mp.anchor;
     if (mp.before && mp.before.parentNode === mp.parent) mp.parent.insertBefore(wrap, mp.before);
     else mp.parent.appendChild(wrap);
 
-    if (state.view === "form") wireForm(mp);
-    else if (state.view === "voice") wireVoice(mp);
-    else wireList(mp);
+    removeCard();
+    wrap.id = "rdc-alerts";
+
+    try {
+      if (state.view === "form") wireForm(mp);
+      else if (state.view === "voice") wireVoice(mp);
+      else wireList(mp);
+    } catch (e) {
+      // The card is on the page and readable even if a handler failed to
+      // bind. Better a card with a dead button than no card.
+      console.error("[Renters alerts] wiring threw, card left in place", e);
+    }
   }
 
   // ---------------- LIST ----------------
@@ -1869,6 +1934,8 @@ const JS = `
     }
   }
 
+  // Removes the OLD card only. The incoming one is still called
+  // rdc-alerts-new at this point and is deliberately not matched here.
   function removeCard() {
     var el = document.getElementById("rdc-alerts");
     if (el && el.parentNode) el.parentNode.removeChild(el);
@@ -1930,17 +1997,29 @@ const JS = `
           consent: state.consent
         });
 
+        // ⚠️ ac-v23: THIS TIMER NO LONGER STOPS. It used to clear itself
+        // after ~300 ticks, about three and a half minutes - so a card
+        // that disappeared after that had NO recovery, which is exactly
+        // the state a renter is in by the time they have drawn a zone and
+        // started describing a place. The POSITION work still stops on
+        // schedule (it is a settling behaviour and should not run
+        // forever); only the "is the card still there" check keeps going,
+        // and it costs one getElementById every 700ms.
         var tries = 0;
         var t = setInterval(function () {
           tries++;
           var m = mount();
-          if (!m) { if (tries > 300) clearInterval(t); return; }
+          if (!m) return;
           var here = document.getElementById("rdc-alerts");
-          if (!here) { render(m); return; }
-          // Nothing on this timer touches the card while the map is open.
+          if (!here) {
+            console.log("[Renters alerts] card was missing, putting it back");
+            render(m);
+            return;
+          }
+          // Nothing on this timer touches the card while the map is open:
+          // moving a node that contains an iframe reloads the iframe.
           if (state.pickerOpen) return;
-          keepOrder();
-          if (tries > 300) clearInterval(t);
+          if (tries <= 300) keepOrder();
         }, 700);
       })
       .catch(function (e) {
