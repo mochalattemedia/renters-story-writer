@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>My Areas - Renters.com</title>
+<!-- zone-picker.html  zp-v8
+     zp-v8: embedded hosts get NO inner scrollbar. html/body overflow
+     hidden, the map flexes to fill, and the page posts rdcZoneHeight up so
+     the host can size the frame. All of it gated on ?embed=1, so BD's
+     /account/locations is byte-for-byte unchanged in behaviour.
+     zp-v7: embed hides header, instructions and the save row.
+     zp-v6: ?embed=1 introduced.
+     zp-v5: renters_areas_busy / renters_areas_none.
+     zp-v4: parent can trigger the save with renters_areas_save. -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700&display=swap" rel="stylesheet">
 <style>
@@ -720,6 +729,58 @@ function setStatus(msg) {
 (function () {
   try {
     if (new URLSearchParams(location.search).get('embed') !== '1') return;
+
+    /* zp-v8 (Aug 12): NO INNER SCROLLBAR WHEN EMBEDDED.
+       The host sets the iframe to a fixed height, this page is taller than
+       it, so the DOCUMENT gets its own scrollbar inside the frame - and the
+       toolbar carrying Draw Zone scrolls out of reach exactly when a renter
+       needs it. Two halves, and both are needed:
+         1. the document stops scrolling (overflow hidden, height 100%)
+         2. this page MEASURES itself and posts the height up, so the host
+            can size the frame to fit rather than guessing.
+       Same pattern as members-map.html's rdcMapHeight, which is what fixed
+       the mobile white-gap. A DIFFERENT MESSAGE NAME on purpose: the map's
+       listener lives in BD head code and reacting to this one would resize
+       the wrong element.
+       BD's /account/locations passes no flag, so none of this runs there. */
+    var scrollCss = document.createElement('style');
+    scrollCss.textContent =
+      'html,body{height:100%;overflow:hidden}' +
+      /* The map takes whatever is left after the chrome, so the zone list
+         stays visible instead of being pushed below a fold that does not
+         scroll. A fixed 480px map plus a list is what overflowed. */
+      'body{display:flex;flex-direction:column}' +
+      '#zp-map{flex:1 1 auto;min-height:260px;height:auto}' +
+      '#zp-zones{flex:0 0 auto;max-height:132px;overflow-y:auto}';
+    document.head.appendChild(scrollCss);
+
+    /* Height reporting. Clamped: unclamped, a tall viewport produces a
+       page-long map on a phone, and a short one produces a strip. */
+    var MINH = 420, MAXH = 700, lastH = 0;
+    function reportHeight() {
+      try {
+        var h = Math.max(
+          document.body.scrollHeight,
+          document.documentElement.scrollHeight
+        );
+        if (h < MINH) h = MINH;
+        if (h > MAXH) h = MAXH;
+        if (h === lastH) return;
+        lastH = h;
+        if (window.parent) window.parent.postMessage({ type: 'rdcZoneHeight', height: h }, '*');
+      } catch (e) {}
+    }
+    window.addEventListener('load', reportHeight);
+    window.addEventListener('resize', reportHeight);
+    setTimeout(reportHeight, 300);
+    setTimeout(reportHeight, 1200);
+    /* The zone list grows as zones are added, so re-measure on change
+       rather than only at load. */
+    if (window.MutationObserver) {
+      var mo = new MutationObserver(reportHeight);
+      var tgt = document.getElementById('zp-zones-list');
+      if (tgt) mo.observe(tgt, { childList: true, subtree: true });
+    }
 
     /* The host asks "Where do you want to live?" directly above this frame.
        Repeating it as "My Areas" plus four lines of instructions cost about
