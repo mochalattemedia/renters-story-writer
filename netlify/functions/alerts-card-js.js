@@ -1,9 +1,41 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v28
+// alerts-card-js.js  —  ac-v29
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v29 CHANGE: NAMING, NEGATIVE NUMBERS, AND NAMES CUT MID-WORD.
+//
+// 1. THE ENTRANCES DID NOT READ AS THE WAY TO ADD A SEARCH. "Describe
+//    another out loud" and "Add with a form" both say HOW before they say
+//    WHAT, so a renter with one search already saved had no obvious "make
+//    another" control - they were reading two descriptions of methods.
+//    Every entrance now leads with the verb, and the two states stay
+//    parallel: Start out loud / Start with a form on an empty card, Add a
+//    search out loud / Add a search with a form once there is one.
+//
+// 2. A NEGATIVE PRICE WAS ACCEPTED BY THE FIELD AND SILENTLY DISCARDED.
+//    Live: an option took -4 off the number spinner. The store was never
+//    at risk - ap-v11 rejects anything not above zero - but readForm
+//    turned it into null without saying so, and the renter walked away
+//    believing they had priced that option. SILENTLY DROPPING WHAT
+//    SOMEBODY TYPED IS WORSE THAN REFUSING IT, because they never find
+//    out. min="0" on all nine number inputs stops the spinner, and the
+//    reader now CLEARS the field so a typed or pasted negative visibly
+//    goes rather than quietly vanishing.
+//
+// 3. NAMES WERE CUT MID-WORD. The store caps a name at 40 characters and
+//    a hard slice produced "Jason - 2BR/1BA Wyoming w/ yard & parkin",
+//    which reads as a typo rather than a limit. trimName() cuts back to
+//    the last space when one is close enough to the end, then strips
+//    trailing punctuation.
+//    ⚠️ AND IT DOES IT WITHOUT A REGEX, DELIBERATELY. This whole file is
+//    served from inside a TEMPLATE LITERAL, so a lone backslash escape is
+//    consumed before the browser sees it: /[\s]+$/ written here arrives
+//    as /[s]+$/ and would strip a trailing "s" off somebody's search
+//    name. Character comparison instead. Same family as the BD head-code
+//    backslash rule, different mechanism, same discipline.
 //
 // ac-v28 CHANGE: THE ZONE SURVIVES THE VOICE PROPOSAL, AND THE CARD
 // STOPS LANDING OUTSIDE THE CONTENT COLUMN.
@@ -446,7 +478,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v28";
+const FN_VERSION = "ac-v29";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -1034,8 +1066,8 @@ const JS = `
     if (!n) {
       html +=
         '<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">' +
-          '<button type="button" id="ra-voice" style="' + S.mic + '">Describe it out loud</button>' +
-          '<button type="button" id="ra-new" style="' + S.ghost + '">Fill in a form instead</button>' +
+          '<button type="button" id="ra-voice" style="' + S.mic + '">Start out loud</button>' +
+          '<button type="button" id="ra-new" style="' + S.ghost + '">Start with a form</button>' +
         '</div>';
     } else {
       html += '<div id="ra-list">';
@@ -1110,8 +1142,13 @@ const JS = `
 
       html += '<div style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;">';
       if (n < MAX) {
-        html += '<button type="button" id="ra-voice" style="' + S.mic + '">Describe another out loud</button>' +
-                '<button type="button" id="ra-new" style="' + S.ghost + '">Add with a form</button>';
+        // ac-v29 NAMING. The populated state had "Describe another out
+        // loud" and "Add with a form" - both of which say HOW before they
+        // say WHAT, so neither read as the way to add a search. Every
+        // entrance now begins with the verb, and the two states stay
+        // parallel: Start / Add.
+        html += '<button type="button" id="ra-voice" style="' + S.mic + '">Add a search out loud</button>' +
+                '<button type="button" id="ra-new" style="' + S.ghost + '">Add a search with a form</button>';
       } else {
         html += '<p style="' + S.itemMuted + '">You have reached the limit of ' + MAX + ' saved searches. Delete one to add another.</p>';
       }
@@ -1162,6 +1199,29 @@ const JS = `
 
   function emptyOption() {
     return { unit_types: [], rent_max: null, beds: [], baths_min: null, label: "" };
+  }
+
+  // ac-v29: TRIM AT A WORD BOUNDARY. The store caps a search name at 40
+  // characters and a hard slice produced "Jason - 2BR/1BA Wyoming w/ yard
+  // & parkin" - a name that reads as a typo rather than a limit. Cut back
+  // to the last space when one is reasonably close to the end; otherwise
+  // a hard cut is still better than an overflow.
+  function trimName(v, max) {
+    var t = String(v || "").trim();
+    if (t.length <= max) return t;
+    var cut = t.slice(0, max);
+    var sp = cut.lastIndexOf(" ");
+    // Only honour the space if it is not chopping most of the name off.
+    if (sp > max * 0.6) cut = cut.slice(0, sp);
+    // NO REGEX. This whole file is served from inside a template literal,
+    // so a lone backslash escape is eaten before the browser ever sees it:
+    // /[\s]+$/ written here arrives as /[s]+$/ and would strip a trailing
+    // "s" off somebody's search name. Char comparison instead.
+    var TRAIL = " ,.;:/&-";
+    while (cut.length && TRAIL.indexOf(cut.charAt(cut.length - 1)) !== -1) {
+      cut = cut.slice(0, cut.length - 1);
+    }
+    return cut;
   }
 
   function optLabel(o) {
@@ -1580,7 +1640,7 @@ const JS = `
       // nothing to say about a zone and must not be allowed to erase one.
       var prev = state.draft || {};
       state.draft = {
-        id: "", name: d.suggested_name || "", created: "", enabled: true,
+        id: "", name: trimName(d.suggested_name || "", 40), created: "", enabled: true,
         source: "voice", transcript_full: d.transcript_full || transcript,
         zone: prev.zone || null,
         extra: prev.extra || [],
@@ -1589,7 +1649,7 @@ const JS = `
       // The renter's own words for the place beat a generated name, but
       // only when the transcript did not produce one.
       if (!state.draft.name && prev.zone && prev.zone.name) {
-        state.draft.name = prev.zone.name.slice(0, 40);
+        state.draft.name = trimName(prev.zone.name, 40);
       }
       state.editIdx = -1;
       state.voice.heard = d.heard || "";
@@ -1655,7 +1715,7 @@ const JS = `
     html +=
       '<div style="' + S.row + '">' +
         '<div style="flex:1;min-width:140px;"><span style="' + S.lab + '">Most you can pay</span>' +
-          '<input id="ra-rent" type="number" inputmode="numeric" placeholder="2200" value="' + esc(val(c.rent_max)) + '" style="' + S.inp + '"></div>' +
+          '<input id="ra-rent" type="number" min="0" step="10" inputmode="numeric" placeholder="2200" value="' + esc(val(c.rent_max)) + '" style="' + S.inp + '"></div>' +
       '</div>' +
       '<div style="margin-bottom:14px;"><span style="' + S.lab + '">Size</span>' +
         '<span style="' + S.hint + '">Pick every size that would work.</span>' +
@@ -1692,7 +1752,7 @@ const JS = `
               }).join("") +
             '</select></div>' +
             '<div style="flex:1;min-width:110px;">' +
-              '<input id="ra-opt-rent-' + oi + '" type="number" inputmode="numeric" placeholder="Up to" value="' +
+              '<input id="ra-opt-rent-' + oi + '" type="number" min="0" step="10" inputmode="numeric" placeholder="Up to" value="' +
                 esc(val(o.rent_max)) + '" style="' + S.inp + '"></div>' +
             '<div style="flex:1;min-width:110px;"><select id="ra-opt-beds-' + oi + '" style="' + S.inp + '">' +
               '<option value="">Any size</option>' +
@@ -1730,7 +1790,7 @@ const JS = `
       html +=
         '<div style="' + S.row + '">' +
           '<div style="flex:1;min-width:140px;"><span style="' + S.lab + '">Could stretch by</span>' +
-            '<input id="ra-stretch" type="number" inputmode="numeric" placeholder="150" value="' + esc(val(c.rent_stretch)) + '" style="' + S.inp + '"></div>' +
+            '<input id="ra-stretch" type="number" min="0" step="10" inputmode="numeric" placeholder="150" value="' + esc(val(c.rent_stretch)) + '" style="' + S.inp + '"></div>' +
           '<div style="flex:1;min-width:160px;"><span style="' + S.lab + '">Is that with utilities?</span>' +
             '<select id="ra-basis" style="' + S.inp + '">' +
               '<option value=""' + (!c.rent_basis ? " selected" : "") + '>Not sure</option>' +
@@ -1738,7 +1798,7 @@ const JS = `
               '<option value="plus_utilities"' + (c.rent_basis === "plus_utilities" ? " selected" : "") + '>Rent only, utilities on top</option>' +
             '</select></div>' +
           '<div style="flex:1;min-width:110px;"><span style="' + S.lab + '">Baths</span>' +
-            '<input id="ra-baths" type="number" step="0.5" inputmode="decimal" placeholder="1" value="' + esc(val(c.baths_min)) + '" style="' + S.inp + '"></div>' +
+            '<input id="ra-baths" type="number" min="0" step="0.5" inputmode="decimal" placeholder="1" value="' + esc(val(c.baths_min)) + '" style="' + S.inp + '"></div>' +
         '</div>';
 
       if (!noSchema) {
@@ -1753,9 +1813,9 @@ const JS = `
       html +=
         '<div style="' + S.row + '">' +
           '<div style="flex:1;min-width:110px;"><span style="' + S.lab + '">Adults</span>' +
-            '<input id="ra-adults" type="number" inputmode="numeric" placeholder="1" value="' + esc(val(c.household_adults)) + '" style="' + S.inp + '"></div>' +
+            '<input id="ra-adults" type="number" min="0" step="1" inputmode="numeric" placeholder="1" value="' + esc(val(c.household_adults)) + '" style="' + S.inp + '"></div>' +
           '<div style="flex:1;min-width:110px;"><span style="' + S.lab + '">Children</span>' +
-            '<input id="ra-kids" type="number" inputmode="numeric" placeholder="0" value="' + esc(val(c.household_kids)) + '" style="' + S.inp + '"></div>' +
+            '<input id="ra-kids" type="number" min="0" step="1" inputmode="numeric" placeholder="0" value="' + esc(val(c.household_kids)) + '" style="' + S.inp + '"></div>' +
         '</div>' +
         '<div style="margin-bottom:14px;"><span style="' + S.lab + '">Pets</span>' +
           '<span style="' + S.hint + '">Weight matters more than breed. Plenty of places take a dog up to a limit.</span>' +
@@ -1766,8 +1826,8 @@ const JS = `
               '<option value="cat"' + (petSpecies(c) === "cat" ? " selected" : "") + '>Cat</option>' +
               '<option value="other"' + (petSpecies(c) === "other" ? " selected" : "") + '>Other</option>' +
             '</select></div>' +
-            '<div style="flex:1;min-width:110px;"><input id="ra-pet-count" type="number" inputmode="numeric" placeholder="How many" value="' + esc(val(petField(c, "count"))) + '" style="' + S.inp + '"></div>' +
-            '<div style="flex:1;min-width:110px;"><input id="ra-pet-weight" type="number" inputmode="numeric" placeholder="Weight in lb" value="' + esc(val(petField(c, "weight_lbs"))) + '" style="' + S.inp + '"></div>' +
+            '<div style="flex:1;min-width:110px;"><input id="ra-pet-count" type="number" min="0" step="1" inputmode="numeric" placeholder="How many" value="' + esc(val(petField(c, "count"))) + '" style="' + S.inp + '"></div>' +
+            '<div style="flex:1;min-width:110px;"><input id="ra-pet-weight" type="number" min="0" step="1" inputmode="numeric" placeholder="Weight in lb" value="' + esc(val(petField(c, "weight_lbs"))) + '" style="' + S.inp + '"></div>' +
           '</div></div>';
 
       // voucher
@@ -1844,11 +1904,21 @@ const JS = `
     var c = state.draft.criteria;
 
     function el(x) { return document.getElementById(x); }
+    // ac-v29: A NEGATIVE WAS ACCEPTED BY THE FIELD AND SILENTLY DROPPED
+    // HERE. Live: an option's price took -4 from the spinner, this
+    // returned null, and the renter walked away believing they had set a
+    // price on it. The store was never at risk - ap-v11 rejects anything
+    // not above zero - but silently discarding what someone typed is
+    // worse than refusing it, because they never find out.
+    // min="0" on the inputs stops the spinner going under, and this
+    // CLEARS THE FIELD so a pasted or typed negative is visibly gone
+    // rather than quietly ignored.
     function n(x) {
       var e = el(x);
       if (!e || e.value === "") return null;
       var v = Number(e.value);
-      return isFinite(v) && v >= 0 ? v : null;
+      if (!isFinite(v) || v < 0) { e.value = ""; return null; }
+      return v;
     }
     function s(x) { var e = el(x); return e ? e.value : ""; }
 
@@ -2038,7 +2108,7 @@ const JS = `
           custom: z.custom === true,
           path: z.path || []
         };
-        if (!state.draft.name) state.draft.name = (z.name || "").slice(0, 40);
+        if (!state.draft.name) state.draft.name = trimName(z.name || "", 40);
 
         // The zips ALSO go to BD as service areas, because that write can
         // only happen client-side on the session cookie. rdcAreasAdd is
