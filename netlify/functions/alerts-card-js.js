@@ -1,9 +1,19 @@
+
 // ==================================================================
-// alerts-card-js.js  —  ac-v19
+// alerts-card-js.js  —  ac-v20
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v20 CHANGE: THE FRAME SIZES ITSELF TO THE PICKER. Pairs with zp-v8.
+// The picker posts rdcZoneHeight and this sets the iframe to match, so
+// the picker never grows an inner scrollbar and Draw Zone cannot scroll
+// out of reach. Bounds are checked here as well as clamped there, because
+// a postMessage arrives from a frame and is data, not instruction.
+// ⚠️ NOT rdcMapHeight. That name belongs to members-map.html and its
+// listener lives in BD HEAD CODE - reusing it would have the homepage map
+// listener resizing this frame, or this one resizing the map.
 //
 // ac-v19 CHANGE: THE MAP STOPS RESETTING ITSELF, AND THERE IS A WAY BACK
 // FROM A BAD SHAPE. Four defects, all found by drawing one polygon.
@@ -236,7 +246,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v19";
+const FN_VERSION = "ac-v20";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -460,7 +470,7 @@ const JS = `
     searches: [], consent: { platform: false, off_platform: false },
     enabled: false, view: "list", editIdx: -1, draft: null,
     savedAt: null, busy: false, anchor: "", expanded: {},
-    household: null, pickerOpen: false, zoneWired: false, frame: null,
+    household: null, pickerOpen: false, zoneWired: false, frame: null, frameH: 0,
     schema: null, showRefine: false,
     voice: { active: false, transcript: "", interim: "", status: "", rec: null, heard: "", unclear: [] }
   };
@@ -1483,7 +1493,10 @@ const JS = `
         f.id = "ra-picker";
         f.src = PICKER + "?embed=1";
         f.setAttribute("allow", "geolocation");
-        f.style.cssText = "width:100%;height:620px;border:0;display:block;";
+        // Starting height only. zp-v8 measures itself and posts
+        // rdcZoneHeight, and the listener below sizes the frame to fit so
+        // the picker never grows its own scrollbar.
+        f.style.cssText = "width:100%;height:" + (state.frameH || 560) + "px;border:0;display:block;transition:height .15s;";
         state.frame = f;
       }
       if (state.frame.parentNode !== slot) slot.appendChild(state.frame);
@@ -1529,6 +1542,17 @@ const JS = `
         var d = e.data;
         if (!d || !d.type) return;
         var msg = document.getElementById("ra-zone-msg");
+
+        // zp-v8 height handshake. Distinct from the members map's
+        // rdcMapHeight on purpose - that listener lives in BD head code and
+        // would resize the wrong element.
+        if (d.type === "rdcZoneHeight") {
+          var h = Number(d.height);
+          if (!isFinite(h) || h < 300 || h > 900) return;
+          state.frameH = h;
+          if (state.frame) state.frame.style.height = h + "px";
+          return;
+        }
 
         if (d.type === "renters_areas_none") {
           if (msg) msg.textContent = "Draw an area on the map first.";
