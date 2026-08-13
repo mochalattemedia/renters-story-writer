@@ -70,16 +70,21 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 <div class="shell">
   <div id="map" style="position:relative"></div>
   <div style="position:absolute;left:14px;bottom:14px;z-index:500;background:#fff;border:1px solid #dde3ea;border-radius:9px;padding:9px 12px;font-size:11.5px;line-height:1.9;box-shadow:0 2px 10px rgba(0,0,0,.09)">
-    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3a9e8f;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Request, consented</div>
-    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#BA7517;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Request, no consent yet</div>
+    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3a9e8f;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Running search, or consented lead</div>
+    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#BA7517;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Paused, or no consent yet</div>
     <div><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#0d2d4e;vertical-align:0"></span> Live listing</div>
   </div>
   <div class="side">
     <div class="filters">
+      <select id="fSource">
+        <option value="">Everything</option>
+        <option value="search">Searches</option>
+        <option value="lead">Get Matched</option>
+      </select>
       <select id="fConsent">
-        <option value="">Any consent</option>
-        <option value="1">Consented</option>
-        <option value="0">Not yet</option>
+        <option value="">Any status</option>
+        <option value="1">Workable</option>
+        <option value="0">Not workable</option>
       </select>
       <select id="fTiming">
         <option value="">Any timing</option>
@@ -97,7 +102,32 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+/* ============================================================
+   lead-hub.html  ·  lh-v2  (2026-08-13)  TWO SOURCES, ONE MAP.
+
+   lh-v2 adds SEARCHES alongside the Get Matched leads. They are
+   different objects with different histories and they are NOT merged
+   into one another - they are shaped alike so one renderer can draw
+   both, and tagged so you always know which you are looking at.
+
+   WHY IT MATTERS: lead-index walks BD lead records ONE AT A TIME,
+   climbing down from the newest id, because BD's list endpoint returns
+   the OLDEST hundred and ignores offset. That is why the header says
+   "built 5 days ago" - it is a snapshot. SEARCHES DO NOT INHERIT THAT.
+   alerts-prefs has been writing a demand index to Blobs on every save
+   since ap-v5, so ?demand=1 returns every renter with a search in ONE
+   request, live, with no BD calls and no throttle risk.
+
+   ⭐ AND CONSENT STOPS BEING A SEPARATE THING. For a search, RUNNING IS
+   THE CONSENT: a renter who builds a housing request and leaves it
+   running is asking to be introduced, and pausing withdraws it. The old
+   per-field opt-in produced 102 indexed requests and ZERO consents - a
+   flow nobody finished is not consent, it is a wall. Legacy leads keep
+   their consent flag because that is what they were captured under.
+   ============================================================ */
+var HUB_VERSION = "lh-v2";
 var IDX = "/.netlify/functions/lead-index";
+var DEM = "/.netlify/functions/alerts-prefs";
 var CON = "/.netlify/functions/lead-consent";
 var PRV = "/.netlify/functions/provider-index";
 var CONSENT_PAGE = "/lead-consent-page.html";
@@ -112,6 +142,7 @@ if (new URLSearchParams(location.search).get("key")) {
 }
 function k(u){ return KEY ? (u + (u.indexOf("?") === -1 ? "?" : "&") + "key=" + encodeURIComponent(KEY)) : u; }
 var LEADS = [], CONSENT = {}, PROVIDERS = [], LISTINGS = [], sel = null, builtAt = null;
+var DEMAND = [], demandErr = null;
 
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 function el(id){return document.getElementById(id);}
@@ -123,18 +154,36 @@ var map = L.map("map",{zoomControl:true}).setView([39.5,-98.35],4);
 L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",{attribution:"&copy; OpenStreetMap, &copy; CARTO",maxZoom:19}).addTo(map);
 var layer = L.layerGroup().addTo(map);
 
-/* Consent drives the colour, because it is the thing that decides whether a
-   lead can be acted on at all. A request we cannot share is not workable, no
-   matter how good it looks. */
-function colour(l){ return CONSENT[l.id] ? "#3a9e8f" : "#BA7517"; }
+/* Everything on the map and in the queue, both sources together. */
+function allRows(){ return LEADS.concat(DEMAND); }
+
+/* WORKABLE, not "consented". For a SEARCH, running IS the consent - the
+   renter built a housing request and left it on. For a LEGACY LEAD it is
+   still the per-field consent flag, because that is what it was captured
+   under and nothing retroactively consents it. One question, two ways of
+   answering it depending on where the row came from. */
+function workable(l){
+  return l.kind === "search" ? !!l.enabled : !!CONSENT[l.id];
+}
+
+/* Colour says whether it can be acted on. A request nobody can be
+   introduced to is not workable however good it looks. */
+function colour(l){ return workable(l) ? "#3a9e8f" : "#BA7517"; }
 
 function visible(){
   var c = el("fConsent").value, t = el("fTiming").value, q = el("fText").value.toLowerCase().trim();
-  return LEADS.filter(function(l){
-    if (c === "1" && !CONSENT[l.id]) return false;
-    if (c === "0" && CONSENT[l.id]) return false;
-    if (t && l.timing !== t) return false;
-    if (q && (l.name+" "+l.location+" "+l.id).toLowerCase().indexOf(q) === -1) return false;
+  var src = el("fSource") ? el("fSource").value : "";
+  return allRows().filter(function(l){
+    if (src === "search" && l.kind !== "search") return false;
+    if (src === "lead" && l.kind === "search") return false;
+    if (c === "1" && !workable(l)) return false;
+    if (c === "0" && workable(l)) return false;
+    /* Timing only exists on legacy leads. Filtering on it would silently
+       hide every search, so a timing filter narrows the leads and leaves
+       the searches alone rather than pretending they failed a test they
+       were never given. */
+    if (t && l.kind !== "search" && l.timing !== t) return false;
+    if (q && (l.name+" "+l.location+" "+(l.title||"")+" "+l.id).toLowerCase().indexOf(q) === -1) return false;
     return true;
   });
 }
@@ -173,20 +222,112 @@ function drawQueue(list){
     return "<div class='row"+(sel===l.id?" sel":"")+"' data-i='"+l.id+"'>"+
       "<span class='dot' style='background:"+colour(l)+"'></span>"+
       "<div style='min-width:0'><div class='nm'>"+esc(l.name||("Lead #"+l.id))+"</div>"+
-      "<div class='meta'>"+esc(l.location||"no location")+" &middot; "+esc(l.budget||"—")+"<br>"+
-      esc(l.timing||"—")+" &middot; "+ago(l.submitted)+"</div></div>"+
-      "<span class='tag "+(CONSENT[l.id]?"ok":"no")+"'>"+(CONSENT[l.id]?"consented":"no consent")+"</span></div>";
+      "<div class='meta'>"+
+        (l.kind==="search"
+          ? esc(l.title||l.location)+" &middot; "+esc(l.budget||"no ceiling")+"<br>"+
+            esc(l.location)+" &middot; "+ago(l.submitted)
+          : esc(l.location||"no location")+" &middot; "+esc(l.budget||"—")+"<br>"+
+            esc(l.timing||"—")+" &middot; "+ago(l.submitted))+
+      "</div></div>"+
+      "<span class='tag "+(workable(l)?"ok":"no")+"'>"+
+        (l.kind==="search" ? (l.enabled?"running":"paused") : (CONSENT[l.id]?"consented":"no consent"))+
+      "</span></div>";
   }).join("");
   Array.prototype.forEach.call(q.querySelectorAll(".row"),function(r){
     r.onclick=function(){ sel=r.getAttribute("data-i"); render(); };
   });
 }
 
+/* THE PACKET. What a landlord actually receives, rendered exactly as it
+   would be sent, so there is never a gap between what this screen shows
+   and what goes out.
+   🔴 WHAT IS DELIBERATELY ABSENT, and it is a decision: NOTES. A renter's
+   free text says things like "decent but not great credit" and names a
+   child's school. Under the old model that sat behind a per-field opt-in;
+   under this one it would travel automatically. Credit self-disclosure and
+   children riding along to a landlord is how a good feature becomes a Fair
+   Housing problem. Notes stays for matching and concierge and is shown
+   here ONLY in the operator-only block. Income, credit and employer are
+   not captured on a search at all.
+   ⚖️ CURRENT ZIP, NEVER AN ADDRESS. And miles, never a read: "950 miles"
+   is arithmetic on two things the renter told us. "Out-of-state, expect a
+   video tour" is a prediction about a consumer used for a housing
+   decision, and it is not ours to make. */
+function drawSearchDetail(l, d){
+  function kv(k,v){ return v ? "<dt>"+k+"</dt><dd>"+esc(v)+"</dd>" : ""; }
+  var c = l.criteria || {};
+  var zips = l.searchZips || [];
+  var dist = null;
+  if (l.lat && l.lon && l.homeLat && l.homeLon) dist = miles(l.homeLat,l.homeLon,l.lat,l.lon);
+
+  var pets = (c.pets||[]).map(function(p){
+    return p.species + (p.count>1?(" x"+p.count):"") + (p.weight_lbs?(" "+p.weight_lbs+"lb"):"");
+  }).join(", ");
+
+  d.innerHTML =
+    "<div class='dh'><h2>"+esc(l.name)+"</h2>"+
+      "<span class='tag "+(l.enabled?"ok":"no")+"'>"+(l.enabled?"running":"paused")+"</span>"+
+      (l.verified ? "<span class='tag ok'>verified</span>" : "")+
+      "<span class='tag' style='margin-left:auto'>member #"+esc(l.memberId)+"</span></div>"+
+
+    "<dl class='kv'>"+
+      kv("Search", l.title)+
+      kv("Zone", l.zone && l.zone.name)+
+      kv("Zip codes", zips.length ? zips.join(", ") : null)+
+      kv("Email", l.email)+
+      kv("Phone", l.phone)+
+      kv("Currently in", l.currentZip ? (l.currentZip + (l.currentCity?(" · "+l.currentCity):"")) : null)+
+      kv("Household", l.household ? (l.household.total + " people, " + l.household.adults + " adults") : null)+
+      kv("Pets", pets)+
+      kv("Voucher", c.voucher ? ("Yes" + (c.voucher_program?(" · "+c.voucher_program):"")) : null)+
+      kv("Move in from", c.move_in_earliest)+
+      kv("Needs to be in by", c.move_in_latest)+
+      kv("Must have", (c.must_have||[]).join(", "))+
+      kv("Will not accept", (c.deal_breakers||[]).join(", "))+
+      kv("Nice to have", (c.nice_to_have||[]).join(", "))+
+      kv("Created", ago(l.submitted))+
+    "</dl>"+
+
+    /* Any ONE of these being satisfied is a match. That is the whole
+       reason the options model exists: a 1,900 condo must not fire on a
+       2,000 house budget, because a lead that fails on type or price
+       fails twice - once for the renter and once for the landlord who
+       paid for it. */
+    "<div style='padding:0 15px 10px'>"+
+      "<div style='font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#8593a4;margin:0 0 6px'>"+
+        "Any one of these works &mdash; "+(l.options||[]).length+"</div>"+
+      (l.options||[]).map(function(o){
+        return "<div style='padding:7px 10px;border:1px solid #e6ebf0;border-radius:8px;margin:0 0 5px;background:#fff;font-size:12px'>"+
+          esc(optionLine(o))+"</div>";
+      }).join("")+
+    "</div>"+
+
+    (c.notes ? "<div class='ops'><b>Operator only &mdash; never sent to a landlord</b>"+esc(c.notes)+
+      "<br>Free text can name a child's school or a credit position. It is here for matching and concierge, and it does not travel.</div>" : "")+
+
+    (function(){
+      var nb = nearbyFor(l);
+      if (!l.lat || !l.lon) return "<div class='ops' style='background:#f4f7f6;border-color:#e6ebf0;color:#7b8a99'><b>No drawn zone</b>This search has zip codes but no polygon, so it cannot be placed on the map. Searches created before the zone picker was embedded look like this.</div>";
+      if (!nb.length) return "<div class='ops'><b>No live listings within 40 miles</b>A supply gap, not a bad request.</div>";
+      return "<div style='padding:0 15px 10px'><div style='font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#8593a4;margin:0 0 6px'>Live listings within 40 miles of their zone &mdash; "+nb.length+"</div>"+
+        nb.map(function(x){
+          return "<div style='display:flex;gap:8px;align-items:center;padding:7px 10px;border:1px solid #e6ebf0;border-radius:8px;margin:0 0 5px;background:#fff;font-size:12px'>"+
+            "<div style='min-width:0;flex:1'><div style='font-weight:600'>"+esc(x.title||("Listing #"+x.id))+"</div>"+
+            "<div style='font-size:11px;color:#7b8a99'>"+(x.owner?esc(x.owner.name||x.owner.company||("Member #"+x.ownerId)):"owner unknown")+
+            (x.rent?" &middot; $"+x.rent.toLocaleString():"")+
+            (x.beds?" &middot; "+esc(x.beds)+" bed":"")+"</div></div>"+
+            "<span style='font-size:11px;color:#7b8a99;white-space:nowrap'>"+x.d.toFixed(1)+" mi</span></div>";
+        }).join("")+"</div>";
+    })()+
+    "<div class='msg' id='dmsg'></div>";
+}
+
 function drawDetail(){
   var d = el("detail");
   if (!sel) { d.innerHTML="<div class='empty'>Select a request.</div>"; return; }
-  var l = LEADS.filter(function(x){return x.id===sel;})[0];
+  var l = allRows().filter(function(x){return x.id===sel;})[0];
   if (!l) { d.innerHTML="<div class='empty'>Select a request.</div>"; return; }
+  if (l.kind === "search") { drawSearchDetail(l, d); return; }
   var has = !!CONSENT[l.id];
   var link = CONSENT_PAGE+"?id="+encodeURIComponent(l.id)+"&token="+encodeURIComponent(l.token);
 
@@ -266,8 +407,12 @@ function drawDetail(){
 function render(){
   var list = visible();
   drawMap(list); drawQueue(list); drawDetail();
-  el("cAll").textContent = LEADS.length;
-  el("cCon").textContent = Object.keys(CONSENT).filter(function(k){return CONSENT[k];}).length;
+  el("cAll").textContent = allRows().length;
+  /* Workable, both sources. Running searches plus consented legacy leads.
+     This number is the one that answers "how much demand can we act on
+     right now", which the old consent count could not because it only
+     ever described the half nobody completed. */
+  el("cCon").textContent = allRows().filter(workable).length;
   el("cShow").textContent = list.length;
   el("cLst").textContent = LISTINGS.filter(function(x){return x.live;}).length;
   el("cBuilt").textContent = builtAt ? ago(builtAt) : "—";
@@ -309,6 +454,91 @@ function nearbyFor(l){
     .slice(0,8);
 }
 
+/* ---- SEARCHES -> LEAD-SHAPED ROWS -------------------------------------
+   One renderer draws both, so a search has to answer the same questions a
+   lead does: who, where, how much, when. Anything a search does not have
+   is left null rather than faked, and drawDetail branches on kind. */
+
+/* The pin. BD holds a zip index and nothing else, so the ONLY coordinates
+   a search carries are the polygon the renter drew - which is exactly why
+   ap-v9 stores the path even though nothing matches on it yet. Centroid of
+   the drawn shape is where they want to live, which is the honest pin. A
+   zone with zips but no path predates the path being stored and gets no
+   pin rather than a guessed one. */
+function zoneCentre(z){
+  if (!z || !z.path || !z.path.length) return null;
+  var la=0, ln=0, n=0;
+  z.path.forEach(function(p){
+    if (p && isFinite(p.lat) && isFinite(p.lng)) { la+=p.lat; ln+=p.lng; n++; }
+  });
+  return n ? { lat: la/n, lon: ln/n } : null;
+}
+
+function money(n){ return "$" + Number(n).toLocaleString(); }
+
+function optionLine(o){
+  var bits = [];
+  if (o.unit_types && o.unit_types.length) bits.push(o.unit_types.join(", "));
+  if (o.beds && o.beds.length) bits.push(o.beds.join("/") + " bed");
+  if (o.baths_min) bits.push(o.baths_min + "+ bath");
+  bits.push(o.rent_max ? "up to " + money(o.rent_max) : "no ceiling given");
+  return bits.join(" · ");
+}
+
+function searchesToRows(members){
+  var out = [];
+  (members || []).forEach(function(m){
+    var contact = m.contact || {};
+    (m.searches || []).forEach(function(sr){
+      var opts = sr.options || [];
+      var centre = zoneCentre(sr.zone);
+      var tops = opts.filter(function(o){ return o.rent_max; })
+                     .map(function(o){ return o.rent_max; });
+      out.push({
+        kind: "search",
+        /* Prefixed so it can never collide with a BD lead id. */
+        id: "s:" + m.memberId + ":" + sr.id,
+        memberId: m.memberId,
+        name: contact.displayName || ("Member #" + m.memberId),
+        email: contact.email || "",
+        phone: contact.phone || "",
+        currentZip: contact.zip || "",
+        currentCity: [contact.city, contact.state].filter(Boolean).join(", "),
+        verified: contact.verified || "",
+        title: sr.name || "",
+        enabled: sr.enabled !== false,
+        submitted: sr.created || null,
+        updated: sr.updated || null,
+        zone: sr.zone || null,
+        options: opts,
+        household: m.household || null,
+        criteria: sr.criteria || {},
+        source: sr.source || "form",
+        /* Fields the shared renderer reads. */
+        location: sr.zone && sr.zone.name ? sr.zone.name : "no zone yet",
+        budget: tops.length ? "up to " + money(Math.max.apply(null, tops)) : "",
+        timing: "",
+        lat: centre ? centre.lat : null,
+        lon: centre ? centre.lon : null,
+        searchGeo: centre ? [centre] : [],
+        searchZips: (sr.zone && sr.zone.zips) || []
+      });
+    });
+  });
+  return out;
+}
+
+function loadDemand(){
+  return fetch(k(DEM + "?demand=1"))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d || !d.members) { demandErr = (d && d.error) || "no demand data"; DEMAND = []; return; }
+      demandErr = null;
+      DEMAND = searchesToRows(d.members);
+    })
+    .catch(function(e){ demandErr = String(e); DEMAND = []; });
+}
+
 function loadProviders(){
   return fetch(k(PRV))
     .then(function(r){return r.json();})
@@ -331,18 +561,28 @@ function load(refresh){
   fetch(k(IDX + (refresh ? "?refresh=1" : "")))
     .then(function(r){return r.json();})
     .then(function(d){
-      if (!d || !d.ok) { el("queue").innerHTML="<div class='empty'>"+esc((d&&d.error)||"Could not load leads.")+"</div>"; return; }
+      /* lead-index failing must not take the searches down with it. They
+         come from a different store with none of BD's failure modes, so a
+         BD problem should cost the legacy half only. */
+      if (!d || !d.ok) {
+        LEADS = [];
+        return Promise.all([loadProviders(), loadDemand()]).then(function(){
+          render();
+          if (!DEMAND.length) el("queue").innerHTML="<div class='empty'>"+esc((d&&d.error)||"Could not load leads.")+"</div>";
+        });
+      }
       LEADS = d.leads || []; builtAt = d.builtAt || null;
-      return Promise.all([loadConsent(), loadProviders()]).then(render);
+      return Promise.all([loadConsent(), loadProviders(), loadDemand()]).then(render);
     })
     .catch(function(e){ el("queue").innerHTML="<div class='empty'>"+esc(String(e))+"</div>"; })
     .finally(function(){ b.disabled=false; b.textContent="Refresh from BD"; });
 }
 
-["fConsent","fTiming","fText"].forEach(function(id){
+["fSource","fConsent","fTiming","fText"].forEach(function(id){
   el(id).addEventListener("input", function(){ sel=null; render(); });
 });
 el("bRefresh").onclick = function(){ load(true); };
+console.log("[Lead hub] version:", HUB_VERSION);
 load(false);
 </script>
 </body>
