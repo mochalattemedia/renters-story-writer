@@ -1,10 +1,34 @@
-
 // ==================================================================
-// alerts-card-js.js  —  ac-v20
+// alerts-card-js.js  —  ac-v21
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v21 CHANGE: 🔴 A DRAFT CARRYING WORK CAN NO LONGER BE RENDERED AWAY.
+//
+// THE BUG, REPORTED TWICE AND REPRODUCED: a renter picks a zone, goes to
+// describe the place, and the whole in-progress search vanishes. The
+// draft was never lost - it sat in memory the entire time. THE VIEW had
+// fallen back to "list", so render() drew the list straight over live
+// work. It reads as data loss and it is the worst thing this card can do,
+// because the zone is the most expensive thing the renter just made.
+//
+// ⭐ THE FIX IS A GUARD, NOT A DIAGNOSIS, AND THAT IS DELIBERATE. Several
+// paths can reset the view - the boot timer's recovery render, a stray
+// picker message, a re-entrant render while the map is open. Chasing them
+// one at a time means shipping a fix per path and finding the next one in
+// production. render() now REFUSES to draw the list while state.draft
+// holds a zone, an option, a name or any criteria. The renter leaves the
+// form by Cancel or by Save. Nothing else can take them out of it.
+// It logs when it catches one, so the underlying path is still findable
+// without the renter paying for it.
+//
+// ⚠️ ORDER MATTERS AT EVERY EXIT: state.draft is cleared BEFORE
+// state.view changes, on Cancel, on the voice Cancel and on Save.
+// Reversed, the guard reads a draft that still has work and puts the form
+// straight back - a card the renter cannot leave, which is the same bug
+// wearing the opposite coat.
 //
 // ac-v20 CHANGE: THE FRAME SIZES ITSELF TO THE PICKER. Pairs with zp-v8.
 // The picker posts rdcZoneHeight and this sets the iframe to match, so
@@ -246,7 +270,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v20";
+const FN_VERSION = "ac-v21";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -636,7 +660,29 @@ const JS = `
   // reader is not coming back.
 
   // ---- render -------------------------------------------------------
+  // Does this draft hold work the renter would be upset to lose?
+  function draftHasWork(d) {
+    if (!d) return false;
+    if (d.zone && ((d.zone.zips || []).length || d.zone.name)) return true;
+    if ((d.extra || []).length) return true;
+    if (d.name) return true;
+    return hasSomething(d.criteria || {});
+  }
+
   function render(mp) {
+    // ⚠️ ac-v21 SAFETY NET. THE BUG: a renter picked a zone, went to
+    // describe the place, and the whole in-progress search vanished. The
+    // draft was still in memory - the VIEW had fallen back to "list", so
+    // render() drew the list over the top of live work.
+    // Rather than chase every path that can reset the view (the boot
+    // timer, a stray picker message, a re-entrant render), this makes the
+    // drop IMPOSSIBLE: a draft carrying work can never be rendered away.
+    // The renter leaves the form by Cancel or Save, and nothing else.
+    if (state.view === "list" && draftHasWork(state.draft)) {
+      console.log("[Renters alerts] held the draft, view tried to reset to list");
+      state.view = state.draft.source === "voice" && !state.voice.heard ? "voice" : "form";
+    }
+
     removeCard();
     var wrap = document.createElement("div");
     wrap.id = "rdc-alerts";
@@ -848,8 +894,11 @@ const JS = `
     var vb = document.getElementById("ra-voice");
     if (vb) vb.onclick = function () {
       // The draft is created HERE, before the mic, so a zone picked on the
-      // voice screen is already on it when the proposal lands.
+      // voice screen is already on it when the proposal lands. Marked as
+      // voice so the ac-v21 guard restores THIS view rather than the form
+      // if anything tries to reset while a zone is already on it.
       state.draft = newDraft();
+      state.draft.source = "voice";
       state.editIdx = -1;
       state.showRefine = false;
       state.voice = { active: false, transcript: "", interim: "", status: "", rec: null, heard: "", unclear: [] };
@@ -1039,8 +1088,8 @@ const JS = `
     var back = document.getElementById("ra-vback");
     if (back) back.onclick = function () {
       stopRec();
-      state.view = "list";
       state.draft = null;
+      state.view = "list";
       state.editIdx = -1;
       state.pickerOpen = false;
       state.voice.heard = "";
@@ -1635,8 +1684,10 @@ const JS = `
     };
 
     document.getElementById("ra-cancel").onclick = function () {
-      state.view = "list";
+      // Order matters: the draft is cleared BEFORE the view changes, or
+      // the ac-v21 guard reads a draft with work and puts the form back.
       state.draft = null;
+      state.view = "list";
       state.editIdx = -1;
       state.voice.heard = "";
       state.voice.unclear = [];
@@ -1672,8 +1723,8 @@ const JS = `
       if (state.editIdx === -1) state.searches.push(rec);
       else state.searches[state.editIdx] = rec;
 
-      state.view = "list";
       state.draft = null;
+      state.view = "list";
       state.editIdx = -1;
       state.voice.heard = "";
       state.voice.unclear = [];
