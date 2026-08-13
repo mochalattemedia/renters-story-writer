@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v13
+// alerts-teaser-js.js  —  at-v14
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,28 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v14: MUST HAVE AND NICE TO HAVE, AND NO NEGATIVE NUMBERS.
+//
+// 1. TWO CHIP ROWS, matching the dashboard. A must-have and a nice-to-have
+//    are not the same promise: a MUST-HAVE REMOVES every listing without
+//    it, a nice-to-have only ranks them. One undifferentiated row meant a
+//    visitor tapping five things could not tell whether they had widened
+//    their search or narrowed it to nothing.
+//    ⭐ AND IT UNBLOCKS THE HANDOFF: aclaim-v2 files every teaser chip as
+//    nice_to_have precisely BECAUSE the teaser could not say which was
+//    which. Now it can, and the distinction survives into their perfect
+//    spot instead of being flattened at the door.
+//    Must-haves cap at 3, same as the dashboard, and a key can only sit
+//    in one row - a thing cannot be both a deal breaker and a bonus.
+//    Voice routes must_have and nice_to_have to their own rows rather
+//    than pouring both into one bucket.
+//
+// 2. RENT, BEDS AND BATHS CANNOT GO NEGATIVE. min="0" stops the spinner
+//    and numVal() CLEARS a typed or pasted negative so it is visibly
+//    rejected. Minus one bedroom is not a search, and a visitor who
+//    believes they set a value and did not will never find out on their
+//    own. Same fix as ac-v29 on the dashboard.
 //
 // at-v13: THE BUTTONS SAY WHERE YOU ARE. Once voice has filled the form,
 // "Describe it out loud" reads like starting over - which is precisely
@@ -146,7 +168,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v13";
+const FN_VERSION = "at-v14";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -197,6 +219,7 @@ const JS = `
     row: "display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;",
     chips: "display:flex;gap:9px;flex-wrap:wrap;margin-bottom:16px;",
     chip: "border:1px solid #d7dee8;background:#fff;color:#33475f;border-radius:999px;padding:9px 15px;font-size:13px;cursor:pointer;",
+    chipNo: "border:1px solid #edf1f5;background:#fbfcfd;color:#c2cbd6;border-radius:999px;padding:8px 13px;font-size:13.5px;margin:0 7px 8px 0;font-family:inherit;cursor:default;",
     chipOn: "border:1px solid " + NAVY + ";background:" + NAVY + ";color:#fff;border-radius:999px;padding:9px 15px;font-size:13px;cursor:pointer;",
     btn: "background:" + NAVY + ";color:#fff;border:0;border-radius:11px;padding:15px 26px;font-size:16px;font-weight:700;cursor:pointer;width:100%;max-width:360px;display:block;margin:0 auto;",
     btnGo: "background:" + TEAL + ";color:#fff;border:0;border-radius:11px;padding:14px 26px;font-size:16px;font-weight:700;cursor:pointer;width:100%;text-decoration:none;display:block;text-align:center;box-sizing:border-box;",
@@ -221,8 +244,10 @@ const JS = `
   };
 
   var wants = [];
+  var musts = [];
+  var MUST_CAP = 3;
   var voice = { active: false, transcript: "", interim: "", status: "", rec: null };
-  var seed = { rent_max:"", beds_min:"", baths_min:"", move_in_by:"", where:"", wants:null, notes:"" };
+  var seed = { rent_max:"", beds_min:"", baths_min:"", move_in_by:"", where:"", wants:null, musts:null, notes:"" };
   var seededFromVoice = false;
   var filtersOpen = false;
   var VIEW = "form";  // "form" | "voice"
@@ -235,6 +260,19 @@ const JS = `
   }
 
   function val(id) { var el = document.getElementById(id); return el ? el.value : ""; }
+
+  // at-v14: NUMBERS CANNOT GO NEGATIVE. min="0" stops the spinner, and
+  // this CLEARS a typed or pasted negative so it is visibly rejected
+  // rather than quietly discarded further down. Minus one bedroom is not
+  // a search, and a visitor who thinks they set a value and did not will
+  // never find out on their own.
+  function numVal(id) {
+    var el = document.getElementById(id);
+    if (!el || el.value === "") return "";
+    var n = Number(el.value);
+    if (!isFinite(n) || n < 0) { el.value = ""; return ""; }
+    return el.value;
+  }
   // Snapshot whatever is on screen into seed, so any re-render restores
   // it. Called on the way to the voice view and before the wall.
   function captureIntoSeed() {
@@ -246,26 +284,29 @@ const JS = `
     seed.where = f.where;
     seed.notes = f.notes;
     seed.wants = wants.slice();
+    seed.musts = musts.slice();
   }
 
   function readForm() {
     return {
-      rent_max: val("rt-rent"),
-      beds_min: val("rt-beds"),
-      baths_min: val("rt-baths"),
+      rent_max: numVal("rt-rent"),
+      beds_min: numVal("rt-beds"),
+      baths_min: numVal("rt-baths"),
       move_in_by: val("rt-move"),
       where: String(val("rt-where")).trim(),
       wants: wants.slice(),
+      musts: musts.slice(),
       notes: String(val("rt-notes")).trim()
     };
   }
 
   function renderForm() {
-    if (seededFromVoice && Array.isArray(seed.wants)) { wants = seed.wants.slice(); }
+    if (Array.isArray(seed.wants)) { wants = seed.wants.slice(); }
+    if (Array.isArray(seed.musts)) { musts = seed.musts.slice(); }
 
     // Filters open automatically if voice pre-filled a hidden field, so the
     // renter can see what we heard. Otherwise they start hidden.
-    var seededHidden = seededFromVoice && (seed.rent_max || seed.beds_min || seed.baths_min || seed.move_in_by || (Array.isArray(seed.wants) && seed.wants.length) || seed.notes);
+    var seededHidden = seededFromVoice && (seed.rent_max || seed.beds_min || seed.baths_min || seed.move_in_by || (Array.isArray(seed.wants) && seed.wants.length) || (Array.isArray(seed.musts) && seed.musts.length) || seed.notes);
     if (seededHidden) filtersOpen = true;
 
     mount.innerHTML =
@@ -282,15 +323,27 @@ const JS = `
           '<div style="' + S.panel + '">' +
             '<div style="' + S.row + '">' +
               '<div style="flex:2;min-width:130px;"><span style="' + S.lab + '">Max rent</span>' +
-                '<input id="rt-rent" type="number" inputmode="numeric" placeholder="2200" value="' + esc(seed.rent_max) + '" style="' + S.inp + '"></div>' +
+                '<input id="rt-rent" type="number" min="0" step="10" inputmode="numeric" placeholder="2200" value="' + esc(seed.rent_max) + '" style="' + S.inp + '"></div>' +
               '<div style="flex:1;min-width:80px;"><span style="' + S.lab + '">Beds</span>' +
-                '<input id="rt-beds" type="number" inputmode="numeric" placeholder="2" value="' + esc(seed.beds_min) + '" style="' + S.inp + '"></div>' +
+                '<input id="rt-beds" type="number" min="0" step="1" inputmode="numeric" placeholder="2" value="' + esc(seed.beds_min) + '" style="' + S.inp + '"></div>' +
               '<div style="flex:1;min-width:80px;"><span style="' + S.lab + '">Baths</span>' +
-                '<input id="rt-baths" type="number" inputmode="numeric" placeholder="1" value="' + esc(seed.baths_min) + '" style="' + S.inp + '"></div>' +
+                '<input id="rt-baths" type="number" min="0" step="1" inputmode="numeric" placeholder="1" value="' + esc(seed.baths_min) + '" style="' + S.inp + '"></div>' +
             '</div>' +
             '<div style="margin-bottom:16px;"><span style="' + S.lab + '">Move in by</span>' +
               '<input id="rt-move" type="date" value="' + esc(seed.move_in_by) + '" style="' + S.inp + '"></div>' +
+            // at-v14: TWO ROWS, matching the dashboard. A must-have and a
+            // nice-to-have are not the same promise: a must-have REMOVES
+            // listings that lack it, a nice-to-have only ranks them. One
+            // undifferentiated row meant a visitor tapping five things
+            // could not tell whether they had widened their search or
+            // narrowed it to nothing - and aclaim-v2 was filing every
+            // teaser chip as nice_to_have precisely because it could not
+            // know which they meant. Now they say.
+            '<span style="' + S.lab + '">Must have</span>' +
+            '<span style="' + S.hint + 'text-align:left;margin:0 0 6px;display:block;">At most 3. Only things you would turn a place down over.</span>' +
+            '<div id="rt-must" style="' + S.chips + '"></div>' +
             '<span style="' + S.lab + '">Nice to have</span>' +
+            '<span style="' + S.hint + 'text-align:left;margin:0 0 6px;display:block;">Good to have, but not a deal breaker.</span>' +
             '<div id="rt-chips" style="' + S.chips + '"></div>' +
             '<div style="margin-bottom:4px;"><span style="' + S.lab + '">Anything else that matters?</span>' +
               // at-v12: A TEXTAREA, NOT AN INPUT. This is the field voice
@@ -321,24 +374,41 @@ const JS = `
       '</div>';
 
     // Chips only need building when the panel is visible.
-    function buildChips() {
-      var chipMount = document.getElementById("rt-chips");
-      if (!chipMount || chipMount.getAttribute("data-built") === "1") return;
-      chipMount.setAttribute("data-built", "1");
+    // One builder, two rows. A key can only be in ONE of them - tapping it
+    // as a must-have removes it from nice-to-have and the other way round,
+    // because a thing cannot be both a deal breaker and a bonus. The
+    // dashboard enforces the same rule.
+    function buildChipRow(mountId, list, other, cap, redraw) {
+      var chipMount = document.getElementById(mountId);
+      if (!chipMount) return;
+      chipMount.innerHTML = "";
       CHIPS.forEach(function (c) {
+        var key = c[0];
+        var on = list.indexOf(key) !== -1;
+        var blocked = !on && ((cap && list.length >= cap) || other.indexOf(key) !== -1);
         var b = document.createElement("button");
         b.type = "button";
         b.textContent = c[1];
-        b.style.cssText = wants.indexOf(c[0]) !== -1 ? S.chipOn : S.chip;
-        b.onclick = function () {
-          var i = wants.indexOf(c[0]);
-          if (i === -1) wants.push(c[0]); else wants.splice(i, 1);
-          b.style.cssText = wants.indexOf(c[0]) !== -1 ? S.chipOn : S.chip;
-        };
+        b.style.cssText = on ? S.chipOn : (blocked ? S.chipNo : S.chip);
+        if (blocked && other.indexOf(key) !== -1) b.title = "Already chosen in the other list";
+        else if (blocked) b.title = "Pick at most " + cap;
+        if (!blocked) {
+          b.onclick = function () {
+            var i = list.indexOf(key);
+            if (i === -1) list.push(key); else list.splice(i, 1);
+            redraw();
+          };
+        }
         chipMount.appendChild(b);
       });
     }
-    if (filtersOpen) buildChips();
+
+    function drawChips() {
+      buildChipRow("rt-must", musts, wants, MUST_CAP, drawChips);
+      buildChipRow("rt-chips", wants, musts, 0, drawChips);
+    }
+
+    if (filtersOpen) drawChips();
 
     document.getElementById("rt-toggle").onclick = function () {
       filtersOpen = !filtersOpen;
@@ -565,9 +635,23 @@ const JS = `
     else if (c.move_in_by) seed.move_in_by = c.move_in_by;
     // location is not in the schema (renter says it in words) - leave for them
     // chips: combine must_have + nice_to_have, keep only ones the teaser shows
+    // at-v14: the voice backend already separates must_have from
+    // nice_to_have, and now the teaser has somewhere to put each. Routing
+    // them all into one bucket threw that away.
+    function known(k) {
+      for (var i = 0; i < CHIPS.length; i++) if (CHIPS[i][0] === k) return true;
+      return false;
+    }
+    var spokenMusts = (c.must_have || []).filter(known);
+    var existingMusts = Array.isArray(seed.musts) ? seed.musts.slice() : [];
+    spokenMusts.forEach(function (k) {
+      if (existingMusts.indexOf(k) === -1 && existingMusts.length < MUST_CAP) existingMusts.push(k);
+    });
+    seed.musts = existingMusts;
+
     var picked = [];
-    [].concat(c.must_have || [], c.nice_to_have || [], c.wants || []).forEach(function (k) {
-      for (var i = 0; i < CHIPS.length; i++) if (CHIPS[i][0] === k && picked.indexOf(k) === -1) picked.push(k);
+    [].concat(c.nice_to_have || [], c.wants || []).forEach(function (k) {
+      if (known(k) && picked.indexOf(k) === -1 && existingMusts.indexOf(k) === -1) picked.push(k);
     });
     // MERGE, not replace. A chip the visitor tapped before talking is
     // still true afterwards - the transcript simply did not mention it.
@@ -598,7 +682,7 @@ const JS = `
     var f = readForm();
     var err = document.getElementById("rt-err");
 
-    var hasSomething = f.rent_max || f.beds_min || f.baths_min || f.move_in_by || f.where || f.notes || f.wants.length;
+    var hasSomething = f.rent_max || f.beds_min || f.baths_min || f.move_in_by || f.where || f.notes || f.wants.length || f.musts.length;
     if (!hasSomething) { err.textContent = "Add at least one thing so we know what to look for."; return; }
     if (!f.where) { err.textContent = "Tell us where you want to live so we can match you."; return; }
 
@@ -632,15 +716,18 @@ const JS = `
     if (f.beds_min) bits.push(f.beds_min + "+ beds");
     if (f.baths_min) bits.push(f.baths_min + "+ baths");
     var line1 = bits.join("  ·  ");
-    var chipTxt = f.wants.map(function (k) {
+    function label(k) {
       for (var i = 0; i < CHIPS.length; i++) if (CHIPS[i][0] === k) return CHIPS[i][1];
       return k;
-    }).join(", ");
+    }
+    var mustTxt = (f.musts || []).map(label).join(", ");
+    var chipTxt = (f.wants || []).map(label).join(", ");
 
     return '<div style="' + S.recap + '">' +
       '<p style="' + S.recapLine + '"><strong>' + esc(f.where) + '</strong></p>' +
       (line1 ? '<p style="' + S.recapLine + '">' + esc(line1) + '</p>' : "") +
-      (chipTxt ? '<p style="' + S.recapMuted + '">' + esc(chipTxt) + '</p>' : "") +
+      (mustTxt ? '<p style="' + S.recapMuted + '">Must have: ' + esc(mustTxt) + '</p>' : "") +
+      (chipTxt ? '<p style="' + S.recapMuted + '">Nice to have: ' + esc(chipTxt) + '</p>' : "") +
       (f.notes ? '<p style="' + S.recapMuted + '">' + esc(f.notes) + '</p>' : "") +
     '</div>';
   }
