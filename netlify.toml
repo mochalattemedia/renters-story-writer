@@ -1,11 +1,3 @@
 [build]
   functions = "netlify/functions"
   publish = "."
-
-# Live Members Map — full member scan (member types + pins). Cron drives it.
-[functions."members-map-build"]
-  schedule = "*/10 * * * *"
-
-# Live Members Map — dedicated "New this week" counter. Tiny, completes every run.
-[functions."members-map-new7"]
-  schedule = "*/10 * * * *"
