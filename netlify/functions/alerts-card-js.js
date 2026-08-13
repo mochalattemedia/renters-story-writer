@@ -1,9 +1,48 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v15
+// alerts-card-js.js  —  ac-v16
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v16 CHANGE: COLLAPSED ROWS, NEW COPY, AND THE AREA GATE IS GONE.
+//
+// 1. THE AMBER "ADD YOUR SEARCH AREAS FIRST" PANEL IS REMOVED, ALONG WITH
+//    THE READER BEHIND IT. It was lying. noAreas() fired whenever the
+//    /account/locations fetch SUCCEEDED and parsed zero rows containing
+//    "Postal Code" - and that table is rendered at runtime by BD's
+//    get_services_areas widget call, so it is NOT in the server HTML the
+//    fetch returns. parseAreas() therefore found nothing for every member,
+//    always, including one with seven saved areas. Same family as za6
+//    logging "0 areas" on the dashboard: a scraper pointed at markup that
+//    is not there.
+//    IT IS DELETED RATHER THAN FIXED because zones are moving onto the
+//    search object itself. A gate guarding a member-level area pool has
+//    nothing left to guard, and repairing a scraper due for deletion is
+//    work that ships twice. firstZip, parseAreas, loadAreas, areaLine and
+//    noAreas all come out; boot no longer fetches /account/locations at
+//    all, which also drops one network call from every dashboard load.
+//
+// 2. EACH SEARCH COLLAPSES TO TITLE + STATUS + ONE SUMMARY LINE. Tap to
+//    expand. Every search used to render fully - must-haves,
+//    nice-to-haves, deal breakers, pets, voucher, notes, both dates and
+//    three buttons - so two searches pushed Dashboard, My Profile,
+//    Account Details and Showings far down the page.
+//    THE FIX IS ENTIRELY INSIDE THIS FILE. w193 tried to solve a layout
+//    push by having a different block climb the DOM and insert relative
+//    to a bounded ancestor, and it killed this card outright. Do not
+//    reorder BD native blocks from head code. Size is the lever.
+//    Edit / Pause / Delete move INTO the expanded body, so a collapsed
+//    list is rows of text and nothing else.
+//
+// 3. COPY. "Daily listing alerts" was wrong twice: it is not daily (the
+//    footer on this same card says no matches, no email) and "listing" is
+//    v68 vocabulary - listings came off the renter-facing site in v69.
+//    Empty:     "Start your search"
+//    Populated: "Your searches"
+//    "Start your search" is deliberately the same phrase as the homepage
+//    teaser, so the thing a renter met logged-out and the tool they get
+//    as a member share one name.
 //
 // ac-v15 CHANGE: THE TWO CONSENT CHECKBOXES ARE REMOVED.
 //   "Introduce me to verified Renters.com properties that match" and
@@ -89,7 +128,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v15";
+const FN_VERSION = "ac-v16";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 
@@ -307,7 +346,7 @@ const JS = `
   var state = {
     searches: [], consent: { platform: false, off_platform: false },
     enabled: false, view: "list", editIdx: -1, draft: null,
-    savedAt: null, busy: false, areas: null, areasRead: false, anchor: "",
+    savedAt: null, busy: false, anchor: "", expanded: {},
     schema: null, showRefine: false,
     voice: { active: false, transcript: "", interim: "", status: "", rec: null, heard: "", unclear: [] }
   };
@@ -463,74 +502,14 @@ const JS = `
     if (cnt) cnt.textContent = c.must_have.length + " of " + MUST_CAP + " chosen";
   }
 
-  // ---- AREAS (unchanged from ac-v11) --------------------------------
-  function firstZip(txt) {
-    var s = String(txt || ""), run = "", i, ch;
-    for (i = 0; i < s.length; i++) {
-      ch = s.charAt(i);
-      if (ch >= "0" && ch <= "9") {
-        run += ch;
-        if (run.length === 5) {
-          var nxt = s.charAt(i + 1);
-          if (!(nxt >= "0" && nxt <= "9")) return run;
-        }
-      } else { run = ""; }
-    }
-    return "";
-  }
-
-  function parseAreas(html) {
-    var doc;
-    try { doc = new DOMParser().parseFromString(html, "text/html"); }
-    catch (e) { return null; }
-    var rows = doc.querySelectorAll("table tr");
-    var seen = {}, zips = [], labels = [], seenLabel = {};
-    for (var i = 0; i < rows.length; i++) {
-      var txt = rows[i].textContent || "";
-      if (txt.indexOf("Postal Code") === -1) continue;
-      var z = firstZip(txt);
-      if (z && !seen[z]) { seen[z] = 1; zips.push(z); }
-      var cells = rows[i].querySelectorAll("td");
-      for (var j = 0; j < cells.length; j++) {
-        var ct = (cells[j].textContent || "").trim();
-        if (ct.indexOf(",") !== -1 && firstZip(ct)) {
-          var lab = ct.split(",")[0].trim();
-          if (lab && lab.length < 40 && !seenLabel[lab] && !firstZip(lab)) {
-            seenLabel[lab] = 1; labels.push(lab);
-          }
-          break;
-        }
-      }
-    }
-    return { zips: zips, labels: labels };
-  }
-
-  function loadAreas() {
-    return fetch("/account/locations", { credentials: "same-origin" })
-      .then(function (r) { return r.ok ? r.text() : null; })
-      .then(function (html) { return html ? parseAreas(html) : null; })
-      .catch(function (e) {
-        console.log("[Renters alerts] areas read failed, gate suppressed", e);
-        return null;
-      });
-  }
-
-  function areaLine() {
-    if (!state.areas) return "";
-    if (state.areas.labels && state.areas.labels.length) {
-      return state.areas.labels.slice(0, 6).join("  \\u00b7  ") +
-        (state.areas.labels.length > 6 ? "  and " + (state.areas.labels.length - 6) + " more" : "");
-    }
-    if (state.areas.zips && state.areas.zips.length) {
-      return state.areas.zips.slice(0, 8).join(", ") +
-        (state.areas.zips.length > 8 ? " and " + (state.areas.zips.length - 8) + " more" : "");
-    }
-    return "";
-  }
-
-  function noAreas() {
-    return state.areasRead && state.areas && state.areas.zips.length === 0;
-  }
+  // ---- AREAS READER REMOVED (ac-v16) --------------------------------
+  // firstZip / parseAreas / loadAreas / areaLine / noAreas lived here and
+  // all five are gone. They scraped /account/locations for table rows
+  // containing "Postal Code", but BD renders that table at runtime via its
+  // get_services_areas widget call, so those rows are never in the fetched
+  // HTML. The parse returned zero for every member and the amber gate fired
+  // on people with areas saved. Zones belong on the search object; this
+  // reader is not coming back.
 
   // ---- render -------------------------------------------------------
   function render(mp) {
@@ -555,33 +534,28 @@ const JS = `
   // ---------------- LIST ----------------
   function renderList(wrap) {
     var n = state.searches.length;
-    var html =
-      '<h3 style="' + S.h + '">Daily listing alerts</h3>' +
-      '<p style="' + S.sub + '">Tell us what you are looking for and we email you when a match lands. The more precise you are, the fewer and better the emails.</p>';
-
-    if (noAreas()) {
-      html +=
-        '<div style="' + S.warn + '">' +
-          '<p style="' + S.warnTxt + 'font-weight:600;margin-bottom:8px;">Add your search areas first</p>' +
-          '<p style="' + S.warnTxt + 'margin-bottom:10px;">Alerts match on the neighbourhoods you pick, so we need at least one before we can send you anything. You can still save what you are looking for below.</p>' +
-          '<a href="/account/locations" style="' + S.ghost + 'display:inline-block;text-decoration:none;">Choose my areas</a>' +
-        '</div>';
-    }
+    // ac-v16 COPY. "Daily listing alerts" was wrong twice: not daily, and
+    // "listing" is v68 vocabulary. The empty-state heading matches the
+    // homepage teaser word for word on purpose.
+    var html = n
+      ? '<h3 style="' + S.h + '">Your searches</h3>' +
+        '<p style="' + S.sub + '">Running searches match automatically. Add another or refine what is here.</p>'
+      : '<h3 style="' + S.h + '">Start your search</h3>' +
+        '<p style="' + S.sub + '">Type it or say it. When a verified home matches, we email you.</p>';
 
     var lc = legacyCount();
     if (lc) {
       html +=
         '<div style="' + S.warn + '">' +
           '<p style="' + S.warnTxt + 'font-weight:600;margin-bottom:6px;">' +
-            (lc === 1 ? "One alert needs" : lc + " alerts need") + ' a quick fix</p>' +
+            (lc === 1 ? "One search needs" : lc + " searches need") + ' a quick fix</p>' +
           '<p style="' + S.warnTxt + '">The deal breakers saved on ' + (lc === 1 ? "it" : "them") +
-          ' were recorded in an older format we can no longer read correctly, so we are ignoring them rather than guessing. Open the alert and re-pick them.</p>' +
+          ' were recorded in an older format we can no longer read correctly, so we are ignoring them rather than guessing. Open the search and re-pick them.</p>' +
         '</div>';
     }
 
     if (!n) {
       html +=
-        '<p style="' + S.itemLine + '">You have not set up an alert yet.</p>' +
         '<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;">' +
           '<button id="ra-voice" style="' + S.mic + '">Describe it out loud</button>' +
           '<button id="ra-new" style="' + S.ghost + '">Fill in a form instead</button>' +
@@ -595,29 +569,46 @@ const JS = `
         var brk = names(c.deal_breakers);
         var pets = petLine(c.pets);
         var legacy = (c.legacy_breakers || []).length;
+        var open = !!state.expanded[s.id];
+        var caret = open ? "\\u25be" : "\\u25b8";
+
+        // COLLAPSED HEAD. Name, status, one summary line. Nothing else.
+        // This is the whole height fix: everything below only renders when
+        // the renter asks for it.
         html +=
           '<div style="' + (s.enabled ? S.item : S.itemOff) + '">' +
-            '<p style="margin:0 0 2px;"><span style="' + S.itemName + '">' + esc(s.name) + '</span> ' +
-              '<span style="' + (s.enabled ? S.pillOn : S.pillOff) + '">' + (s.enabled ? "Running" : "Paused") + '</span>' +
-              (s.source === "voice" ? ' <span style="' + S.pillOff + '">by voice</span>' : "") + '</p>' +
-            (summaryText(c) ? '<p style="' + S.itemLine + '">' + esc(summaryText(c)) + '</p>' : "") +
-            (areaLine() ? '<p style="' + S.itemMuted + '">Areas: ' + esc(areaLine()) + '</p>' : "") +
-            (must ? '<p style="' + S.itemMuted + '">Must have: ' + esc(must) + '</p>' : "") +
-            (nice ? '<p style="' + S.itemMuted + '">Nice to have: ' + esc(nice) + '</p>' : "") +
-            (brk ? '<p style="' + S.itemMuted + '">Will not accept: ' + esc(brk) + '</p>' : "") +
-            (pets ? '<p style="' + S.itemMuted + '">Pets: ' + esc(pets) + '</p>' : "") +
-            (c.voucher ? '<p style="' + S.itemMuted + '">Using a voucher' + (c.voucher_program ? " (" + esc(c.voucher_program) + ")" : "") + '</p>' : "") +
-            (c.notes ? '<p style="' + S.itemMuted + '">Notes: ' + esc(c.notes) + '</p>' : "") +
-            (legacy ? '<p style="' + S.itemMuted + 'color:#a07c1c;">Deal breakers need re-picking</p>' : "") +
-            '<p style="' + S.itemMuted + 'margin-top:6px;">Created ' + esc(fmtDate(s.created)) +
-              (s.updated && s.updated.slice(0, 10) !== (s.created || "").slice(0, 10)
-                ? '  \\u00b7  updated ' + esc(fmtDate(s.updated)) : "") + '</p>' +
-            '<div style="' + S.acts + '">' +
-              '<button data-act="edit" data-i="' + i + '" style="' + S.ghost + '">Edit</button>' +
-              '<button data-act="toggle" data-i="' + i + '" style="' + S.ghost + '">' + (s.enabled ? "Pause" : "Resume") + '</button>' +
-              '<button data-act="del" data-i="' + i + '" style="' + S.link + '">Delete</button>' +
-            '</div>' +
-          '</div>';
+            '<div data-act="expand" data-i="' + i + '" style="cursor:pointer;">' +
+              '<p style="margin:0 0 2px;"><span style="' + S.itemName + '">' + esc(s.name) + '</span> ' +
+                '<span style="' + (s.enabled ? S.pillOn : S.pillOff) + '">' + (s.enabled ? "Running" : "Paused") + '</span>' +
+                (s.source === "voice" ? ' <span style="' + S.pillOff + '">by voice</span>' : "") +
+                (legacy ? ' <span style="' + S.pillOff + 'color:#a07c1c;">needs a fix</span>' : "") +
+                ' <span style="color:#9aa9bd;font-size:12px;">' + caret + '</span>' +
+              '</p>' +
+              (summaryText(c) ? '<p style="' + S.itemLine + 'margin:0;">' + esc(summaryText(c)) + '</p>' : "") +
+            '</div>';
+
+        if (open) {
+          html +=
+            '<div style="margin-top:8px;">' +
+              (must ? '<p style="' + S.itemMuted + '">Must have: ' + esc(must) + '</p>' : "") +
+              (nice ? '<p style="' + S.itemMuted + '">Nice to have: ' + esc(nice) + '</p>' : "") +
+              (brk ? '<p style="' + S.itemMuted + '">Will not accept: ' + esc(brk) + '</p>' : "") +
+              (pets ? '<p style="' + S.itemMuted + '">Pets: ' + esc(pets) + '</p>' : "") +
+              (c.voucher ? '<p style="' + S.itemMuted + '">Using a voucher' + (c.voucher_program ? " (" + esc(c.voucher_program) + ")" : "") + '</p>' : "") +
+              (c.notes ? '<p style="' + S.itemMuted + '">Notes: ' + esc(c.notes) + '</p>' : "") +
+              (legacy ? '<p style="' + S.itemMuted + 'color:#a07c1c;">Deal breakers need re-picking</p>' : "") +
+              '<p style="' + S.itemMuted + 'margin-top:6px;">Created ' + esc(fmtDate(s.created)) +
+                (s.updated && s.updated.slice(0, 10) !== (s.created || "").slice(0, 10)
+                  ? '  \\u00b7  updated ' + esc(fmtDate(s.updated)) : "") + '</p>' +
+              '<div style="' + S.acts + '">' +
+                '<button data-act="edit" data-i="' + i + '" style="' + S.ghost + '">Edit</button>' +
+                '<button data-act="toggle" data-i="' + i + '" style="' + S.ghost + '">' + (s.enabled ? "Pause" : "Resume") + '</button>' +
+                '<button data-act="del" data-i="' + i + '" style="' + S.link + '">Delete</button>' +
+              '</div>' +
+            '</div>';
+        }
+
+        html += '</div>';
       });
       html += '</div>';
 
@@ -626,7 +617,7 @@ const JS = `
         html += '<button id="ra-voice" style="' + S.mic + '">Describe another out loud</button>' +
                 '<button id="ra-new" style="' + S.ghost + '">Add with a form</button>';
       } else {
-        html += '<p style="' + S.itemMuted + '">You have reached the limit of ' + MAX + ' saved alerts. Delete one to add another.</p>';
+        html += '<p style="' + S.itemMuted + '">You have reached the limit of ' + MAX + ' saved searches. Delete one to add another.</p>';
       }
       html += '</div>';
     }
@@ -655,7 +646,7 @@ const JS = `
 
     html +=
       '<div id="ra-note" style="' + S.note + '"></div>' +
-      '<p style="font-size:12px;color:#7a8ba1;margin:14px 0 0;">No matches, no email. Turn alerts off any time, here or from any email we send.</p>';
+      '<p style="font-size:12px;color:#7a8ba1;margin:14px 0 0;">No matches, no email. Pause any search here, or from any email we send.</p>';
 
     wrap.innerHTML = html;
   }
@@ -694,13 +685,21 @@ const JS = `
 
     var list = document.getElementById("ra-list");
     if (list) {
-      var btns = list.querySelectorAll("button[data-act]");
+      // ac-v16: [data-act], not button[data-act] - the collapsed head is a
+      // clickable DIV so the whole row is the tap target, not a small caret.
+      var btns = list.querySelectorAll("[data-act]");
       for (var k = 0; k < btns.length; k++) {
         btns[k].onclick = function () {
           var act = this.getAttribute("data-act");
           var i = Number(this.getAttribute("data-i"));
           var s = state.searches[i];
           if (!s) return;
+
+          if (act === "expand") {
+            state.expanded[s.id] = !state.expanded[s.id];
+            render(mp);
+            return;
+          }
 
           if (act === "edit") {
             state.draft = {
@@ -718,7 +717,7 @@ const JS = `
           }
           if (act === "toggle") { s.enabled = !s.enabled; persist(mp, "Updated."); return; }
           if (act === "del") {
-            if (!window.confirm("Delete the alert \\"" + s.name + "\\"?")) return;
+            if (!window.confirm("Delete the search \\"" + s.name + "\\"?")) return;
             deleteSearch(mp, s.id);
           }
         };
@@ -975,11 +974,6 @@ const JS = `
         '</div>';
     } else {
       html += '<p style="' + S.sub + '">Three questions to start. Open Refine if you want to be precise, and the more precise you are the fewer and better the emails.</p>';
-    }
-
-    if (areaLine()) {
-      html += '<p style="' + S.itemMuted + 'margin:0 0 14px;">Searching in: ' + esc(areaLine()) +
-        '  \\u00b7  <a href="/account/locations" style="color:#5b6b82;">change</a></p>';
     }
 
     // ---- the three questions ----
@@ -1327,9 +1321,9 @@ const JS = `
   }
 
   // ---- boot ---------------------------------------------------------
-  // Schema and areas in parallel. Neither is allowed to stop the card:
-  // a missing schema hides the chip rows, a missing areas read hides the
-  // gate, and the core fields work either way.
+  // Schema only, as of ac-v16. The areas read is gone with the gate it fed.
+  // A missing schema hides the chip rows and the core fields still save;
+  // there is deliberately no fallback key list.
   function loadSchema() {
     return fetch(PREFS + "?schema=1")
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -1343,11 +1337,9 @@ const JS = `
       });
   }
 
-  Promise.all([loadAreas(), loadSchema()]).then(function (res) {
-    state.areas = res[0];
-    state.areasRead = res[0] !== null;
-    state.schema = res[1];
-    if (res[0]) console.log("[Renters alerts] areas", { zips: res[0].zips.length, labels: res[0].labels });
+  Promise.all([loadSchema()]).then(function (res) {
+    state.schema = res[0];
+    res = [null, res[0]];
     if (res[1]) {
       if (typeof res[1].mustHaveCap === "number") MUST_CAP = res[1].mustHaveCap;
       if (typeof res[1].maxSearches === "number") MAX = res[1].maxSearches;
