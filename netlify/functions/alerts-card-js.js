@@ -1,9 +1,49 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v16
+// alerts-card-js.js  —  ac-v17
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v17 CHANGE: ZONE AND PRICED OPTIONS. THE PICKER AND THE SEARCH ARE
+// ONE TOOL NOW. Requires ap-v10 (schema v4).
+//
+// 1. THE ZONE PICKER IS EMBEDDED IN THE FORM. zone-picker.html rides in
+//    an iframe with ?embed=1, which hides its own header and save row so
+//    the card owns the one Save button. The picker posts up
+//    renters_areas_zips carrying zips AND the polygon path; the card
+//    holds that on the draft and sends it to ap-v10 as search.zone.
+//    WHY IT IS A STEP AND NOT A PAGE: a renter used to set areas on
+//    /account/locations, then come back here and describe what they
+//    want, and the two halves were stored so far apart that a search
+//    could match inventory in a state the renter never asked about.
+//    Zone and criteria are one thought and are now one save.
+//    ⚠️ THE ZONE STILL WRITES TO BD SEPARATELY via window.rdcAreasAdd,
+//    which is head code and is NOT path gated. It has to stay
+//    client-side: add_service_area runs on the session cookie, and BD
+//    takes a 200 then discards a write carrying fake geo. No function
+//    can do it. So combining the UI does NOT combine the storage, and
+//    the zone landing on the search is what the matcher reads.
+//
+// 2. OPTIONS. A zone can hold up to four priced configurations. The
+//    case that forced it: one circle over SE Portland where the renter
+//    would take a house up to 2000, a condo up to 1000, or a room at
+//    750. One rent_max cannot say that, and three separate searches
+//    burn three of five slots pretending one hunt is three.
+//    Option one IS the three questions - nothing gets heavier for the
+//    renter who wants one thing. Extra options are compact rows added
+//    underneath, and ap-v10 mirrors option one back onto criteria so
+//    nothing reading the old shape breaks.
+//
+// 3. HOUSEHOLD IS ASKED ONCE, NOT PER SEARCH. It sits on the member.
+//    Live proof it needed to move: member 25 had household_kids 2 on one
+//    search and 3 on another. Two records disagreeing about one family.
+//    ⚖️ A COUNT AND AN ADULTS SPLIT ONLY. No ages, no relationships, no
+//    who-is-a-child. Occupancy against a landlord limit is arithmetic;
+//    inferring family status is not.
+//
+// 4. COLLAPSED ROWS SHOW THE ZONE NAME AS THE TITLE with its options
+//    listed under it, so a glance answers where and for how much.
 //
 // ac-v16 CHANGE: COLLAPSED ROWS, NEW COPY, AND THE AREA GATE IS GONE.
 //
@@ -128,9 +168,10 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v16";
+const FN_VERSION = "ac-v17";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
+const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
 
 // Cosmetic labels only. The authoritative key list comes from ?schema=1.
 const LABELS = {
@@ -200,9 +241,11 @@ const JS = `
   var V = "${FN_VERSION}";
   var PREFS = "${PREFS}";
   var VOICE = "${VOICE}";
+  var PICKER = "${PICKER}";
   var LABEL = ${JSON.stringify(LABELS)};
   var MAX = 5;
   var MUST_CAP = 3;
+  var MAX_OPTIONS = 4;
   console.log("[Renters alerts] version: " + V);
 
   function pretty(k) {
@@ -336,6 +379,8 @@ const JS = `
     warnTxt: "font-size:13px;color:#7a5c14;margin:0;line-height:1.5;",
     heard: "background:#f2f9f7;border:1px solid #cfe8e2;border-radius:11px;padding:14px 16px;margin:0 0 14px;",
     fold: "border-top:1px solid #eceff3;margin:18px 0 0;padding-top:16px;",
+    zoneBox: "background:#f7f9fc;border:1px solid #e3e8ef;border-radius:12px;padding:14px;margin-bottom:16px;",
+    optRow: "border:1px solid #e3e8ef;border-radius:10px;padding:10px;margin-bottom:8px;background:#fff;",
     consent: "border-top:1px solid #eceff3;margin:18px 0 0;padding-top:16px;",
     cRow: "display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;cursor:pointer;",
     cBox: "margin:2px 0 0;flex:0 0 auto;width:17px;height:17px;cursor:pointer;",
@@ -347,6 +392,7 @@ const JS = `
     searches: [], consent: { platform: false, off_platform: false },
     enabled: false, view: "list", editIdx: -1, draft: null,
     savedAt: null, busy: false, anchor: "", expanded: {},
+    household: null, pickerOpen: false, zoneWired: false,
     schema: null, showRefine: false,
     voice: { active: false, transcript: "", interim: "", status: "", rec: null, heard: "", unclear: [] }
   };
@@ -569,6 +615,7 @@ const JS = `
         var brk = names(c.deal_breakers);
         var pets = petLine(c.pets);
         var legacy = (c.legacy_breakers || []).length;
+        var opts = s.options || [];
         var open = !!state.expanded[s.id];
         var caret = open ? "\\u25be" : "\\u25b8";
 
@@ -584,12 +631,25 @@ const JS = `
                 (legacy ? ' <span style="' + S.pillOff + 'color:#a07c1c;">needs a fix</span>' : "") +
                 ' <span style="color:#9aa9bd;font-size:12px;">' + caret + '</span>' +
               '</p>' +
-              (summaryText(c) ? '<p style="' + S.itemLine + 'margin:0;">' + esc(summaryText(c)) + '</p>' : "") +
+              (s.zone && s.zone.name
+                ? '<p style="' + S.itemMuted + 'margin:0 0 2px;">' + esc(s.zone.name) +
+                  ((s.zone.zips || []).length ? '  \\u00b7  ' + s.zone.zips.length + ' zips' : "") + '</p>'
+                : "") +
+              (opts.length > 1
+                ? '<p style="' + S.itemLine + 'margin:0;">' + esc(opts.map(optLabel).join("  or  ")) + '</p>'
+                : (summaryText(c) ? '<p style="' + S.itemLine + 'margin:0;">' + esc(summaryText(c)) + '</p>' : "")) +
             '</div>';
 
         if (open) {
           html +=
             '<div style="margin-top:8px;">' +
+              (opts.length > 1
+                ? '<p style="' + S.itemMuted + '">Any of these works:</p>' +
+                  opts.map(function (o) {
+                    return '<p style="' + S.itemMuted + 'margin-left:10px;">' + esc(optLabel(o)) + '</p>';
+                  }).join("")
+                : "") +
+              (opts.length > 1 && summaryText(c) ? "" : "") +
               (must ? '<p style="' + S.itemMuted + '">Must have: ' + esc(must) + '</p>' : "") +
               (nice ? '<p style="' + S.itemMuted + '">Nice to have: ' + esc(nice) + '</p>' : "") +
               (brk ? '<p style="' + S.itemMuted + '">Will not accept: ' + esc(brk) + '</p>' : "") +
@@ -654,8 +714,47 @@ const JS = `
   function newDraft() {
     return {
       id: "", name: "", created: "", enabled: true, source: "form",
-      transcript_full: "", criteria: emptyCriteria()
+      transcript_full: "", criteria: emptyCriteria(),
+      // The zone the renter drew, straight off the picker message.
+      zone: null,
+      // Options TWO and beyond. Option one is always the three questions
+      // above, built from criteria at save time, so the primary is never
+      // held in two places that can disagree.
+      extra: []
     };
+  }
+
+  function emptyOption() {
+    return { unit_types: [], rent_max: null, beds: [], baths_min: null, label: "" };
+  }
+
+  function optLabel(o) {
+    if (!o) return "";
+    var bits = [];
+    if ((o.unit_types || []).length === 1) bits.push(pretty(o.unit_types[0]));
+    else if ((o.unit_types || []).length > 1) bits.push(o.unit_types.length + " types");
+    var b = bedsLabel(o.beds);
+    if (b) bits.push(b);
+    if (o.rent_max) bits.push("up to " + money(o.rent_max));
+    return bits.length ? bits.join(" ") : "Any place";
+  }
+
+  // The full options array as ap-v10 wants it: primary first, extras
+  // after. Built at save time from the two places the UI holds them.
+  function buildOptions(c, extra) {
+    var out = [{
+      unit_types: c.unit_types || [],
+      rent_max: c.rent_max,
+      rent_stretch: c.rent_stretch,
+      rent_basis: c.rent_basis,
+      beds: c.beds || [],
+      baths_min: c.baths_min,
+      label: ""
+    }];
+    (extra || []).forEach(function (o) {
+      if (o && (o.rent_max || (o.beds || []).length || (o.unit_types || []).length)) out.push(o);
+    });
+    return out.slice(0, MAX_OPTIONS);
   }
 
   function wireList(mp) {
@@ -705,6 +804,10 @@ const JS = `
             state.draft = {
               id: s.id, name: s.name, created: s.created,
               enabled: s.enabled, source: s.source || "form", transcript_full: "",
+              zone: s.zone ? JSON.parse(JSON.stringify(s.zone)) : null,
+              // Option one lives in criteria and is rendered by the three
+              // questions, so only two-and-beyond come into extra.
+              extra: JSON.parse(JSON.stringify((s.options || []).slice(1))),
               criteria: JSON.parse(JSON.stringify(s.criteria || emptyCriteria()))
             };
             state.editIdx = i;
@@ -961,7 +1064,7 @@ const JS = `
     var legacy = (c.legacy_breakers || []).length;
 
     var html =
-      '<h3 style="' + S.h + '">' + (isNew ? "New alert" : "Edit alert") + '</h3>';
+      '<h3 style="' + S.h + '">' + (isNew ? "New search" : "Edit search") + '</h3>';
 
     if (state.voice.heard) {
       html +=
@@ -973,8 +1076,40 @@ const JS = `
             : '') +
         '</div>';
     } else {
-      html += '<p style="' + S.sub + '">Three questions to start. Open Refine if you want to be precise, and the more precise you are the fewer and better the emails.</p>';
+      html += '<p style="' + S.sub + '">Where first, then what would work there. Open Refine if you want to be precise, and the more precise you are the fewer and better the emails.</p>';
     }
+
+    // ---- STEP ONE: WHERE ----------------------------------------------
+    // The picker is the same file /account/locations embeds, with
+    // ?embed=1 so it drops its own header and save row. One Save button
+    // on this card, never two that say the same thing.
+    html += '<div style="' + S.zoneBox + '">' +
+      '<span style="' + S.lab + '">Where do you want to live?</span>';
+
+    if (d.zone && d.zone.name) {
+      html +=
+        '<p style="font-size:15px;font-weight:700;color:#0f2545;margin:2px 0 2px;">' + esc(d.zone.name) + '</p>' +
+        '<p style="' + S.itemMuted + 'margin:0 0 8px;">' + (d.zone.zips || []).length + ' zip code' +
+          ((d.zone.zips || []).length === 1 ? "" : "s") + ' in this area</p>' +
+        '<button id="ra-zone-open" style="' + S.ghost + '">' + (state.pickerOpen ? "Hide the map" : "Redraw this area") + '</button>';
+    } else {
+      html +=
+        '<p style="' + S.hint + 'margin:2px 0 8px;">Draw the area you would actually live in. Everything you say next applies inside it.</p>' +
+        '<button id="ra-zone-open" style="' + S.ghost + '">' + (state.pickerOpen ? "Hide the map" : "Draw an area on the map") + '</button>';
+    }
+
+    if (state.pickerOpen) {
+      html +=
+        '<div style="margin-top:10px;border:1px solid #e3e8ef;border-radius:10px;overflow:hidden;">' +
+          '<iframe id="ra-picker" src="' + PICKER + '?embed=1" ' +
+            'style="width:100%;height:460px;border:0;display:block;" ' +
+            'allow="geolocation"></iframe>' +
+        '</div>' +
+        '<button id="ra-zone-use" style="' + S.ghost + 'margin-top:8px;">Use this area</button>' +
+        '<span id="ra-zone-msg" style="' + S.hint + 'display:block;margin-top:6px;"></span>';
+    }
+
+    html += '</div>';
 
     // ---- the three questions ----
     html +=
@@ -991,8 +1126,53 @@ const JS = `
         '<div style="flex:1;min-width:150px;"><span style="' + S.lab + '">Need to be in by</span>' +
           '<input id="ra-move-l" type="date" value="' + esc(val(c.move_in_latest)) + '" style="' + S.inp + '"></div>' +
       '</div>' +
-      '<div style="margin-bottom:14px;"><span style="' + S.lab + '">Name this alert</span>' +
-        '<input id="ra-name" maxlength="40" placeholder="2BR near the light rail" value="' + esc(d.name) + '" style="' + S.inp + '"></div>';
+      '<div style="margin-bottom:14px;"><span style="' + S.lab + '">Name this search</span>' +
+        '<input id="ra-name" maxlength="40" placeholder="' + esc((d.zone && d.zone.name) || "2BR near the light rail") + '" value="' + esc(d.name) + '" style="' + S.inp + '"></div>';
+
+    // ---- OTHER THINGS THAT WOULD WORK, EACH AT ITS OWN PRICE ---------
+    // The whole reason schema v4 exists. Same area, different thing,
+    // different number: a house at 2000 OR a condo at 1000 OR a room at
+    // 750. Empty by default - a renter who wants one thing never sees a
+    // row here.
+    html +=
+      '<div style="margin-bottom:14px;">' +
+        '<span style="' + S.lab + '">Would something else work here?</span>' +
+        '<span style="' + S.hint + '">A different kind of place at a different price. We only send one if it fits that price.</span>' +
+        '<div id="ra-opts">';
+
+    (d.extra || []).forEach(function (o, oi) {
+      html +=
+        '<div style="' + S.optRow + '">' +
+          '<div style="' + S.row + 'margin-bottom:0;">' +
+            '<div style="flex:1;min-width:120px;"><select id="ra-opt-type-' + oi + '" style="' + S.inp + '">' +
+              '<option value="">Any type</option>' +
+              sc("unitTypes").map(function (u) {
+                return '<option value="' + esc(u) + '"' +
+                  ((o.unit_types || [])[0] === u ? " selected" : "") + '>' + esc(pretty(u)) + '</option>';
+              }).join("") +
+            '</select></div>' +
+            '<div style="flex:1;min-width:110px;">' +
+              '<input id="ra-opt-rent-' + oi + '" type="number" inputmode="numeric" placeholder="Up to" value="' +
+                esc(val(o.rent_max)) + '" style="' + S.inp + '"></div>' +
+            '<div style="flex:1;min-width:110px;"><select id="ra-opt-beds-' + oi + '" style="' + S.inp + '">' +
+              '<option value="">Any size</option>' +
+              sc("bedSizes").map(function (b) {
+                return '<option value="' + esc(b) + '"' +
+                  ((o.beds || [])[0] === b ? " selected" : "") + '>' + esc(pretty(b)) + '</option>';
+              }).join("") +
+            '</select></div>' +
+          '</div>' +
+          '<button data-optdel="' + oi + '" style="' + S.link + 'margin-top:6px;">Remove</button>' +
+        '</div>';
+    });
+
+    html += '</div>';
+    if ((d.extra || []).length < MAX_OPTIONS - 1) {
+      html += '<button id="ra-addopt" style="' + S.ghost + '">Add another option</button>';
+    } else {
+      html += '<p style="' + S.itemMuted + '">That is the limit of ' + MAX_OPTIONS + ' options on one area.</p>';
+    }
+    html += '</div>';
 
     // ---- refine ----
     html += '<div style="' + S.fold + '">' +
@@ -1137,12 +1317,30 @@ const JS = `
     c.move_in_latest = s("ra-move-l") || null;
     state.draft.name = s("ra-name");
 
+    // Extra options. Read back into the draft so a re-render (opening
+    // Refine, toggling the map) never loses a half-typed row.
+    (state.draft.extra || []).forEach(function (o, oi) {
+      var t = s("ra-opt-type-" + oi);
+      var b = s("ra-opt-beds-" + oi);
+      o.unit_types = t ? [t] : [];
+      o.beds = b ? [b] : [];
+      o.rent_max = n("ra-opt-rent-" + oi);
+    });
+
     if (state.showRefine) {
       c.rent_stretch = n("ra-stretch");
       c.rent_basis = s("ra-basis") || null;
       c.baths_min = n("ra-baths");
       c.household_adults = n("ra-adults");
       c.household_kids = n("ra-kids");
+      // Household belongs to the MEMBER as of ap-v10. The two criteria
+      // fields above are still written for back compat, but this is the
+      // copy that is authoritative and it is sent once, not per search.
+      var ha = n("ra-adults");
+      var hk = n("ra-kids");
+      if (ha !== null || hk !== null) {
+        state.household = { adults: ha, total: (ha || 0) + (hk || 0) };
+      }
       var vb = el("ra-voucher");
       c.voucher = !!(vb && vb.checked);
       c.voucher_program = s("ra-voucher-prog");
@@ -1169,6 +1367,97 @@ const JS = `
   function wireForm(mp) {
     redrawChips();
 
+    // ---- zone picker ----
+    var zo = document.getElementById("ra-zone-open");
+    if (zo) zo.onclick = function () {
+      readForm();
+      state.pickerOpen = !state.pickerOpen;
+      render(mp);
+    };
+
+    var zu = document.getElementById("ra-zone-use");
+    if (zu) zu.onclick = function () {
+      var f = document.getElementById("ra-picker");
+      var msg = document.getElementById("ra-zone-msg");
+      if (!f || !f.contentWindow) return;
+      if (msg) msg.textContent = "Saving that area...";
+      // zp-v4 contract: the host asks, the picker saves and answers.
+      f.contentWindow.postMessage({ type: "renters_areas_save" }, "*");
+    };
+
+    if (!state.zoneWired) {
+      state.zoneWired = true;
+      window.addEventListener("message", function (e) {
+        var d = e.data;
+        if (!d || !d.type) return;
+        var msg = document.getElementById("ra-zone-msg");
+
+        if (d.type === "renters_areas_none") {
+          if (msg) msg.textContent = "Draw an area on the map first.";
+          return;
+        }
+        if (d.type === "renters_areas_busy") {
+          if (msg) msg.textContent = "Working on it...";
+          return;
+        }
+        if (d.type !== "renters_areas_zips") return;
+        if (!state.draft) return;
+
+        var zones = d.zones || [];
+        var z = zones[0] || null;
+        if (!z) return;
+
+        // ONE zone per search. A renter drawing three shapes in one
+        // sitting is describing three searches, and merging them here
+        // would rebuild the undifferentiated pool this whole change
+        // exists to kill.
+        state.draft.zone = {
+          name: z.name || "",
+          zips: z.zips || [],
+          custom: z.custom === true,
+          path: z.path || []
+        };
+        if (!state.draft.name) state.draft.name = (z.name || "").slice(0, 40);
+
+        // The zips ALSO go to BD as service areas, because that write can
+        // only happen client-side on the session cookie. rdcAreasAdd is
+        // head code and is not path gated. Absent, the search still saves
+        // with its zone - this is bookkeeping, not the match key.
+        try {
+          if (typeof window.rdcAreasAdd === "function") {
+            window.rdcAreasAdd(d.zips || [], zones);
+          }
+        } catch (err) {
+          console.log("[Renters alerts] rdcAreasAdd unavailable", err);
+        }
+
+        state.pickerOpen = false;
+        render(mp);
+      });
+    }
+
+    // ---- options ----
+    var ao = document.getElementById("ra-addopt");
+    if (ao) ao.onclick = function () {
+      readForm();
+      state.draft.extra = state.draft.extra || [];
+      if (state.draft.extra.length < MAX_OPTIONS - 1) state.draft.extra.push(emptyOption());
+      render(mp);
+    };
+
+    var optWrap = document.getElementById("ra-opts");
+    if (optWrap) {
+      var dels = optWrap.querySelectorAll("button[data-optdel]");
+      for (var q = 0; q < dels.length; q++) {
+        dels[q].onclick = function () {
+          readForm();
+          var oi = Number(this.getAttribute("data-optdel"));
+          state.draft.extra.splice(oi, 1);
+          render(mp);
+        };
+      }
+    }
+
     var rf = document.getElementById("ra-refine");
     if (rf) rf.onclick = function () {
       readForm();
@@ -1189,10 +1478,13 @@ const JS = `
       readForm();
       var c = state.draft.criteria;
 
-      if (!hasSomething(c)) {
+      // A drawn zone is enough on its own. Refusing to save one because
+      // no price is typed yet throws away the work the renter just did on
+      // the map, which is the most expensive thing on this form.
+      if (!hasSomething(c) && !state.draft.zone && !(state.draft.extra || []).length) {
         var note = document.getElementById("ra-note");
         note.style.color = "#b3261e";
-        note.textContent = "Add at least one thing to match on.";
+        note.textContent = "Draw an area or add at least one thing to match on.";
         return;
       }
 
@@ -1203,6 +1495,8 @@ const JS = `
         enabled: state.draft.enabled !== false,
         source: state.draft.source || "form",
         transcript_full: state.draft.transcript_full || "",
+        zone: state.draft.zone || null,
+        options: buildOptions(c, state.draft.extra),
         criteria: c
       };
 
@@ -1234,6 +1528,7 @@ const JS = `
       platform: !!d.consent.platform,
       off_platform: !!d.consent.off_platform
     };
+    if (d.household) state.household = d.household;
     state.savedAt = stamp();
   }
 
@@ -1247,7 +1542,10 @@ const JS = `
       body: JSON.stringify({
         memberId: id,
         searches: state.searches,
-        consent: state.consent
+        consent: state.consent,
+        // Omitted rather than nulled when unknown: ap-v10 PRESERVES a
+        // stored household on an absent key and would clear it on a null.
+        household: state.household || undefined
       })
     }).then(function (r) { return r.json(); }).then(function (d) {
       state.busy = false;
