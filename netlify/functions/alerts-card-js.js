@@ -1,9 +1,40 @@
 // ==================================================================
-// alerts-card-js.js  —  ac-v17
+// alerts-card-js.js  —  ac-v18
 // Daily listing alerts card for /account/home. Served from Netlify;
 // head code carries only the 6-line loader stub.
 //
 // Backend: alerts-prefs.js ap-v8. Voice: alerts-voice.js av-v1.
+//
+// ac-v18 CHANGE: BOTH DOORS START WITH THE ZONE, AND BOTH HAVE AN EXIT.
+//
+// 1. THE VOICE VIEW NOW CARRIES THE ZONE BLOCK. ac-v17 put it on the
+//    form only, and voice is the FIRST button a renter sees - so the
+//    main entrance never asked where. That matters more than it looks:
+//    alerts-voice DELIBERATELY IGNORES PLACE NAMES, so nothing else on
+//    that path would ever have captured a location, and the search would
+//    save with no zone at all.
+//    zoneBlockHtml() is now one definition rendered by both views, and
+//    wireZone() binds it for both. Two copies of a picker embed is how
+//    the two halves drift apart again.
+//    The draft is created when the renter taps into voice, not when the
+//    proposal returns, so a zone picked BEFORE talking is still on the
+//    draft afterwards rather than being wiped by the incoming criteria.
+//
+// 2. THE VOICE VIEW HAD NO WAY OUT. Its only escape was "Type it
+//    instead", which is a route FORWARD. A renter who opened it by
+//    mistake was stuck on the first screen of the product. Cancel now
+//    sits beside it on both the supported and unsupported branches.
+//
+// 3. "Pick your zone" replaces "Draw an area on the map", and "Change
+//    your zone" replaces "Redraw this area". The box above already
+//    explains the mechanism; the button should start the thing.
+//
+// 4. "Save this alert" was the last straggler of the v68 vocabulary on
+//    this surface. It says search now, like everything around it.
+//
+// ⚠️ THE MESSAGE LISTENER IS BOUND ONCE, GUARDED BY state.zoneWired.
+// render() runs on every tap; a listener added per render would fire N
+// times on a single picker message and write the zone N times.
 //
 // ac-v17 CHANGE: ZONE AND PRICED OPTIONS. THE PICKER AND THE SEARCH ARE
 // ONE TOOL NOW. Requires ap-v10 (schema v4).
@@ -168,7 +199,7 @@
 // timer. previousElementSibling, never previousSibling.
 // ==================================================================
 
-const FN_VERSION = "ac-v17";
+const FN_VERSION = "ac-v18";
 const PREFS = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-prefs";
 const VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
@@ -769,6 +800,8 @@ const JS = `
 
     var vb = document.getElementById("ra-voice");
     if (vb) vb.onclick = function () {
+      // The draft is created HERE, before the mic, so a zone picked on the
+      // voice screen is already on it when the proposal lands.
       state.draft = newDraft();
       state.editIdx = -1;
       state.showRefine = false;
@@ -842,11 +875,48 @@ const JS = `
     return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   }
 
+  // ONE zone block, rendered by BOTH the voice view and the form view.
+  // Kenny's call, and it is right: whichever button a renter taps, the
+  // first question is where. av-v1 deliberately ignores place names, so
+  // a renter who talks would otherwise never be asked at all - which is
+  // how a search ends up matching inventory in a state nobody mentioned.
+  function zoneBlockHtml(d) {
+    var html = '<div style="' + S.zoneBox + '">' +
+      '<span style="' + S.lab + '">Where do you want to live?</span>';
+
+    if (d.zone && d.zone.name) {
+      html +=
+        '<p style="font-size:15px;font-weight:700;color:#0f2545;margin:2px 0 2px;">' + esc(d.zone.name) + '</p>' +
+        '<p style="' + S.itemMuted + 'margin:0 0 8px;">' + (d.zone.zips || []).length + ' zip code' +
+          ((d.zone.zips || []).length === 1 ? "" : "s") + ' in this area</p>' +
+        '<button id="ra-zone-open" style="' + S.ghost + '">' + (state.pickerOpen ? "Hide the map" : "Change your zone") + '</button>';
+    } else {
+      html +=
+        '<p style="' + S.hint + 'margin:2px 0 8px;">Draw the area you would actually live in. Everything you say next applies inside it.</p>' +
+        '<button id="ra-zone-open" style="' + S.ghost + '">' + (state.pickerOpen ? "Hide the map" : "Pick your zone") + '</button>';
+    }
+
+    if (state.pickerOpen) {
+      html +=
+        '<div style="margin-top:10px;border:1px solid #e3e8ef;border-radius:10px;overflow:hidden;">' +
+          '<iframe id="ra-picker" src="' + PICKER + '?embed=1" ' +
+            'style="width:100%;height:460px;border:0;display:block;" ' +
+            'allow="geolocation"></iframe>' +
+        '</div>' +
+        '<button id="ra-zone-use" style="' + S.ghost + 'margin-top:8px;">Use this area</button>' +
+        '<span id="ra-zone-msg" style="' + S.hint + 'display:block;margin-top:6px;"></span>';
+    }
+
+    return html + '</div>';
+  }
+
   function renderVoice(wrap) {
     var supported = speechSupported();
+    var d = state.draft || newDraft();
     var html =
       '<h3 style="' + S.h + '">Tell us what you are looking for</h3>' +
-      '<p style="' + S.sub + '">Say it however you would say it to a friend. Budget, size, timing, pets, anything that matters. We will fill in the form and you can fix anything we get wrong.</p>';
+      '<p style="' + S.sub + '">Where first, then say the rest however you would say it to a friend. Budget, size, timing, pets, anything that matters. We will fill in the form and you can fix anything we get wrong.</p>' +
+      zoneBlockHtml(d);
 
     if (supported) {
       html +=
@@ -861,6 +931,10 @@ const JS = `
           (state.voice.transcript && !state.voice.active
             ? '<button id="ra-use" style="' + S.btn + '">Use this</button>' : "") +
           '<button id="ra-vcancel" style="' + S.link + '">Type it instead</button>' +
+          // A DEAD END WAS THE BUG: "Type it instead" is a route FORWARD,
+          // not a way back, so a renter who opened this by mistake was
+          // stuck on it. Every view gets an exit.
+          '<button id="ra-vback" style="' + S.link + '">Cancel</button>' +
         '</div>';
     } else {
       html +=
@@ -869,6 +943,7 @@ const JS = `
         '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
           '<button id="ra-use" style="' + S.btn + '">Use this</button>' +
           '<button id="ra-vcancel" style="' + S.link + '">Use the form instead</button>' +
+          '<button id="ra-vback" style="' + S.link + '">Cancel</button>' +
         '</div>';
     }
 
@@ -904,9 +979,24 @@ const JS = `
   }
 
   function wireVoice(mp) {
+    // false: there is no form on this view to read.
+    wireZone(mp, false);
+
     var rec = document.getElementById("ra-rec");
     var use = document.getElementById("ra-use");
     var cancel = document.getElementById("ra-vcancel");
+
+    var back = document.getElementById("ra-vback");
+    if (back) back.onclick = function () {
+      stopRec();
+      state.view = "list";
+      state.draft = null;
+      state.editIdx = -1;
+      state.pickerOpen = false;
+      state.voice.heard = "";
+      state.voice.unclear = [];
+      render(mp);
+    };
 
     if (cancel) cancel.onclick = function () {
       stopRec();
@@ -1080,36 +1170,8 @@ const JS = `
     }
 
     // ---- STEP ONE: WHERE ----------------------------------------------
-    // The picker is the same file /account/locations embeds, with
-    // ?embed=1 so it drops its own header and save row. One Save button
-    // on this card, never two that say the same thing.
-    html += '<div style="' + S.zoneBox + '">' +
-      '<span style="' + S.lab + '">Where do you want to live?</span>';
-
-    if (d.zone && d.zone.name) {
-      html +=
-        '<p style="font-size:15px;font-weight:700;color:#0f2545;margin:2px 0 2px;">' + esc(d.zone.name) + '</p>' +
-        '<p style="' + S.itemMuted + 'margin:0 0 8px;">' + (d.zone.zips || []).length + ' zip code' +
-          ((d.zone.zips || []).length === 1 ? "" : "s") + ' in this area</p>' +
-        '<button id="ra-zone-open" style="' + S.ghost + '">' + (state.pickerOpen ? "Hide the map" : "Redraw this area") + '</button>';
-    } else {
-      html +=
-        '<p style="' + S.hint + 'margin:2px 0 8px;">Draw the area you would actually live in. Everything you say next applies inside it.</p>' +
-        '<button id="ra-zone-open" style="' + S.ghost + '">' + (state.pickerOpen ? "Hide the map" : "Draw an area on the map") + '</button>';
-    }
-
-    if (state.pickerOpen) {
-      html +=
-        '<div style="margin-top:10px;border:1px solid #e3e8ef;border-radius:10px;overflow:hidden;">' +
-          '<iframe id="ra-picker" src="' + PICKER + '?embed=1" ' +
-            'style="width:100%;height:460px;border:0;display:block;" ' +
-            'allow="geolocation"></iframe>' +
-        '</div>' +
-        '<button id="ra-zone-use" style="' + S.ghost + 'margin-top:8px;">Use this area</button>' +
-        '<span id="ra-zone-msg" style="' + S.hint + 'display:block;margin-top:6px;"></span>';
-    }
-
-    html += '</div>';
+    // Same block the voice view renders. One definition, two hosts.
+    html += zoneBlockHtml(d);
 
     // ---- the three questions ----
     html +=
@@ -1272,7 +1334,7 @@ const JS = `
 
     html +=
       '<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">' +
-        '<button id="ra-save" style="' + S.btn + '">' + (isNew ? "Save this alert" : "Save changes") + '</button>' +
+        '<button id="ra-save" style="' + S.btn + '">' + (isNew ? "Save this search" : "Save changes") + '</button>' +
         '<button id="ra-cancel" style="' + S.ghost + '">Cancel</button>' +
       '</div>' +
       '<div id="ra-note" style="' + S.note + '"></div>';
@@ -1364,13 +1426,14 @@ const JS = `
     }
   }
 
-  function wireForm(mp) {
-    redrawChips();
-
-    // ---- zone picker ----
+  // ZONE WIRING, SHARED BY BOTH VIEWS. The form reads its inputs before
+  // re-rendering; the voice view has none to read, so the caller says
+  // whether a readForm() is safe. Calling it from the voice view would
+  // dereference form fields that do not exist.
+  function wireZone(mp, readsForm) {
     var zo = document.getElementById("ra-zone-open");
     if (zo) zo.onclick = function () {
-      readForm();
+      if (readsForm) readForm();
       state.pickerOpen = !state.pickerOpen;
       render(mp);
     };
@@ -1385,6 +1448,8 @@ const JS = `
       f.contentWindow.postMessage({ type: "renters_areas_save" }, "*");
     };
 
+    // Bound ONCE for the life of the card. render() runs on every tap and
+    // a listener added per render would fire N times on one message.
     if (!state.zoneWired) {
       state.zoneWired = true;
       window.addEventListener("message", function (e) {
@@ -1401,7 +1466,7 @@ const JS = `
           return;
         }
         if (d.type !== "renters_areas_zips") return;
-        if (!state.draft) return;
+        if (!state.draft) state.draft = newDraft();
 
         var zones = d.zones || [];
         var z = zones[0] || null;
@@ -1435,6 +1500,12 @@ const JS = `
         render(mp);
       });
     }
+  }
+
+  function wireForm(mp) {
+    redrawChips();
+
+    wireZone(mp, true);
 
     // ---- options ----
     var ao = document.getElementById("ra-addopt");
