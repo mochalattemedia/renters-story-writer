@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v19">
+<meta name="rdc-version" content="shell-v20">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v19
+/* ============================================================ shell-v20
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -655,7 +655,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v19';
+  var V = 'shell-v20';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -881,6 +881,22 @@ a{color:var(--teal)}
       'calc(env(safe-area-inset-top) + 24px)';
   }
 
+  /* 🔴 ONE PLACE SETS THE TOP-BAR AVATAR. It used to be a line inside
+     boot's real path, and the demo returns BEFORE that line - so the demo
+     rendered the element with no src and showed a grey circle on every
+     tab. A second entry point that skips a step is exactly the shape of
+     bug that keeps happening in this file. */
+  function paintAvatar() {
+    var el = $('av');
+    if (!el) return;
+    if (S.profile && S.profile.photo) {
+      el.src = S.profile.photo;
+      el.hidden = false;
+    } else {
+      el.hidden = true;
+    }
+  }
+
   function boot() {
     return Promise.all([
       withTimeout(
@@ -899,6 +915,7 @@ a{color:var(--teal)}
          rather than a second invented list that could drift from it. */
       if (DEMO) {
         loadDemo();
+        paintAvatar();
         try { buildChips(); } catch (e) { keep(e, 'buildChips'); }
         $('boot').classList.add('off');
         try { badges(); } catch (e) { keep(e, 'badges'); }
@@ -947,7 +964,7 @@ a{color:var(--teal)}
         return;
       }
 
-      if (S.profile.photo) { $('av').src = S.profile.photo; $('av').hidden = false; }
+      paintAvatar();
 
       /* 🔴 OPEN ON WHAT THE FIRST SCREEN NEEDS, FETCH THE REST BEHIND IT.
          v10 waited on all five reads before showing anything, and because
@@ -2100,6 +2117,8 @@ a{color:var(--teal)}
     /* Back and the mark occupy the same slot. A row carrying both reads as
        two logos and pushes the title into a second line on a small phone. */
     $('mk').style.display = deep ? 'none' : '';
+    /* Hidden on the Me tab, where the photo is already the first thing on
+       the screen, and hidden entirely when there is no photo to show. */
     $('av').hidden = !(S.profile && S.profile.photo) || v === 'me';
     $('actBar').classList.toggle('hidden', !c.act);
     if (c.cta) {
