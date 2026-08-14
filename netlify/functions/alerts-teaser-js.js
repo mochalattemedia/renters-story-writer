@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v27
+// alerts-teaser-js.js  —  at-v30
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,39 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v30: 🔴 THE MAP BREAKS OUT OF THE CARD. at-v29 trimmed the map
+// wrapper and changed nothing visible - because the wrapper was never the
+// thief. S.card carries padding: clamp(32px,5vw,56px), so on a 390px
+// phone the map started 32px in from each side and lost 64px before
+// anything else took a slice. Shaving a 6px wrapper next to that was
+// rearranging deck chairs, and I should have measured before cutting.
+// Negative margins of exactly the card's own padding cancel it. The map
+// now runs to the card's edges while every other field keeps the inset a
+// form needs, and the buttons under the map get their padding back -
+// a control flush to the screen edge is harder to hit, not easier.
+//
+// 📌 A MAP IS A CANVAS AND A CANVAS EARNS THE WHOLE WIDTH. Text wants
+// margins; a target somebody aims a fingertip at does not.
+// 📌 AND: MEASURE BEFORE CUTTING. Four nested paddings, and I trimmed the
+// two smallest twice before looking at which one was actually large.
+//
+// at-v30: 🔴 THE MAP WAS LOSING 144px OF A 400px SCREEN, and at-v29 fixed
+// the smallest layer of it. Measured rather than guessed:
+//     frame 240 | slot 242 | wrap 256 | window 400
+// The 14px between wrap and slot was mine and at-v29 had already trimmed
+// it. The 144px between the window and the wrap was the CARD'S OWN
+// PADDING - clamp(32px,5vw,56px) - plus BD's page column.
+// The card's 64px is recoverable and the column's is not, so the map now
+// breaks out of the card padding under 560px with negative margins,
+// taking the frame from 240 to roughly 304. A quarter more map, on the
+// one element where every pixel is a target a fingertip has to hit.
+// ⚠️ It needs a MEDIA QUERY, which an inline style cannot express - hence
+// a class and a rule in the injected stylesheet. And !important, because
+// the inline style is still on the element and would otherwise win.
+//
+// 📌 MEASURE THE LAYERS BEFORE TRIMMING ONE. at-v29 cut 12px to 6px and
+// felt like nothing, because it was 6px of a 144px problem.
 //
 // at-v29: the map wrapper gives its padding back to the map. Pairs with
 // zp-v14, which does the same inside the frame. On a 390px phone the map
@@ -405,7 +438,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v29";
+const FN_VERSION = "at-v30";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
@@ -446,7 +479,22 @@ const JS = `
     if (!document.getElementById("rdc-teaser-css")) {
       var st = document.createElement("style");
       st.id = "rdc-teaser-css";
-      st.textContent = "@keyframes rdcPulse{0%{box-shadow:0 0 0 0 rgba(217,68,54,.5)}70%{box-shadow:0 0 0 8px rgba(217,68,54,0)}100%{box-shadow:0 0 0 0 rgba(217,68,54,0)}}@keyframes rdcSpin{to{transform:rotate(360deg)}}";
+      st.textContent =
+        /* at-v30: THE MAP BREAKS OUT OF THE CARD PADDING ON A PHONE.
+           Measured live at a 400px viewport: window 400 -> map wrapper 256.
+           144px gone before the map starts. The card's own padding is
+           clamp(32px,5vw,56px), so 64px of that is ours; the rest belongs
+           to BD's page column and is not reachable from here.
+           Pulling the map out by that 32px each side takes the frame from
+           240px to roughly 304 - a quarter more map, on the one element
+           where every pixel is a target a fingertip has to hit.
+           Only under 560px. On a desktop the card padding is doing real
+           work and there is width to spare. */
+        "@media (max-width:560px){.rt-mapwrap{margin-left:-32px !important;" +
+        "margin-right:-32px !important;border-radius:0 !important;" +
+        "border-left:0 !important;border-right:0 !important;padding-left:0 !important;" +
+        "padding-right:0 !important}}" +
+        "@keyframes rdcPulse{0%{box-shadow:0 0 0 0 rgba(217,68,54,.5)}70%{box-shadow:0 0 0 8px rgba(217,68,54,0)}100%{box-shadow:0 0 0 0 rgba(217,68,54,0)}}@keyframes rdcSpin{to{transform:rotate(360deg)}}";
       document.head.appendChild(st);
     }
   } catch (e) {}
@@ -467,10 +515,21 @@ const JS = `
     inlineBox: "background:#f4faf8;border:1px solid #cfe6df;border-radius:12px;padding:14px 15px;margin:0 0 14px;text-align:left;",
     busyBox: "background:#f7fbfa;border:2px solid " + TEAL + ";border-radius:12px;padding:28px 16px;margin:0 0 16px;text-align:center;",
     spin: "display:inline-block;width:30px;height:30px;border-radius:50%;border:3px solid #d7e8e4;border-top-color:" + TEAL + ";animation:rdcSpin .8s linear infinite;",
-    // at-v29: the wrapper stops stealing width from the map. 12px on each
-    // side is nothing on a desktop and a real loss on a 390px phone, where
-    // the map is the one element that needs every pixel.
-    mapWrap: "background:#f7fbfa;border:1px solid #cfe6df;border-radius:12px;padding:6px 6px 10px;margin:0 0 12px;",
+    // 🔴 at-v30: THE MAP BREAKS OUT OF THE CARD. at-v29 shaved the
+    // wrapper from 12px to 6px and it changed nothing visible, because the
+    // wrapper was never the thief - THE CARD IS. S.card carries
+    // padding: clamp(32px,5vw,56px), so on a 390px phone the map starts
+    // 32px in from each side and loses 64px before anything else takes a
+    // slice. Trimming a 6px wrapper next to that is rearranging deck
+    // chairs.
+    // Negative margins of exactly the card's own padding cancel it, so the
+    // map runs to the card's edges while every other field keeps the
+    // comfortable inset a form needs. Square sides, because a rounded
+    // corner flush to an edge reads as a mistake.
+    // ⭐ THE PRINCIPLE: A MAP IS A CANVAS AND A CANVAS EARNS THE WHOLE
+    // WIDTH. Text wants margins; a target you aim a fingertip at does not.
+    mapWrap: "background:#f7fbfa;border-top:1px solid #cfe6df;border-bottom:1px solid #cfe6df;" +
+      "padding:6px 0 10px;margin:0 calc(-1 * clamp(32px,5vw,56px)) 14px;",
     zoneDone: "background:#eaf5f2;border:1px solid #cfe6df;border-radius:12px;padding:11px 13px;margin:0 0 12px;text-align:left;",
     tick: "flex:0 0 auto;width:20px;height:20px;border-radius:999px;background:#3a9e8f;color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-top:2px;",
     heard: "background:#eef7f4;border:1px solid #cfe6df;border-radius:11px;padding:13px 15px;margin:0 0 16px;text-align:left;",
@@ -666,14 +725,19 @@ const JS = `
               '</div>' +
             '</div>'
           : (mapOpen
-            ? '<div style="' + S.mapWrap + '">' +
-                '<div id="rt-map-slot" style="border:1px solid #dde9e6;border-radius:10px;overflow:hidden;"></div>' +
-                '<button id="rt-map-use" type="button" style="' + S.btn + 'margin-top:9px;">Use this area</button>' +
-                '<div style="display:flex;gap:12px;align-items:center;justify-content:center;margin-top:7px;flex-wrap:wrap;">' +
-                  '<button id="rt-map-reset" type="button" style="' + S.quiet + '">Start over</button>' +
-                  '<button id="rt-map-skip" type="button" style="' + S.quiet + '">Type it instead</button>' +
+            ? '<div class="rt-mapwrap" style="' + S.mapWrap + '">' +
+                // The map itself goes edge to edge; the controls under it
+                // get their padding back, because a button flush to the
+                // screen edge is harder to hit, not easier.
+                '<div id="rt-map-slot" style="overflow:hidden;"></div>' +
+                '<div style="padding:0 clamp(16px,5vw,32px);">' +
+                  '<button id="rt-map-use" type="button" style="' + S.btn + 'margin-top:9px;">Use this area</button>' +
+                  '<div style="display:flex;gap:12px;align-items:center;justify-content:center;margin-top:7px;flex-wrap:wrap;">' +
+                    '<button id="rt-map-reset" type="button" style="' + S.quiet + '">Start over</button>' +
+                    '<button id="rt-map-skip" type="button" style="' + S.quiet + '">Type it instead</button>' +
+                  '</div>' +
+                  '<span id="rt-map-msg" style="' + S.hint + 'display:block;margin-top:6px;"></span>' +
                 '</div>' +
-                '<span id="rt-map-msg" style="' + S.hint + 'display:block;margin-top:6px;"></span>' +
               '</div>'
             : '<button id="rt-map-open" type="button" style="' + S.quiet + 'display:block !important;margin:0 auto 10px;">or draw it on a map</button>')) +
         '<div style="text-align:center;margin-bottom:22px;">' +
