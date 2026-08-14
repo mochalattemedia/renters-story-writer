@@ -23,6 +23,11 @@
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
 //
+// at-v29: the map wrapper gives its padding back to the map. Pairs with
+// zp-v14, which does the same inside the frame. On a 390px phone the map
+// was losing roughly 60px to nested chrome, and it is the one element on
+// this page where every pixel is a target somebody has to hit.
+//
 // at-v28: ⭐ THE MAP IS ON THE HOMEPAGE. A visitor can draw their zone
 // before they have an account, so a teaser signup can arrive MATCHABLE
 // instead of owing us a step. It is also the only thing on this page that
@@ -400,7 +405,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v28";
+const FN_VERSION = "at-v29";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
@@ -462,7 +467,10 @@ const JS = `
     inlineBox: "background:#f4faf8;border:1px solid #cfe6df;border-radius:12px;padding:14px 15px;margin:0 0 14px;text-align:left;",
     busyBox: "background:#f7fbfa;border:2px solid " + TEAL + ";border-radius:12px;padding:28px 16px;margin:0 0 16px;text-align:center;",
     spin: "display:inline-block;width:30px;height:30px;border-radius:50%;border:3px solid #d7e8e4;border-top-color:" + TEAL + ";animation:rdcSpin .8s linear infinite;",
-    mapWrap: "background:#f7fbfa;border:1px solid #cfe6df;border-radius:12px;padding:12px;margin:0 0 12px;",
+    // at-v29: the wrapper stops stealing width from the map. 12px on each
+    // side is nothing on a desktop and a real loss on a 390px phone, where
+    // the map is the one element that needs every pixel.
+    mapWrap: "background:#f7fbfa;border:1px solid #cfe6df;border-radius:12px;padding:6px 6px 10px;margin:0 0 12px;",
     zoneDone: "background:#eaf5f2;border:1px solid #cfe6df;border-radius:12px;padding:11px 13px;margin:0 0 12px;text-align:left;",
     tick: "flex:0 0 auto;width:20px;height:20px;border-radius:999px;background:#3a9e8f;color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-top:2px;",
     heard: "background:#eef7f4;border:1px solid #cfe6df;border-radius:11px;padding:13px 15px;margin:0 0 16px;text-align:left;",
@@ -900,7 +908,7 @@ const JS = `
         var place = String(seed.where || "").trim();
         fr.src = PICKER + "?embed=1" + (place ? "&place=" + encodeURIComponent(place) : "");
         fr.setAttribute("allow", "geolocation");
-        fr.style.cssText = "width:100%;height:" + (mapH || 520) + "px;border:0;display:block;";
+        fr.style.cssText = "width:100%;height:" + (mapH || 560) + "px;border:0;display:block;";
         mapFrame = fr;
       }
       if (mapFrame.parentNode !== slot) slot.appendChild(mapFrame);
