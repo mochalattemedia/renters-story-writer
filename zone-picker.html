@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>My Areas - Renters.com</title>
-<!-- zone-picker.html  zp-v13
+<!-- zone-picker.html  zp-v14
+     zp-v14: tighter chrome padding and a taller clamp, so the map itself
+     gets the width and height on a phone rather than the frame around it.
      zp-v13: the toolbar sticks to the top when embedded, so Draw Zone
      cannot scroll away from the map it belongs to.
      zp-v12: gestureHandling 'greedy' - one finger pans. Google's default
@@ -897,7 +899,15 @@ function setStatus(msg) {
 
     /* Height reporting. Clamped: unclamped, a tall viewport produces a
        page-long map on a phone, and a short one produces a strip. */
-    var MINH = 420, MAXH = 700, lastH = 0;
+    /* zp-v14: taller on a phone. The clamp was tuned on a desktop embed
+       where 700px is most of the window; on a handset the map is competing
+       with page chrome and settled far too short to aim at comfortably.
+       Sized against the actual viewport rather than a fixed guess. */
+    var vh = 0;
+    try { vh = window.innerHeight || 0; } catch (e) {}
+    var MINH = 420;
+    var MAXH = vh > 900 ? 760 : 700;
+    var lastH = 0;
     function reportHeight() {
       try {
         var h = Math.max(
@@ -935,7 +945,14 @@ function setStatus(msg) {
     var css = document.createElement('style');
     css.textContent =
       '#zp-instructions{display:none !important}' +
-      '#zp-toolbar{padding:10px 12px}' +
+      /* zp-v14: RECLAIM THE WIDTH. On a 390px phone the map was inset by
+         the toolbar's 20px side padding AND the host card's padding on top
+         of that - so the thing the renter is trying to aim a fingertip at
+         lost roughly 60px of the only 390 available. The chrome can be
+         tight; the map cannot. */
+      '#zp-toolbar{padding:9px 10px}' +
+      '#zp-zones{padding:10px}' +
+      '#zp-footer{padding:10px}' +
 
       /* zp-v13: THE TOOLBAR STICKS TO THE TOP OF THE MAP AREA. Draw Zone
          sat above the map in normal flow, so ANY scroll took the only
