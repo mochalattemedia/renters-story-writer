@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v24
+// alerts-teaser-js.js  —  at-v27
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,42 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v27: 🔴 iOS NEVER SENDS A FINAL RESULT, SO EVERY SPOKEN WORD WAS
+// THROWN AWAY. voice.transcript only ever grew on isFinal. Safari streams
+// interim results and ENDS THE SESSION WITHOUT EVER SETTING IT - so the
+// words rendered on screen, voice.transcript stayed empty, and onend
+// cleared voice.interim and took them with it.
+//
+// THE SCREENSHOT PROVED IT WITHOUT A CONSOLE: a full transcript box
+// reading "two bedroom one bath in Laurelhurst Park... 1800 Dollars",
+// a button still saying "Start talking", and no "Use this". Those two
+// states are only both true when transcript is empty - the box was
+// showing interim text that no other line of code could see.
+//
+// The last interim is now remembered and PROMOTED in onend, before
+// anything else reads transcript. stopRec() does the same, because tapping
+// Stop reads transcript on the very next line and onend has not run yet.
+//
+// 📌 DESKTOP CHROME ALWAYS SENDS A FINAL RESULT. It never needed this and
+// therefore never showed that it was missing. A capability that "works on
+// the machine you build on" is not a capability that works.
+//
+// at-v26: 🔴 THE CHIPS NEVER RENDERED FOR ANYONE WHO TAPPED "ADD
+// FILTERS". The toggle handler called buildChips() - a function that has
+// not existed since at-v14 renamed it to drawChips(). Opening the filters
+// threw a ReferenceError, so both rows showed their heading and hint with
+// NOTHING underneath, and every statement after that line in the handler
+// died with it.
+//
+// ⚠️ WHY IT SURVIVED A WHOLE DAY OF TESTING: the render path calls
+// drawChips() directly whenever filtersOpen is already true - which it is
+// after a voice seed. Testing by TALKING FIRST never took the broken
+// path. The renter who simply taps "Add filters" takes it every time, and
+// on a phone that is everybody.
+// 📌 A RENAME IS ONLY DONE WHEN EVERY CALL SITE MOVES. node --check will
+// not find this: an undefined identifier is valid syntax and only fails
+// when the line actually runs.
 //
 // at-v24: 🔴 continuous = true KILLED VOICE ON MOBILE. iOS Safari does
 // not support continuous recognition; setting it makes the session end
@@ -337,7 +373,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v24";
+const FN_VERSION = "at-v27";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -662,7 +698,10 @@ const JS = `
     // dashboard enforces the same rule.
     function buildChipRow(mountId, list, other, cap, redraw) {
       var chipMount = document.getElementById(mountId);
-      if (!chipMount) return;
+      // A missing mount is not a reason to fail silently. It means this
+      // ran before the panel existed, which is a bug worth seeing rather
+      // than a state worth tolerating.
+      if (!chipMount) { console.log("[Renters teaser] chip mount missing: " + mountId); return; }
       chipMount.innerHTML = "";
       CHIPS.forEach(function (c) {
         var key = c[0];
@@ -698,7 +737,17 @@ const JS = `
       var tog = document.getElementById("rt-toggle");
       panel.style.display = filtersOpen ? "block" : "none";
       tog.textContent = filtersOpen ? "Hide filters" : "Add filters (rent, beds, more)";
-      if (filtersOpen) buildChips();
+      // 🔴 at-v26: THIS CALLED buildChips(), WHICH HAS NOT EXISTED SINCE
+      // at-v14 RENAMED IT TO drawChips(). Opening the filters threw a
+      // ReferenceError, so NO CHIPS RENDERED AT ALL - both rows showed
+      // their heading and hint and nothing underneath - and every line
+      // after it in this handler died with it.
+      // ⚠️ WHY DESKTOP NEVER SHOWED IT: line 693 calls drawChips() during
+      // render whenever filtersOpen is already true, which it is after a
+      // voice seed. Testing by talking first meant the broken path was
+      // never taken. The renter who just TAPS "Add filters" takes it every
+      // time, which on a phone is everybody.
+      if (filtersOpen) drawChips();
     };
 
     document.getElementById("rt-go").onclick = submit;
@@ -947,6 +996,14 @@ const JS = `
         if (ev.results[i].isFinal) voice.transcript += t; else interim += t;
       }
       voice.interim = interim;
+      // 🔴 at-v27: REMEMBER THE INTERIM. iOS Safari streams interim results
+      // and ENDS THE SESSION WITHOUT EVER SETTING isFinal - so the words
+      // appear on screen while voice.transcript stays empty, and onend then
+      // clears voice.interim and takes them with it.
+      // That is exactly what the phone showed: a full transcript box, a
+      // button still reading "Start talking", and no way to submit. Both
+      // are true at once only when transcript is empty.
+      if (interim) lastInterim = interim;
       heard = true;
       clearTimeout(watchdog);
       // Touch only the live line. Whichever surface is showing.
@@ -959,6 +1016,7 @@ const JS = `
     // watching a panel that looks like it is listening. Anything that can
     // fail without saying so needs a clock on it.
     var heard = false;
+    var lastInterim = "";
     var watchdog = setTimeout(function () {
       if (heard || !voice.active) return;
       voice.active = false;
@@ -980,6 +1038,15 @@ const JS = `
     };
     r.onend = function () {
       clearTimeout(watchdog);
+      // ⭐ PROMOTE THE INTERIM BEFORE ANYTHING ELSE READS transcript. On a
+      // browser that never marks a result final, this is the ONLY place
+      // the spoken words can be rescued - one line later and they are
+      // gone. Desktop Chrome always sends a final result, so it never
+      // needed this and never revealed that it was missing.
+      if (!String(voice.transcript || "").trim() && lastInterim) {
+        voice.transcript = lastInterim;
+        console.log("[Renters teaser] promoted an interim result, no final was sent");
+      }
       if (!voice.active) return;
       // 🔴 THE RECOGNISER ENDING IS NOT THE RENTER FINISHING. On mobile it
       // stops on a pause. Say so, rather than leaving a silent panel that
@@ -999,6 +1066,12 @@ const JS = `
 
   function stopRec() {
     voice.active = false;
+    // Tapping Stop reads voice.transcript on the very next line, which is
+    // before onend gets a chance to run - so the same rescue has to happen
+    // here too. Whatever is on screen is what the renter said.
+    if (!String(voice.transcript || "").trim() && String(voice.interim || "").trim()) {
+      voice.transcript = voice.interim;
+    }
     if (voice.rec) { try { voice.rec.stop(); } catch (e) {} }
   }
 
