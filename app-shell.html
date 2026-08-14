@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v9">
+<meta name="rdc-version" content="shell-v11">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v9
+/* ============================================================ shell-v11
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -644,7 +644,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v9';
+  var V = 'shell-v11';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -823,15 +823,18 @@ a{color:var(--teal)}
       if (S.profile.photo) { $('av').src = S.profile.photo; $('av').hidden = false; }
       try { buildChips(); } catch (e) { keep(e, 'buildChips'); }
 
-      /* Same rule for the three data reads. Each already resolves on
-         failure, but a hang is not a failure - it is silence. */
-      return Promise.all([
-        withTimeout(loadSpots(), 8000, null),
-        withTimeout(loadShowings(), 8000, null),
-        withTimeout(loadAvail(), 8000, null),
-        withTimeout(loadMatchCount(), 8000, null),
-        withTimeout(loadProfile(), 8000, null)
-      ]).then(function () {
+      /* 🔴 OPEN ON WHAT THE FIRST SCREEN NEEDS, FETCH THE REST BEHIND IT.
+         v10 waited on all five reads before showing anything, and because
+         they start only AFTER schema and readBD resolve, the boot had two
+         sequential phases of up to 8s each. Sixteen seconds worst case,
+         against a 12s escape hatch built to catch a hang - so on a phone on
+         cellular the guard fired on a boot that was merely SLOW, and said
+         "this is taking too long" about something that was working.
+
+         Only spots are on the tab a renter lands on. Showings, availability,
+         match counts and profile belong to tabs they have not opened yet, so
+         they load behind the app and repaint when they arrive. */
+      return withTimeout(loadSpots(), 8000, null).then(function () {
         /* Painting must not be able to prevent the app OPENING. A bad
            showing record or an odd spot should cost that one row, not the
            whole boot - which is exactly what it cost in v4. */
@@ -842,6 +845,23 @@ a{color:var(--teal)}
            already run, so this APPENDS to whatever is there rather than
            replacing it - including anything the web teaser claimed in the
            same minute. */
+        /* Everything the first screen does not need. Each repaints only if
+           the renter is still looking at the tab that shows it - a fetch
+           landing four seconds late must not redraw a screen underneath
+           somebody's finger. */
+        withTimeout(loadMatchCount(), 10000, null).then(function () {
+          try { badges(); if (S.view === 'spots') drawSpots(); } catch (e) { keep(e, 'late matches'); }
+        });
+        withTimeout(loadShowings(), 10000, null).then(function () {
+          try { badges(); if (S.view === 'showings') drawShowings(); } catch (e) { keep(e, 'late showings'); }
+        });
+        withTimeout(loadAvail(), 10000, null).then(function () {
+          try { if (S.view === 'showings') paintAvail(); } catch (e) { keep(e, 'late avail'); }
+        });
+        withTimeout(loadProfile(), 10000, null).then(function () {
+          try { if (S.view === 'me') drawMe(); } catch (e) { keep(e, 'late profile'); }
+        });
+
         var parked = takeDraft();
         if (parked && S.spots.length < (S.schema.maxSearches || 5)) {
           S.draft = parked;
@@ -1515,9 +1535,22 @@ a{color:var(--teal)}
     var e = S.editable || {};
     var body = { memberId: S.member, secret: SH_SECRET };
     var sent = 0;
+
+    /* A phone is compared on its DIGITS. "253-686-7582" and "2536867582"
+       are the same number, and treating them as different would send a
+       write on a field nobody edited every single time this form is saved. */
+    function digits(v) {
+      var s = String(v == null ? '' : v), o = '', i, c;
+      for (i = 0; i < s.length; i++) { c = s.charAt(i); if (c >= '0' && c <= '9') o += c; }
+      if (o.length === 11 && o.charAt(0) === '1') o = o.slice(1);
+      return o;
+    }
+
     [['pf','first_name'],['pl','last_name'],['pe','email'],['pp','phone']].forEach(function (pair) {
       var v = ($(pair[0]).value || '').trim();
-      if (v !== String(e[pair[1]] || '')) { body[pair[1]] = v; sent++; }
+      var was = String(e[pair[1]] || '');
+      var changed = pair[1] === 'phone' ? (digits(v) !== digits(was)) : (v !== was);
+      if (changed) { body[pair[1]] = v; sent++; }
     });
     if (!sent) { closeEdit(); return; }
 
