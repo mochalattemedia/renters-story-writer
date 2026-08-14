@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v11">
+<meta name="rdc-version" content="shell-v13">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v11
+/* ============================================================ shell-v13
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -267,8 +267,9 @@ a{color:var(--teal)}
       padding:0;margin:0 0 12px;overflow:hidden}
 .card h2{font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;
          color:var(--slate);margin:0;padding:13px 15px 9px}
-.row{display:flex;align-items:center;gap:12px;padding:13px 15px;border-top:1px solid var(--line);
-     width:100%;text-align:left;font-size:14px;color:var(--ink)}
+.row{display:flex;align-items:center;gap:12px;padding:13px 15px;border:0;
+     border-top:1px solid var(--line);width:100%;text-align:left;font-size:14px;
+     color:var(--ink);background:none;font-family:inherit;cursor:pointer}
 .row .lbl{flex:1 1 auto;min-width:0;font-weight:600}
 .row .val{flex:0 0 auto;font-size:12.5px;color:var(--slate);font-weight:600}
 .row .chev{flex:0 0 auto;color:#b6c2cc;font-size:15px}
@@ -644,7 +645,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v11';
+  var V = 'shell-v13';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -1096,26 +1097,57 @@ a{color:var(--teal)}
     };
   }
 
-  var saving = false, tries = 0;
+  var saving = false, saveTimer = null;
 
+  /* 🔴 ASK ONCE. THE RETRY LOOP WAS THE LOCKUP.
+     Every renters_areas_save message makes the picker run saveZones(),
+     which starts resolving zip codes - one geocode per zip. Asking again
+     while it is working starts that over, which makes it report busy,
+     which reset my clock, which made me ask again. A feedback loop that
+     pegs the phone and never ends.
+
+     Two earlier versions of this bug came from the same wrong instinct:
+     that a slow answer needs prodding. The picker already answers - with
+     zips when it is done, with busy while it works, with none when there
+     is nothing drawn. There was never anything to retry. */
   function askSave() {
     var f = $('zp');
     if (!f || !f.contentWindow) return;
-    if (!saving) { saving = true; tries = 0; }
-    tries++;
+    if (saving) return;                       /* one in flight, always */
+    saving = true;
+
     f.contentWindow.postMessage({ type: 'renters_areas_save' }, '*');
-    if (tries === 2) toast('Working out the ZIP codes in your zone');
-    if (tries > 12) { saving = false; toast('Draw a zone on the map, then tap again'); return; }
-    setTimeout(function () { if (saving && !(S.draft && S.draft.zone)) askSave(); }, 750);
+    toast('Working out the ZIP codes in your zone');
+
+    /* A ceiling, not a retry. Resolving a large zone genuinely takes time,
+       so this is generous - and it only fires when the picker has gone
+       silent, which is the one case worth surrendering on. */
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      if (!saving) return;
+      saving = false;
+      toast('That is taking a while. Tap Next again, or draw a smaller zone.');
+    }, 45000);
   }
 
   window.addEventListener('message', function (e) {
     var d = e.data;
     if (!d) return;
-    if (d.type === 'renters_areas_none') { saving = false; toast('Draw a zone on the map first'); return; }
+    /* Still working. Resets the clock and reassures, because a spinner
+       inside an iframe is often below the fold on a phone. */
+    /* Still working. Nothing to do but wait - and specifically NOT to ask
+       again, which is what caused the lockup. */
+    if (d.type === 'renters_areas_busy') return;
+
+    if (d.type === 'renters_areas_none') {
+      saving = false; clearTimeout(saveTimer);
+      toast('Draw a zone on the map first');
+      return;
+    }
     if (d.type !== 'renters_areas_zips') return;
 
     saving = false;
+    clearTimeout(saveTimer);
     var z = (d.zones || [])[0] || {};
     if (!S.draft) S.draft = blankDraft();
     S.draft.zone = {
@@ -1452,29 +1484,34 @@ a{color:var(--teal)}
       '</div>' +
 
       '<div class="card"><h2>Getting matched</h2>' +
-        '<a class="row" href="/account/locations">' +
+        '<button type="button" class="row" data-go="spots">' +
           '<span class="lbl">Perfect spots</span>' +
           '<span class="val">' + running + ' running</span>' +
-          '<span class="chev">&rsaquo;</span></a>' +
-        '<a class="row ' + (p.verified ? 'ok' : 'todo') + '" href="/account/confirm-identity">' +
+          '<span class="chev">&rsaquo;</span></button>' +
+        '<button type="button" class="row ' + (p.verified ? 'ok' : 'todo') + '" ' +
+          'data-out="/account/confirm-identity">' +
           '<span class="lbl">Identity</span>' +
           '<span class="val">' + (p.verified ? 'Confirmed' : 'Confirm now') + '</span>' +
-          '<span class="chev">&rsaquo;</span></a>' +
-        '<a class="row" href="/account/profile-photo">' +
+          '<span class="chev">&rsaquo;</span></button>' +
+        '<button type="button" class="row" data-out="/account/profile-photo">' +
           '<span class="lbl">Photo</span>' +
           '<span class="val">' + (p.photo ? 'Added' : 'Take a selfie') + '</span>' +
-          '<span class="chev">&rsaquo;</span></a>' +
+          '<span class="chev">&rsaquo;</span></button>' +
       '</div>' +
 
       '<div class="card"><h2>Your details</h2>' +
-        '<a class="row" href="/account/about-me">' +
+        '<button type="button" class="row" id="meEdit">' +
+          '<span class="lbl">Name, email and phone</span>' +
+          '<span class="val">' + esc(ed.email || 'Add yours') + '</span>' +
+          '<span class="chev">&rsaquo;</span></button>' +
+        '<button type="button" class="row" data-out="/account/about-me">' +
           '<span class="lbl">About me</span>' +
           '<span class="val">Budget, timing, pets</span>' +
-          '<span class="chev">&rsaquo;</span></a>' +
-        '<a class="row" href="/account/home">' +
-          '<span class="lbl">Everything else</span>' +
-          '<span class="val">Opens the full site</span>' +
-          '<span class="chev">&rsaquo;</span></a>' +
+          '<span class="chev">&rsaquo;</span></button>' +
+        '<button type="button" class="row" data-out="/account/home">' +
+          '<span class="lbl">Full dashboard</span>' +
+          '<span class="val">Opens the site</span>' +
+          '<span class="chev">&rsaquo;</span></button>' +
       '</div>' +
 
       /* ⚠️ SAYING WHERE A TAP GOES. Every row above leaves the app and lands
@@ -1482,13 +1519,16 @@ a{color:var(--teal)}
          form per field on purpose - two editors for one value is how they
          end up disagreeing - but a member should not discover the seam by
          falling through it. */
-      '<p class="cap" style="margin:-4px 2px 14px">These open the full site in this ' +
-        'window. Your app keeps everything you set up here.</p>' +
+      '<p class="cap" style="margin:-4px 2px 14px">Rows marked <b>Opens the site</b> ' +
+        'open in a separate window. The app stays exactly where it is.</p>' +
 
       '<div class="card"><h2>Account</h2>' +
-        '<a class="row" href="/account/change-password">' +
-          '<span class="lbl">Change password</span><span class="chev">&rsaquo;</span></a>' +
-        '<a class="row" href="/logout"><span class="lbl">Log out</span></a>' +
+        '<button type="button" class="row" data-out="/account/change-password">' +
+          '<span class="lbl">Change password</span>' +
+          '<span class="val">Opens the site</span>' +
+          '<span class="chev">&rsaquo;</span></button>' +
+        '<button type="button" class="row" id="meOut">' +
+          '<span class="lbl">Log out</span></button>' +
       '</div>' +
 
       '<p class="cap" style="text-align:center;padding:0 10px 18px">' +
@@ -1500,6 +1540,40 @@ a{color:var(--teal)}
 
     var eb = $('meEdit');
     if (eb) eb.addEventListener('click', openEdit);
+
+    /* 🔴 NOTHING NAVIGATES THE APP WINDOW AWAY. Every one of these used to
+       be an <a href> into BD, and tapping one replaced the app with a
+       website page that has no back affordance - minimal-ui gives a thin
+       strip in a browser tab and almost nothing in an installed app. A
+       renter who tapped "About me" was stranded, which is the one outcome
+       worth building around.
+
+       So anything that has to be BD opens in a SEPARATE context. The app
+       stays exactly where it was, untouched, and they come back to it by
+       switching rather than by finding their way home.
+
+       The rows say "Opens the site" for the same reason - a surprise is
+       only bad if it is a surprise. */
+    box.querySelectorAll('[data-out]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var href = this.getAttribute('data-out');
+        try {
+          var w = window.open(href, '_blank');
+          if (!w) location.href = href;   /* popup blocked: better than nothing */
+        } catch (e) { location.href = href; }
+        vibrate(5);
+      });
+    });
+
+    box.querySelectorAll('[data-go]').forEach(function (btn) {
+      btn.addEventListener('click', function () { go(this.getAttribute('data-go')); });
+    });
+
+    var out = $('meOut');
+    if (out) out.addEventListener('click', function () {
+      if (!window.confirm('Log out? Your spots and matches stay on your account.')) return;
+      location.href = '/logout';
+    });
   }
 
   /* ======================================================= EDIT DETAILS */
