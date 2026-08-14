@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#eef3f2">
 <title>Your matches — Renters.com</title>
-<meta name="rdc-version" content="md-v12">
+<meta name="rdc-version" content="md-v13">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
@@ -454,7 +454,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 <div class="toast" id="toast"></div>
 
 <script>
-/* ============================================================ md-v12
+/* ============================================================ md-v13
    THE DECK IS WIRED. Nothing about how it looks or behaves has changed -
    same swipe, same stamps, same tiers, same criteria strip, same detail
    sheet, same booking layout. What changed is where the cards come from
@@ -520,6 +520,94 @@ var myAvail = null;
 
 var CARDS = [];
 
+/* ============================================================ DEMO
+   ?demo=1 restores the four cards this deck was built against, so the
+   swipe can be shown to somebody before a matcher exists.
+
+   🔴 THESE ARE INVENTED AND THE DECK SAYS SO. Every address, criterion
+   and slot below is made up. The shell puts a fixed banner over the top
+   in demo mode, and nothing here writes: no pass is recorded, no booking
+   is made. #138 is open because fabricated listings were once reachable
+   at a public URL as though they were real - a demo has to be impossible
+   to mistake for the thing it demonstrates.
+
+   The renter these are matched against: verified $5,400/mo, one 42lb dog,
+   $2,100 ceiling, needs parking, SE and NE Portland.
+   ============================================================ */
+var DEMO = (function(){
+  try { return new URLSearchParams(location.search).get('demo') === '1'; }
+  catch(e) { return false; }
+})();
+
+var DEMO_CARDS = [
+  { id:'a', tier:'strong', hostId:'0', city:'Portland, OR', confirmed:true,
+    propertyLabel:'2140 SE Clinton St', addr:'2140 SE Clinton St', unit:'Unit 3',
+    hood:'Hosford-Abernethy', rent:1895, beds:2, baths:1, sqft:880,
+    dom:2, applicants:1,
+    why:'You asked for two bedrooms under $2,100 in SE with a yard for the dog. This one is <b>$205 under your ceiling</b>, the landlord allows dogs up to 50lb with no breed limit, and off-street parking is included rather than an add-on.',
+    crit:[
+      {s:'y', k:'Income requirement', v:'2.5x rent', note:'yours is 2.8x'},
+      {s:'y', k:'Dogs allowed', v:'Up to 50lb'},
+      {s:'y', k:'Off-street parking', v:'1 space'},
+      {s:'y', k:'Available', v:'Sept 15'}
+    ], move:null },
+
+  { id:'b', tier:'moderate', hostId:'0', city:'Portland, OR', confirmed:true,
+    propertyLabel:'618 NE Failing St', addr:'618 NE Failing St', unit:'',
+    hood:'Sabin', rent:2050, beds:2, baths:1.5, sqft:940,
+    dom:1, applicants:6,
+    why:'Everything fits except the pace. It posted yesterday and <b>six renters have already inquired</b> through us. The landlord screens on a first-complete-application basis rather than a deadline.',
+    crit:[
+      {s:'y', k:'Income requirement', v:'2.5x rent', note:'yours is 2.6x'},
+      {s:'y', k:'Dogs allowed', v:'Case by case'},
+      {s:'q', k:'Parking', v:'Street only'},
+      {s:'y', k:'Available', v:'Oct 1'}
+    ],
+    move:{t:'Move fast or skip it', b:'Six inquiries in a day means this one is gone by the weekend. Book the earliest showing or pass now rather than applying late.'} },
+
+  { id:'c', tier:'moderate', hostId:'0', city:'Portland, OR', confirmed:true,
+    propertyLabel:'4407 SE Woodstock Blvd', addr:'4407 SE Woodstock Blvd', unit:'Apt B',
+    hood:'Woodstock', rent:2100, beds:2, baths:1, sqft:820,
+    dom:9, applicants:2,
+    why:'At the very top of your budget, and the landlord requires <b>3x rent</b> rather than the usual 2.5x. Your verified income is 2.57x, so this one is short on paper.',
+    crit:[
+      {s:'q', k:'Income requirement', v:'3x rent', note:'yours is 2.57x'},
+      {s:'y', k:'Dogs allowed', v:'Under 45lb'},
+      {s:'y', k:'Off-street parking', v:'1 space'},
+      {s:'y', k:'Available', v:'Sept 1'}
+    ],
+    move:{t:'One document clears this', b:'A co-signer or three months of savings on file usually satisfies a 3x requirement. Add either to your profile and we will re-submit you as a full match.'} },
+
+  { id:'d', tier:'weak', hostId:'0', city:'Portland, OR', confirmed:false,
+    propertyLabel:'3312 NE 72nd Ave', addr:'3312 NE 72nd Ave', unit:'',
+    hood:'Roseway', rent:1975, beds:2, baths:1, sqft:900,
+    dom:23, applicants:0,
+    why:'It matches on paper and we are showing it because your search has been quiet this week. But it has sat for <b>23 days</b> with no inquiries, and the landlord has not answered our last two messages.',
+    crit:[
+      {s:'y', k:'Income requirement', v:'2.5x rent', note:'yours is 2.7x'},
+      {s:'n', k:'Pet policy', v:'Not stated'},
+      {s:'n', k:'Parking', v:'Not stated'},
+      {s:'q', k:'Available', v:'Listed Jul 19'}
+    ],
+    move:{t:'We cannot confirm this one', b:'The landlord has not responded to confirm it is still available or that dogs are allowed. Swipe right and we will keep chasing, but do not build a plan around it.'} }
+];
+
+var DEMO_SLOTS = [
+  { start: demoStart(2, 17, 30) },
+  { start: demoStart(2, 18, 15) },
+  { start: demoStart(4, 10, 0) },
+  { start: demoStart(4, 11, 30) }
+];
+
+function demoStart(days, hh, mm){
+  var d = new Date();
+  d.setDate(d.getDate() + days);
+  d.setHours(hh, mm, 0, 0);
+  var p = function(n){ return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) +
+         'T' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':00';
+}
+
 var SLOTS = [];
 
 /* band  = the header colour. Navy on every card - a full lime header was
@@ -580,6 +668,9 @@ function post(url, body) {
    trip - a deck that stutters on every card is worse than a state that
    lands a second late. The undo below is what covers a write that fails. */
 function act(matchId, action) {
+  /* A demo records nothing. Passing a card must not write a state that
+     survives the demo and follows a real member around. */
+  if (DEMO) return Promise.resolve(null);
   if (!MEMBER || !matchId) return Promise.resolve(null);
   return post(MATCHES + '?act=1', {
     memberId: MEMBER, matchId: matchId, action: action, secret: SECRET
@@ -587,6 +678,14 @@ function act(matchId, action) {
 }
 
 function loadDeck() {
+  if (DEMO) {
+    CARDS = DEMO_CARDS.slice();
+    RENTER.income = 5400;
+    SCANNED = 214;
+    i = 0; kept = [];
+    render();
+    return Promise.resolve();
+  }
   if (!MEMBER) { CARDS = []; render(); return Promise.resolve(); }
   return fetch(MATCHES + '?memberId=' + encodeURIComponent(MEMBER))
     .then(function (r) { return r.ok ? r.json() : null; })
@@ -601,6 +700,15 @@ function loadDeck() {
 /* The renter's own hours, so an overlapping slot can say so. Failure here
    costs the badge and nothing else - every slot stays bookable. */
 function loadMyAvail() {
+  if (DEMO) {
+    /* Tuesday and Thursday evenings, Saturday daytime - so two of the four
+       demo slots come back marked "you are free". */
+    myAvail = { enabled:true, windows:[
+      { day:'TU', start:'17:00', end:'20:00' },
+      { day:'TH', start:'17:00', end:'20:00' },
+      { day:'SA', start:'09:00', end:'15:00' } ] };
+    return Promise.resolve();
+  }
   if (!MEMBER) return Promise.resolve();
   return fetch(AVAIL + '?memberId=' + encodeURIComponent(MEMBER))
     .then(function (r) { return r.ok ? r.json() : null; })
@@ -910,6 +1018,8 @@ function booking(){
 
   /* Real open times, computed by showings.js from the landlord's own
      availability - notice, buffer, horizon and anything already taken. */
+  if (DEMO) { SLOTS = DEMO_SLOTS.slice(); paintSlots(); return; }
+
   fetch(SHOWS + '?action=slots&hostId=' + encodeURIComponent(d.hostId))
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(j){
@@ -985,6 +1095,12 @@ function pick(n){
 
 function confirmBooking(){
   if (picked === null) return;
+  if (DEMO) {
+    var L0 = slotLabel(SLOTS[picked].start);
+    closeSheet(); vibrate([12,40,12]);
+    toast('Booked (demo) — ' + L0.d + ' at ' + L0.t);
+    return;
+  }
   var slot = SLOTS[picked];
   var d = activeCard;
   var L = slotLabel(slot.start);
