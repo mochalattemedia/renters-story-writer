@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v7">
+<meta name="rdc-version" content="shell-v9">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v7
+/* ============================================================ shell-v9
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -20,7 +20,8 @@
      MATCHES   app-deck.html md-v12, embedded (matches.js + showings.js)
      SHOWINGS  showings.js (?action=list, POST confirm/decline/cancel)
                + availability.js and availability-page.js, iframed
-     ME        BD, read same-origin at /account/home
+     ME        BD, read same-origin at /account/home, plus member-profile.js
+               (mp-v1) for the three fields the app edits natively
 
    🔴 NOBODY BOOKS A SHOWING FROM THIS APP, AND THAT IS THE MODEL, NOT A
    GAP. The scheduler needs a hostId, which used to come from browsing to
@@ -83,6 +84,10 @@ a{color:var(--teal)}
         letter-spacing:-.025em;margin:0;line-height:1.2;flex:1 1 auto}
 .top .av{flex:0 0 32px;width:32px;height:32px;border-radius:50%;object-fit:cover;
          background:var(--line);display:block}
+/* The mark travels with the member instead of only meeting them at the
+   door. It is the one element on the intro that can carry through, and
+   without it every tab after the first reads as a different product. */
+.top .mk{flex:0 0 30px;width:30px;height:30px;border-radius:8px;display:block;margin-top:-1px}
 .top p{margin:5px 0 0;font-size:12.5px;color:var(--slate);line-height:1.5}
 
 .body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 20px 0;
@@ -109,6 +114,36 @@ a{color:var(--teal)}
 .nav .dot{position:absolute;transform:translate(13px,-9px);width:7px;height:7px;
           border-radius:50%;background:var(--lime);display:none}
 .nav button.has .dot{display:block}
+
+/* -------------------------------------------------------------- banner */
+/* THE FIRST THING ON THE FIRST TAB IS WHAT IS WAITING. A dashboard that
+   opens on "here are your saved searches" makes a renter do the work of
+   noticing; one that opens on "you have three new matches" has already
+   done it. It only renders when the number is real - a banner that is
+   always there stops being read within a week. */
+.newm{
+  display:flex;align-items:center;gap:13px;width:100%;text-align:left;
+  background:var(--navy);color:#fff;border-radius:var(--r);padding:15px 16px;
+  margin:0 0 14px;transition:transform .14s var(--ease);
+}
+.newm:active{transform:scale(.99)}
+.newm .cnt{
+  flex:0 0 42px;height:42px;border-radius:50%;background:var(--lime);color:#0d2d4e;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:19px;
+  letter-spacing:-.02em;
+}
+.newm .tx{flex:1 1 auto;min-width:0}
+.newm .tx b{display:block;font-family:'Red Hat Display',sans-serif;font-weight:700;
+            font-size:15.5px;line-height:1.25}
+.newm .tx span{font-size:12.5px;opacity:.8;line-height:1.45;display:block;margin-top:2px}
+.newm .go{flex:0 0 auto;font-size:19px;opacity:.7}
+
+.quiet{
+  background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+  padding:13px 15px;margin:0 0 14px;font-size:12.5px;line-height:1.55;color:var(--ink-2);
+}
+.quiet b{color:var(--ink);font-weight:700}
 
 /* --------------------------------------------------------------- spots */
 .spot{background:var(--white);border:1px solid var(--line);border-radius:var(--r);
@@ -252,6 +287,25 @@ a{color:var(--teal)}
 .bar i{display:block;height:100%;background:var(--teal);border-radius:6px;
        transition:width .5s var(--ease)}
 
+/* ---------------------------------------------------------- edit sheet */
+.scrim{position:fixed;inset:0;background:rgba(13,45,78,.5);z-index:850;opacity:0;
+  pointer-events:none;transition:opacity .26s var(--ease)}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:851;max-width:480px;margin:0 auto;
+  background:var(--white);border-radius:22px 22px 0 0;max-height:92%;display:flex;
+  flex-direction:column;transform:translateY(101%);transition:transform .34s var(--ease);
+  padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -10px 44px rgba(13,45,78,.24)}
+.sheet.on{transform:translateY(0)}
+.grab{flex:0 0 auto;padding:11px 0 5px;display:flex;justify-content:center}
+.grab i{width:38px;height:4px;border-radius:4px;background:var(--line);display:block}
+.sheet-b{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:6px 22px 0}
+.sheet-b h3{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:18px;
+            margin:0 0 4px}
+.sheet-b .lede{font-size:12.5px;color:var(--slate);line-height:1.55;margin:0 0 18px}
+.sheet-a{flex:0 0 auto;padding:14px 22px calc(16px + env(safe-area-inset-bottom));
+         border-top:1px solid var(--line);background:var(--white)}
+.err{font-size:12px;color:#b23b3b;font-weight:600;margin:6px 0 0}
+
 /* -------------------------------------------------------------- actions */
 .act{flex:0 0 auto;padding:11px 20px 12px;
      background:linear-gradient(180deg,rgba(244,246,247,0),var(--paper) 26%)}
@@ -277,7 +331,13 @@ a{color:var(--teal)}
    the one honest way to show a mechanic before there is anything to run
    it on: a real-looking listing here would be a fabricated place, and
    #138 is open precisely because that is what the deck did. */
-.demo{position:relative;height:260px;margin:0 0 8px;perspective:900px}
+.demo{position:relative;height:264px;margin:14px 0 8px;perspective:900px;
+      overflow:hidden;border-radius:var(--r);
+      /* THE CARD FLIES 420px RIGHT. Without a clip it lands on top of the
+         step text above it and under the action bar below, which is what
+         made the first build look like three ghosted cards floating over
+         the copy. The box crops it; the swipe still reads. */
+      -webkit-mask-image:-webkit-radial-gradient(#fff,#000)}
 .dcard{
   position:absolute;inset:0;background:var(--white);border-radius:var(--r);
   border:1px solid var(--line);overflow:hidden;display:flex;flex-direction:column;
@@ -442,6 +502,7 @@ a{color:var(--teal)}
   <div class="top">
     <div class="row">
       <button class="back" id="back" hidden aria-label="Back">&#8592;</button>
+      <img class="mk" id="mk" src="https://renters-story-writer.netlify.app/icon-192.png" alt="">
       <h1 id="h">Your perfect spots</h1>
       <img class="av" id="av" alt="" hidden>
     </div>
@@ -550,12 +611,40 @@ a{color:var(--teal)}
   </nav>
 </div>
 
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Edit your details">
+  <div class="grab"><i></i></div>
+  <div class="sheet-b">
+    <h3>Your details</h3>
+    <p class="lede">This is what a landlord sees when we introduce you, and how we
+      reach you. It is the same record as the website, so you only ever fill it in once.</p>
+    <div class="two">
+      <div class="f"><label for="pf">First name</label><input id="pf" type="text"
+        autocomplete="given-name"></div>
+      <div class="f"><label for="pl">Last name</label><input id="pl" type="text"
+        autocomplete="family-name"></div>
+    </div>
+    <div class="f"><label for="pe">Email</label>
+      <input id="pe" type="email" inputmode="email" autocomplete="email"
+             autocapitalize="off" spellcheck="false">
+      <p class="cap">Where your matches land.</p></div>
+    <div class="f"><label for="pp">Phone</label>
+      <input id="pp" type="tel" inputmode="tel" autocomplete="tel">
+      <p class="cap">Only used for a showing, never shared without your say-so.</p></div>
+    <p class="err" id="pErr" hidden></p>
+  </div>
+  <div class="sheet-a">
+    <button class="cta" id="pSave">Save</button>
+    <button class="cta ghost" id="pCancel">Cancel</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v7';
+  var V = 'shell-v9';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -566,6 +655,8 @@ a{color:var(--teal)}
   var AVAILUI = FN + 'availability-page';
   var PICKER = NET + '/zone-picker.html';
   var DECK   = NET + '/app-deck.html';
+  var MATCHES = FN + 'matches';
+  var PROFILE = FN + 'member-profile';
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -593,7 +684,7 @@ a{color:var(--teal)}
     tab: 'spots', view: 'spots',
     schema: null, member: null, profile: null,
     consent: null, household: null,
-    spots: [], showings: [], avail: null,
+    spots: [], showings: [], avail: null, newMatches: 0, totalMatches: 0, editable: null,
     editIdx: -1, draft: null
   };
 
@@ -737,7 +828,9 @@ a{color:var(--teal)}
       return Promise.all([
         withTimeout(loadSpots(), 8000, null),
         withTimeout(loadShowings(), 8000, null),
-        withTimeout(loadAvail(), 8000, null)
+        withTimeout(loadAvail(), 8000, null),
+        withTimeout(loadMatchCount(), 8000, null),
+        withTimeout(loadProfile(), 8000, null)
       ]).then(function () {
         /* Painting must not be able to prevent the app OPENING. A bad
            showing record or an odd spot should cost that one row, not the
@@ -875,10 +968,41 @@ a{color:var(--teal)}
 
   function drawSpots() {
     var box = $('list'); box.innerHTML = '';
+
+    if (S.newMatches > 0) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'newm';
+      b.innerHTML =
+        '<span class="cnt">' + S.newMatches + '</span>' +
+        '<span class="tx"><b>You have ' + S.newMatches + ' new match' +
+          (S.newMatches === 1 ? '' : 'es') + '</b>' +
+          '<span>Checked against what you asked for and what the landlord ' +
+          'requires.</span></span>' +
+        '<span class="go">&rsaquo;</span>';
+      b.addEventListener('click', function () { go('matches'); vibrate(6); });
+      box.appendChild(b);
+    } else if (S.spots.length) {
+      /* SILENCE IS THE PROMISE, SO IT GETS SAID OUT LOUD. A renter looking
+         at an empty dashboard should read it as the product working, not
+         as nothing happening. */
+      var running = S.spots.filter(function (sp) { return sp.enabled !== false; }).length;
+      var q = document.createElement('div');
+      q.className = 'quiet';
+      q.innerHTML = running
+        ? 'Watching <b>' + running + ' spot' + (running === 1 ? '' : 's') +
+          '</b>. Nothing fits right now, and you will hear from us when something does.'
+        : 'Every spot is paused. Start one again and we will pick it back up.';
+      box.appendChild(q);
+    }
+
     if (!S.spots.length) {
-      box.innerHTML = '<div class="empty"><b>No spots yet</b>' +
+      var e = document.createElement('div');
+      e.className = 'empty';
+      e.innerHTML = '<b>No spots yet</b>' +
         '<p>A perfect spot is one place you would live, and what would work inside it. ' +
-        'Draw the zone first, then tell us what you are after.</p></div>';
+        'Draw the zone first, then tell us what you are after.</p>';
+      box.appendChild(e);
       return;
     }
     S.spots.forEach(function (sp, i) {
@@ -1286,6 +1410,7 @@ a{color:var(--teal)}
 
   function drawMe() {
     var p = S.profile || {};
+    var ed = S.editable || {};
     var running = S.spots.filter(function (s) { return s.enabled !== false; }).length;
 
     /* Everything here EDITS ON THE WEB. The app is not a second place to
@@ -1296,7 +1421,9 @@ a{color:var(--teal)}
       '<div class="card">' +
         '<div class="who">' +
           '<img id="mePhoto" alt="">' +
-          '<div class="n"><b>' + esc(p.name || 'Your account') + '</b>' +
+          '<div class="n"><b>' +
+            esc(((ed.first_name || '') + ' ' + (ed.last_name || '')).trim() ||
+                p.name || 'Your account') + '</b>' +
           '<span>Member #' + esc(S.member) + '</span></div>' +
         '</div>' +
         (p.pct !== null && p.pct !== undefined
@@ -1321,10 +1448,22 @@ a{color:var(--teal)}
 
       '<div class="card"><h2>Your details</h2>' +
         '<a class="row" href="/account/about-me">' +
-          '<span class="lbl">About me</span><span class="chev">&rsaquo;</span></a>' +
+          '<span class="lbl">About me</span>' +
+          '<span class="val">Budget, timing, pets</span>' +
+          '<span class="chev">&rsaquo;</span></a>' +
         '<a class="row" href="/account/home">' +
-          '<span class="lbl">Full dashboard</span><span class="chev">&rsaquo;</span></a>' +
+          '<span class="lbl">Everything else</span>' +
+          '<span class="val">Opens the full site</span>' +
+          '<span class="chev">&rsaquo;</span></a>' +
       '</div>' +
+
+      /* ⚠️ SAYING WHERE A TAP GOES. Every row above leaves the app and lands
+         on BD's own chrome, which looks like a different product. It is one
+         form per field on purpose - two editors for one value is how they
+         end up disagreeing - but a member should not discover the seam by
+         falling through it. */
+      '<p class="cap" style="margin:-4px 2px 14px">These open the full site in this ' +
+        'window. Your app keeps everything you set up here.</p>' +
 
       '<div class="card"><h2>Account</h2>' +
         '<a class="row" href="/account/change-password">' +
@@ -1338,7 +1477,89 @@ a{color:var(--teal)}
     var img = $('mePhoto');
     if (p.photo) img.src = p.photo;
     else img.style.background = '#e3e9ec';
+
+    var eb = $('meEdit');
+    if (eb) eb.addEventListener('click', openEdit);
   }
+
+  /* ======================================================= EDIT DETAILS */
+
+  function openEdit() {
+    var e = S.editable || {};
+    $('pf').value = e.first_name || '';
+    $('pl').value = e.last_name || '';
+    $('pe').value = e.email || '';
+    $('pp').value = e.phone || '';
+    $('pErr').hidden = true;
+    $('scrim').classList.add('on');
+    $('sheet').classList.add('on');
+  }
+
+  function closeEdit() {
+    $('scrim').classList.remove('on');
+    $('sheet').classList.remove('on');
+  }
+
+  $('scrim').addEventListener('click', closeEdit);
+  $('pCancel').addEventListener('click', closeEdit);
+
+  $('pSave').addEventListener('click', function () {
+    var btn = $('pSave');
+    var err = $('pErr');
+    err.hidden = true;
+
+    /* Only what CHANGED is sent. mp-v1 touches only the fields present in
+       the request, so an untouched field is never rewritten - and a form
+       that submits everything every time is how a stale value overwrites a
+       fresh one saved on the other device an hour ago. */
+    var e = S.editable || {};
+    var body = { memberId: S.member, secret: SH_SECRET };
+    var sent = 0;
+    [['pf','first_name'],['pl','last_name'],['pe','email'],['pp','phone']].forEach(function (pair) {
+      var v = ($(pair[0]).value || '').trim();
+      if (v !== String(e[pair[1]] || '')) { body[pair[1]] = v; sent++; }
+    });
+    if (!sent) { closeEdit(); return; }
+
+    btn.disabled = true; btn.textContent = 'Saving…';
+    fetch(PROFILE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(function (r) { return r.json().catch(function () { return {}; })
+        .then(function (j) { return { status: r.status, j: j }; }); })
+      .then(function (res) {
+        btn.disabled = false; btn.textContent = 'Save';
+
+        if (res.status === 400 && res.j && res.j.errors) {
+          err.textContent = res.j.errors.map(function (x) { return x.error; }).join('. ');
+          err.hidden = false;
+          return;
+        }
+        /* mp-v1 reads the record back after writing. ok:false means BD
+           accepted the call and did not apply it, which has happened before
+           and returns a cheerful 200 - so this refuses to say "saved". */
+        if (!res.j || res.j.ok === false) {
+          err.textContent = 'That did not save. Try once more.';
+          err.hidden = false;
+          return;
+        }
+        S.editable = res.j.profile || S.editable;
+        if (S.editable && (S.editable.first_name || S.editable.last_name)) {
+          S.profile.name = (S.editable.first_name + ' ' + S.editable.last_name).trim();
+        }
+        closeEdit();
+        drawMe();
+        toast('Saved. Your details are updated everywhere.');
+        vibrate([8, 24, 8]);
+      })
+      .catch(function () {
+        btn.disabled = false; btn.textContent = 'Save';
+        err.textContent = 'Could not reach us. Check your connection.';
+        err.hidden = false;
+      });
+  });
 
   /* =========================================================== ROUTING */
 
@@ -1372,7 +1593,11 @@ a{color:var(--teal)}
     $('h').textContent = c.h;
     $('sub').textContent = c.s;
     $('sub').hidden = !c.s;
-    $('back').hidden = !(v === 'zone' || v === 'edit' || v === 'avail');
+    var deep = (v === 'zone' || v === 'edit' || v === 'avail');
+    $('back').hidden = !deep;
+    /* Back and the mark occupy the same slot. A row carrying both reads as
+       two logos and pushes the title into a second line on a small phone. */
+    $('mk').style.display = deep ? 'none' : '';
     $('av').hidden = !(S.profile && S.profile.photo) || v === 'me';
     $('actBar').classList.toggle('hidden', !c.act);
     if (c.cta) {
@@ -1418,6 +1643,8 @@ a{color:var(--teal)}
     var nav = $('nav');
     var showBtn = nav.querySelector('[data-tab="showings"]');
     var meBtn = nav.querySelector('[data-tab="me"]');
+    var mBtn = nav.querySelector('[data-tab="matches"]');
+    if (mBtn) mBtn.classList.toggle('has', S.newMatches > 0);
     /* s.start is assumed to exist by showings.js, but ASSUMED IS NOT
        GUARANTEED - a record written before a field existed, or a partial
        write, gives undefined, and .replace on undefined throws. One bad row
@@ -1439,6 +1666,12 @@ a{color:var(--teal)}
     navBtns[i].addEventListener('click', function () {
       var t = this.dataset.tab;
       if (S.view === 'avail' && t !== 'showings') { loadAvail(); }
+      /* The deck writes match state as the renter swipes, so the count this
+         screen holds is wrong the moment they leave it. Re-read rather than
+         showing a banner for matches they already dealt with. */
+      if (S.view === 'matches' && t !== 'matches') {
+        loadMatchCount().then(function () { badges(); if (S.tab === 'spots') drawSpots(); });
+      }
       if (S.view === 'edit' && t !== 'spots') {
         if (!window.confirm('Leave without saving this spot?')) return;
         S.draft = null; S.editIdx = -1;
