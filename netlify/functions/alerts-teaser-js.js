@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v22
+// alerts-teaser-js.js  —  at-v23
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,28 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v23: 🔴 MOBILE HAD NO WAY TO SUBMIT WHAT IT HEARD.
+//
+// ON MOBILE, SPEECH RECOGNITION ENDS ON A PAUSE. That is normal browser
+// behaviour, not a fault - iOS and Android both do it. at-v22 only ever
+// offered "Stop and add this" WHILE RECORDING, so the moment the
+// recogniser ended by itself the panel showed "Start talking" and "Never
+// mind" and NOTHING to use what had just been said. A renter could speak
+// a whole description and have no way out of it but to discard it.
+// Desktop hid this completely, because there the renter genuinely does
+// tap Stop before anything auto-ends.
+//
+// NOW: when recording stops with a usable transcript, "Add this"
+// (primary) and "Say more" appear, with a line saying so. "Say more"
+// APPENDS rather than restarting - startRec() clears the transcript, so
+// the existing text is carried across and rejoined.
+// r.onend also SAYS something now instead of leaving a silent panel that
+// looks either still-listening or already-finished.
+//
+// 📌 THE LESSON: A CONTROL THAT ONLY EXISTS DURING AN ACTIVE STATE
+// STRANDS ANYONE WHOSE STATE ENDS WITHOUT THEM. Every terminal state
+// needs its own way forward, not just the one the desktop path takes.
 //
 // at-v22: THE MIC OPENS IN PLACE. Tapping "Keep describing out loud"
 // swapped the whole card for the voice screen - top of the page, a
@@ -299,7 +321,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v22";
+const FN_VERSION = "at-v23";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -582,11 +604,26 @@ const JS = `
               '<div id="rt-inline-status" style="' + (voice.active ? S.vlive : S.vstatus) + '">' +
                 (voice.active ? '<span style="' + S.dot + '"></span>' + esc(voice.status || "Listening") : esc(voice.status || "")) +
               '</div>' +
+              // 🔴 at-v23: A WAY TO SUBMIT WHEN THE RECOGNISER STOPS ITSELF.
+              // On mobile, speech recognition ENDS ON A PAUSE - that is
+              // normal behaviour, not a fault. at-v22 only offered "Stop and
+              // add this" while it was still running, so the moment iOS or
+              // Android ended the session on its own the panel showed
+              // "Start talking" and "Never mind" and NOTHING to use what had
+              // just been said. A whole spoken description with no way out
+              // of it. Desktop hid the bug because there the renter really
+              // does tap Stop.
               '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">' +
-                '<button id="rt-inline-rec" type="button" style="' + S.stop + '">' +
-                  (voice.active ? "Stop and add this" : "Start talking") + '</button>' +
+                (!voice.active && voice.transcript
+                  ? '<button id="rt-inline-use" type="button" style="' + S.btn + 'width:auto;">Add this</button>' +
+                    '<button id="rt-inline-rec" type="button" style="' + S.ghost + '">Say more</button>'
+                  : '<button id="rt-inline-rec" type="button" style="' + S.stop + '">' +
+                      (voice.active ? "Stop and add this" : "Start talking") + '</button>') +
                 '<button id="rt-inline-cancel" type="button" style="' + S.quiet + '">Never mind</button>' +
               '</div>' +
+              (!voice.active && voice.transcript
+                ? '<p style="' + S.hint + 'text-align:left;margin:8px 0 0;">Tap Add this when you are done, or Say more to keep going.</p>'
+                : "") +
             '</div>'
           : "") +
         (speechOK() && !inlineRec
@@ -650,6 +687,17 @@ const JS = `
 
     document.getElementById("rt-go").onclick = submit;
 
+    var iu = document.getElementById("rt-inline-use");
+    if (iu) iu.onclick = function () {
+      var text = String(voice.transcript || "").trim();
+      if (text.length < 12) {
+        voice.status = "A little more detail and we can work with it.";
+        paint();
+        return;
+      }
+      extractVoice(text);
+    };
+
     var ir = document.getElementById("rt-inline-rec");
     if (ir) ir.onclick = function () {
       if (voice.active) {
@@ -663,7 +711,13 @@ const JS = `
         extractVoice(text);
         return;
       }
+      // "Say more" keeps what is already there. startRec() clears the
+      // transcript, so carry it across and hand the joined text to the
+      // extractor at the end.
+      var carried = String(voice.transcript || "").trim();
       startRec();
+      if (carried) voice.transcript = carried + " ";
+      paint();
     };
 
     var ic = document.getElementById("rt-inline-cancel");
@@ -743,9 +797,14 @@ const JS = `
           ? '<span style="' + S.dot + '"></span>' + esc(voice.status || "Listening")
           : esc(voice.status || "");
       }
+      // The button SET changes when recording stops - "Add this" and "Say
+      // more" appear - so a partial repaint is not enough at that moment.
+      // Only the interim text is cheap to patch; a state change needs the
+      // full form back.
       var rb = document.getElementById("rt-inline-rec");
-      if (rb) rb.textContent = voice.active ? "Stop and add this" : "Start talking";
-      if (!box) renderForm();
+      var wantsFull = (!voice.active && voice.transcript && !document.getElementById("rt-inline-use"));
+      if (!box || wantsFull) { renderForm(); return; }
+      if (rb && voice.active) rb.textContent = "Stop and add this";
       return;
     }
     if (VIEW === "form") { renderForm(); return; }
@@ -802,7 +861,7 @@ const JS = `
             (voice.active ? S.stop : (voice.transcript ? S.ghost : S.mic)) + '">' +
             (voice.active
               ? "Stop and use this"
-              : (voice.transcript ? "Start over" : (haveAnything() ? "Start talking" : "Start talking"))) + '</button>') +
+              : (voice.transcript ? "Say more" : "Start talking")) + '</button>') +
           (voice.busy ? "" : (voice.transcript && !voice.active ? '<button id="rt-use" type="button" style="' + S.btn + 'width:auto;">Use this</button>' : "")) +
           (voice.busy ? "" :
             '<button id="rt-back" type="button" style="' + S.quiet + '">' +
@@ -868,7 +927,20 @@ const JS = `
         : "The microphone stopped. Try again or type it instead.";
       paint();
     };
-    r.onend = function () { if (!voice.active) return; voice.active = false; voice.interim = ""; paint(); };
+    r.onend = function () {
+      if (!voice.active) return;
+      // 🔴 THE RECOGNISER ENDING IS NOT THE RENTER FINISHING. On mobile it
+      // stops on a pause. Say so, rather than leaving a silent panel that
+      // looks like it is still listening or already done.
+      voice.active = false;
+      voice.interim = "";
+      if (String(voice.transcript || "").trim().length >= 12) {
+        voice.status = "Got that. Tap Add this, or Say more to keep going.";
+      } else if (!voice.transcript) {
+        voice.status = "We did not catch anything. Try again, or type it instead.";
+      }
+      paint();
+    };
     try { r.start(); } catch (e) { voice.active = false; voice.status = "We could not start the microphone. Type it instead."; }
     paint();
   }
