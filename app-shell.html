@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v17">
+<meta name="rdc-version" content="shell-v19">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v17
+/* ============================================================ shell-v19
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -655,7 +655,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v17';
+  var V = 'shell-v19';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -829,7 +829,11 @@ a{color:var(--teal)}
   function loadDemo() {
     S.member = 'demo';
     S.profile = { id: 'demo', name: 'Maya Ellison',
-      photo: 'https://renters-story-writer.netlify.app/icon-192.png',
+      /* An illustration, not a photograph. A demo that borrows a real face
+         raises the question of whose face it is, and a stock photo standing
+         in for a verified renter is a small dishonesty in a product whose
+         whole pitch is that the people on it are real. */
+      photo: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'><rect width='120' height='120' rx='60' fill='%230d2d4e'/><circle cx='60' cy='46' r='20' fill='%23e8eef3'/><path d='M22 108c0-21 17-34 38-34s38 13 38 34z' fill='%23e8eef3'/><path d='M40 40c0-13 9-22 20-22s20 9 20 22c0 3-1 5-2 5-3 0-4-8-9-10-6-2-13 3-20 3-6 0-9-1-9 2z' fill='%233a9e8f'/></svg>",
       verified: true, pct: 80 };
     S.editable = { first_name: 'Maya', last_name: 'Ellison',
       email: 'maya.ellison@example.com', phone: '503-555-0142',
@@ -898,7 +902,13 @@ a{color:var(--teal)}
         try { buildChips(); } catch (e) { keep(e, 'buildChips'); }
         $('boot').classList.add('off');
         try { badges(); } catch (e) { keep(e, 'badges'); }
+        /* A demo starts where a stranger starts. It also IGNORES the
+           dismissal flag - the whole point is to show the first run, and a
+           demo that skips it because this device saw it once is useless for
+           the thing it exists to do. */
         go('spots');
+        $('intro').classList.add('on');
+        $('introAct').classList.add('on');
         return;
       }
 
@@ -1597,7 +1607,8 @@ a{color:var(--teal)}
       $('v-matches').innerHTML =
         '<div class="frame"><iframe id="dk" title="Your matches"></iframe></div>';
     }
-    var src = DECK + '?memberId=' + encodeURIComponent(S.member) + '&embed=1';
+    var src = DECK + '?memberId=' + encodeURIComponent(S.member) + '&embed=1' +
+              (DEMO ? '&demo=1' : '');
     if ($('dk').getAttribute('src') !== src) $('dk').setAttribute('src', src);
   }
 
@@ -2323,13 +2334,20 @@ a{color:var(--teal)}
   }
 
   $('introSkip').addEventListener('click', function () {
-    markIntroSeen();
+    if (!DEMO) markIntroSeen();
     hideIntro();
     go('spots');
     vibrate(5);
   });
 
   $('introGo').addEventListener('click', function () {
+    if (DEMO) {
+      /* Straight into the populated app. Sending a demo through the zone
+         picker means waiting on live geocoding in front of whoever is
+         watching, which is the one part of this that is genuinely slow. */
+      hideIntro(); go('spots'); vibrate(6);
+      return;
+    }
     markIntroSeen();
     S.draft = blankDraft();
     S.editIdx = -1;
