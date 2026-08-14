@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#eef3f2">
 <title>Your matches — Renters.com</title>
-<meta name="rdc-version" content="md-v11">
+<meta name="rdc-version" content="md-v12">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
@@ -454,82 +454,73 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 <div class="toast" id="toast"></div>
 
 <script>
-/* ============================================================ md-v11
-   MOCK DATA ONLY. Every listing, criterion and time slot below is invented.
-   Nothing here talks to BD, to a feed, or to a calendar.
+/* ============================================================ md-v12
+   THE DECK IS WIRED. Nothing about how it looks or behaves has changed -
+   same swipe, same stamps, same tiers, same criteria strip, same detail
+   sheet, same booking layout. What changed is where the cards come from
+   and what the two buttons at the end actually do.
 
-   Renter profile this deck is matched against:
-     verified income $5,400/mo  ·  1 dog, 42lb  ·  budget to $2,100
-     needs parking  ·  move-in by Oct 1  ·  SE / NE Portland
+     CARDS   were four invented Portland listings -> matches.js (mt-v1)
+     SLOTS   were four invented times            -> showings.js ?action=slots
+     BOOKING was a toast                          -> showings.js POST book
+
+   🔴 A PASS IS RECORDED, NOT JUST DISCARDED. Swiping left writes state
+   'passed' against that match for that renter, so the next curation run
+   cannot resurface it. The LISTING is untouched - it stays live for
+   everybody else it fits. Discarding it only in the browser would mean a
+   renter throwing the same place away every week and reasonably concluding
+   nobody is listening.
+
+   ⚠️ WHICH MAKES A MIS-SWIPE PERMANENT, so there is an undo on the toast.
+   On a deck of three cards a lost match is expensive and an undo is free.
+
+   ⭐ SLOTS ARE MARKED WHEN BOTH CALENDARS AGREE. showings.js computes the
+   host's open times; availability.js holds the renter's own. Where they
+   overlap the slot says so. Overlap is a BADGE, NOT A FILTER - a renter
+   who wants a time outside their stated hours can still take it, and
+   refusing would add a gate to the one flow built to remove phone tag.
+
+   EMBEDDING: this page runs inside the app shell's Matches tab, which
+   passes ?memberId=. It also runs standalone for review.
    ============================================================ */
 
-var RENTER = { income: 5400, budget: 2100 };
+var FN     = 'https://renters-story-writer.netlify.app/.netlify/functions/';
+var MATCHES = FN + 'matches';
+var SHOWS   = FN + 'showings';
+var AVAIL   = FN + 'availability';
 
-var CARDS = [
-  {
-    id:'a', tier:'strong',
-    rent:1895, addr:'2140 SE Clinton St', unit:'Unit 3',
-    hood:'Hosford-Abernethy', beds:2, baths:1, sqft:880,
-    dom:2, applicants:1,
-    why:'You asked for two bedrooms under $2,100 in SE with a yard for the dog. This one is <b>$205 under your ceiling</b>, the landlord allows dogs up to 50lb with no breed limit, and off-street parking is included rather than an add-on.',
-    crit:[
-      {s:'y', k:'Income requirement', v:'2.5x rent', note:'yours is 2.8x'},
-      {s:'y', k:'Dogs allowed', v:'Up to 50lb'},
-      {s:'y', k:'Off-street parking', v:'1 space'},
-      {s:'y', k:'Available', v:'Sept 15'}
-    ],
-    move:null
-  },
-  {
-    id:'b', tier:'moderate',
-    rent:2050, addr:'618 NE Failing St', unit:'',
-    hood:'Sabin', beds:2, baths:1.5, sqft:940,
-    dom:1, applicants:6,
-    why:'Everything fits except the pace. It posted yesterday and <b>six renters have already inquired</b> through us. The landlord screens on a first-complete-application basis rather than a deadline.',
-    crit:[
-      {s:'y', k:'Income requirement', v:'2.5x rent', note:'yours is 2.6x'},
-      {s:'y', k:'Dogs allowed', v:'Case by case'},
-      {s:'q', k:'Parking', v:'Street only'},
-      {s:'y', k:'Available', v:'Oct 1'}
-    ],
-    move:{t:'Move fast or skip it', b:'Six inquiries in a day means this one is gone by the weekend. Book the earliest showing or pass now rather than applying late.'}
-  },
-  {
-    id:'c', tier:'moderate',
-    rent:2100, addr:'4407 SE Woodstock Blvd', unit:'Apt B',
-    hood:'Woodstock', beds:2, baths:1, sqft:820,
-    dom:9, applicants:2,
-    why:'At the very top of your budget, and the landlord requires <b>3x rent</b> rather than the usual 2.5x. Your verified income is 2.57x, so this one is short on paper.',
-    crit:[
-      {s:'q', k:'Income requirement', v:'3x rent', note:'yours is 2.57x'},
-      {s:'y', k:'Dogs allowed', v:'Under 45lb'},
-      {s:'y', k:'Off-street parking', v:'1 space'},
-      {s:'y', k:'Available', v:'Sept 1'}
-    ],
-    move:{t:'One document clears this', b:'A co-signer or three months of savings on file usually satisfies a 3x requirement. Add either to your profile and we will re-submit you as a full match.'}
-  },
-  {
-    id:'d', tier:'weak',
-    rent:1975, addr:'3312 NE 72nd Ave', unit:'',
-    hood:'Roseway', beds:2, baths:1, sqft:900,
-    dom:23, applicants:0,
-    why:'It matches on paper and we are showing it because your search has been quiet this week. But it has sat for <b>23 days</b> with no inquiries, and the landlord has not answered our last two messages.',
-    crit:[
-      {s:'y', k:'Income requirement', v:'2.5x rent', note:'yours is 2.7x'},
-      {s:'n', k:'Pet policy', v:'Not stated'},
-      {s:'n', k:'Parking', v:'Not stated'},
-      {s:'q', k:'Available', v:'Listed Jul 19'}
-    ],
-    move:{t:'We cannot confirm this one', b:'The landlord has not responded to confirm it is still available or that dogs are allowed. Swipe right and we will keep chasing, but do not build a plan around it.'}
+/* The same light gate showings.js and matches.js check. It ships to the
+   client exactly as it already does on the booking page, and it belongs in
+   an env var with the check server-side. Recorded, not worked around. */
+var SECRET = 'renters2026';
+
+var MEMBER = (function () {
+  try {
+    var q = new URLSearchParams(location.search).get('memberId');
+    if (q) return String(q).replace(/[^0-9]/g, '');
+  } catch (e) {}
+  /* Cookie fallback so the page works opened directly. logged_user only
+     exists on the dashboard; userid is everywhere. */
+  var parts = String(document.cookie || '').split(';');
+  for (var i = 0; i < parts.length; i++) {
+    var kv = parts[i].split('=');
+    if (kv.length > 1 && kv[0].trim() === 'userid') {
+      return decodeURIComponent(kv.slice(1).join('=')).replace(/[^0-9]/g, '');
+    }
   }
-];
+  return '';
+})();
 
-var SLOTS = [
-  {d:'Thu Aug 13', t:'5:30 PM'},
-  {d:'Thu Aug 13', t:'6:15 PM'},
-  {d:'Sat Aug 15', t:'10:00 AM'},
-  {d:'Sat Aug 15', t:'11:30 AM'}
-];
+/* Income is used for the ledger line in the detail sheet only. The criteria
+   strip carries its own "yours is 2.8x" note per row, curated against the
+   landlord's stated requirement, so the strip is right even when this is
+   not known yet. */
+var RENTER = { income: null, budget: null };
+var myAvail = null;
+
+var CARDS = [];
+
+var SLOTS = [];
 
 /* band  = the header colour. Navy on every card - a full lime header was
            too much surface for the signal. The tier lives in the verdict
@@ -545,8 +536,92 @@ var TIER = {
              band:'var(--navy)', ink:'#fff', cls:''}
 };
 
-var SCANNED = 214;
+var SCANNED = 0;
 var i = 0, kept = [], live = null, activeCard = null;
+
+/* ---------------------------------------------------------- the wiring */
+
+/* ADAPTER, DELIBERATELY. matches.js speaks the shape a matcher will write
+   - propertyLabel, criteria[].label, move.title. The renderer below speaks
+   the shape it was built with - addr, crit[].k, move.t. Translating in one
+   function keeps BOTH honest: the store is not bent to suit a view, and
+   150 lines of working renderer are not rewritten to suit a store. */
+function adapt(m) {
+  return {
+    id: m.id,
+    tier: m.tier,
+    hostId: m.hostId,
+    city: m.city,
+    propertyLabel: m.propertyLabel,
+    rent: m.rent,
+    addr: m.propertyLabel,
+    unit: m.unit || '',
+    hood: m.neighborhood || m.city || '',
+    beds: m.beds, baths: m.baths, sqft: m.sqft,
+    dom: m.daysListed, applicants: m.inquiries || 0,
+    confirmed: !!m.confirmedAt,
+    why: m.why || '',
+    crit: (m.criteria || []).map(function (c) {
+      return { s: c.state, k: c.label, v: c.value, note: c.note };
+    }),
+    move: m.move ? { t: m.move.title, b: m.move.body } : null
+  };
+}
+
+function post(url, body) {
+  return fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function (r) { return r.json().catch(function () { return {}; }); });
+}
+
+/* Fire and forget on purpose. A renter's swipe must never wait on a round
+   trip - a deck that stutters on every card is worse than a state that
+   lands a second late. The undo below is what covers a write that fails. */
+function act(matchId, action) {
+  if (!MEMBER || !matchId) return Promise.resolve(null);
+  return post(MATCHES + '?act=1', {
+    memberId: MEMBER, matchId: matchId, action: action, secret: SECRET
+  }).catch(function () { return null; });
+}
+
+function loadDeck() {
+  if (!MEMBER) { CARDS = []; render(); return Promise.resolve(); }
+  return fetch(MATCHES + '?memberId=' + encodeURIComponent(MEMBER))
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      CARDS = ((d && d.matches) || []).map(adapt);
+      i = 0; kept = [];
+      render();
+    })
+    .catch(function () { CARDS = []; render(); });
+}
+
+/* The renter's own hours, so an overlapping slot can say so. Failure here
+   costs the badge and nothing else - every slot stays bookable. */
+function loadMyAvail() {
+  if (!MEMBER) return Promise.resolve();
+  return fetch(AVAIL + '?memberId=' + encodeURIComponent(MEMBER))
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { myAvail = (d && d.enabled && d.windows && d.windows.length) ? d : null; })
+    .catch(function () { myAvail = null; });
+}
+
+var DOW = ['SU','MO','TU','WE','TH','FR','SA'];
+
+function bothFree(iso) {
+  if (!myAvail) return false;
+  var d = new Date(String(iso).replace(' ', 'T'));
+  if (!isFinite(d.getTime())) return false;
+  var day = DOW[d.getDay()];
+  var mins = d.getHours() * 60 + d.getMinutes();
+  return myAvail.windows.some(function (w) {
+    if (w.day !== day) return false;
+    var a = w.start.split(':'), b = w.end.split(':');
+    return mins >= (+a[0] * 60 + +a[1]) && mins < (+b[0] * 60 + +b[1]);
+  });
+}
 
 var stage = document.getElementById('stage');
 var endEl = document.getElementById('end');
@@ -575,9 +650,30 @@ function vibrate(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms); }catch(e
 
 function toast(msg){
   var t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('on');
+  t.innerHTML = ''; t.textContent = msg; t.classList.add('on');
   clearTimeout(toast._t);
   toast._t = setTimeout(function(){ t.classList.remove('on'); }, 2600);
+}
+
+/* A pass is permanent, which makes a mis-swipe permanent. On a deck of
+   three cards that is expensive and an undo costs nothing. Six seconds -
+   long enough to notice, short enough not to sit there. */
+function undoable(d){
+  var t = document.getElementById('toast');
+  t.innerHTML = 'Passed on ' + (d.addr || 'that one') +
+    ' <button type="button" id="undo" style="background:none;border:0;color:#8dc63f;' +
+    'font:inherit;font-weight:700;text-decoration:underline;margin-left:10px;' +
+    'cursor:pointer">Undo</button>';
+  t.classList.add('on');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(function(){ t.classList.remove('on'); }, 6000);
+  var u = document.getElementById('undo');
+  if (u) u.addEventListener('click', function(){
+    act(d.id, 'reset').then(function(){
+      t.classList.remove('on');
+      loadDeck();
+    });
+  });
 }
 
 function critHTML(list){
@@ -600,6 +696,7 @@ function render(){
   document.getElementById('hint').style.visibility = left > 0 ? 'visible' : 'hidden';
   document.querySelector('.pads').style.visibility = left > 0 ? 'visible' : 'hidden';
 
+  if (!CARDS.length){ showNone(); return; }
   if (left <= 0){ showEnd(); return; }
   endEl.classList.remove('on');
 
@@ -640,7 +737,9 @@ function buildCard(d, depth){
       (d.move ? '<div class="move"><b>' + d.move.t + '</b>' + d.move.b + '</div>' : '') +
     '</div>' +
     '<div class="foot">' +
-      '<span class="live"><i class="dot"></i>Confirmed available today</span>' +
+      (d.confirmed
+        ? '<span class="live"><i class="dot"></i>Confirmed available today</span>'
+        : '<span class="live" style="color:var(--slate)">Checking with the landlord</span>') +
       '<span class="open">Tap to open' +
         '<svg width="12" height="12" viewBox="0 0 12 12" fill="none">' +
         '<path d="M4 2l4 4-4 4" stroke="#0d2d4e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
@@ -702,7 +801,8 @@ function attach(el){
     el.style.opacity = '0';
     vibrate(dir > 0 ? 14 : 8);
     var d = CARDS[i];
-    if (dir > 0) { kept.push(d.id); }
+    if (dir > 0) { kept.push(d.id); act(d.id, 'looked'); }
+    else { act(d.id, 'pass'); undoable(d); }
     i++;
     setTimeout(function(){
       render();
@@ -747,13 +847,19 @@ function openListing(id){
     '</div>' +
     '<p class="h">Why you are seeing this</p>' +
     '<p class="p-why">' + d.why + '</p>' +
-    '<p class="h">This landlord\u2019s requirements, against your profile</p>' +
+    '<p class="h">This landlord’s requirements, against your profile</p>' +
     critHTML(d.crit) +
     (d.move ? '<div class="move" style="--tier:' + t.c + ';--tint:' + t.tint + ';margin-bottom:18px">' +
       '<b>' + d.move.t + '</b>' + d.move.b + '</div>' : '') +
-    '<div class="ledger">Verified income <b>' + money(RENTER.income) + '/mo</b> \u2014 that is ' +
-      '<b>' + ratio + 'x</b> this rent. We confirmed with the landlord that this unit is still ' +
-      'available <b>today</b>. ' + (d.applicants > 0
+    '<div class="ledger">' +
+      (RENTER.income
+        ? 'Verified income <b>' + money(RENTER.income) + '/mo</b> — that is <b>' +
+          ratio + 'x</b> this rent. '
+        : '') +
+      (d.confirmed
+        ? 'We confirmed with the landlord that this unit is still available <b>today</b>. '
+        : 'We are checking with the landlord that this unit is still available. ') +
+      (d.applicants > 0
         ? '<b>' + d.applicants + '</b> other verified renter' + (d.applicants > 1 ? 's have' : ' has') + ' inquired through us.'
         : 'No other renter has inquired through us yet.') +
     '</div>';
@@ -789,41 +895,136 @@ var picked = null;
 function booking(){
   picked = null;
   var d = activeCard;
+
   document.getElementById('sheetBody').innerHTML =
     '<p class="h">Book a showing</p>' +
     '<h2 class="p-addr" style="margin-top:0">' + d.addr + '</h2>' +
-    '<p class="p-hood">These are times the landlord has open. Pick one and it goes ' +
-      'straight onto both calendars.</p>' +
-    '<div class="slots" id="slots">' +
-      SLOTS.map(function(s, n){
-        return '<button class="slot" aria-pressed="false" onclick="pick(' + n + ')">' +
-               '<b>' + s.t + '</b><small>' + s.d + '</small></button>';
-      }).join('') +
-    '</div>' +
+    '<p class="p-hood" id="slotLead">Finding times the landlord has open…</p>' +
+    '<div class="slots" id="slots"></div>' +
     '<div class="ledger">You will get a calendar invite and a reminder the morning of. ' +
       'The landlord sees your verified badge and income band, nothing else.</div>';
 
   document.getElementById('sheetAct').innerHTML =
     '<button class="cta" id="confirm" disabled onclick="confirmBooking()">Pick a time</button>' +
     '<button class="cta ghost" onclick="openListing(activeCard.id)">Back to the listing</button>';
+
+  /* Real open times, computed by showings.js from the landlord's own
+     availability - notice, buffer, horizon and anything already taken. */
+  fetch(SHOWS + '?action=slots&hostId=' + encodeURIComponent(d.hostId))
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      SLOTS = (j && j.slots) ? j.slots.slice(0, 12) : [];
+      paintSlots();
+    })
+    .catch(function(){ SLOTS = []; paintSlots(); });
+}
+
+function slotLabel(iso){
+  var dt = new Date(String(iso).replace(' ', 'T'));
+  if (!isFinite(dt.getTime())) return { t: iso, d: '' };
+  return {
+    t: dt.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit' }),
+    d: dt.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  };
+}
+
+function paintSlots(){
+  var box = document.getElementById('slots');
+  var lead = document.getElementById('slotLead');
+  if (!box) return;
+
+  if (!SLOTS.length) {
+    /* NOT AN ERROR, AND IT MUST NOT READ AS ONE. The usual cause is a
+       landlord who has not set availability yet, which is nothing the
+       renter did and nothing they can fix by retrying. */
+    lead.textContent = 'This landlord has not opened any times yet.';
+    box.innerHTML =
+      '<p style="font-size:13px;line-height:1.6;color:#4a5b6d;margin:0">' +
+      'We will ask them and come back to you. Nothing is lost — you are ' +
+      'still first in line on this one.</p>';
+    var c = document.getElementById('confirm');
+    if (c) { c.textContent = 'Ask for a time'; c.disabled = false;
+             c.setAttribute('onclick', 'requestTime()'); }
+    return;
+  }
+
+  var any = SLOTS.some(function(s){ return bothFree(s.start); });
+  lead.textContent = any
+    ? 'These are times the landlord has open. The marked ones you are free too.'
+    : 'These are times the landlord has open. Pick one and it goes straight onto both calendars.';
+
+  box.innerHTML = SLOTS.map(function(s, n){
+    var L = slotLabel(s.start);
+    var both = bothFree(s.start);
+    return '<button class="slot" aria-pressed="false" onclick="pick(' + n + ')">' +
+           '<b>' + L.t + '</b><small>' + L.d +
+           (both ? ' &middot; <span style="color:#3a9e8f;font-weight:700">you are free</span>' : '') +
+           '</small></button>';
+  }).join('');
+}
+
+/* No open times is still a lead. Asking is better than a dead end, and it
+   is the operator-initiated path the whole model already runs on. */
+function requestTime(){
+  var d = activeCard;
+  closeSheet();
+  act(d.id, 'looked');
+  toast('We will ask the landlord and come back to you');
 }
 
 function pick(n){
   picked = n;
   var all = document.querySelectorAll('#slots .slot');
   for (var k = 0; k < all.length; k++) all[k].setAttribute('aria-pressed', String(k === n));
+  var L = slotLabel(SLOTS[n].start);
   var b = document.getElementById('confirm');
   b.disabled = false;
-  b.innerHTML = 'Book ' + SLOTS[n].d + ', ' + SLOTS[n].t + ' &rarr;';
+  b.innerHTML = 'Book ' + L.d + ', ' + L.t + ' &rarr;';
   vibrate(8);
 }
 
 function confirmBooking(){
   if (picked === null) return;
-  var s = SLOTS[picked];
-  closeSheet();
-  vibrate([12, 40, 12]);
-  toast('Showing booked \u2014 ' + s.d + ' at ' + s.t);
+  var slot = SLOTS[picked];
+  var d = activeCard;
+  var L = slotLabel(slot.start);
+  var btn = document.getElementById('confirm');
+  btn.disabled = true; btn.textContent = 'Booking…';
+
+  post(SHOWS, {
+    action: 'book',
+    secret: SECRET,
+    hostId: d.hostId,
+    guestId: MEMBER,
+    start: slot.start,
+    propertyLabel: d.propertyLabel,
+    city: d.city
+  }).then(function(res){
+    btn.disabled = false;
+    if (!res || !res.ok) {
+      /* 409 means somebody took it while this sheet was open. Re-read
+         rather than telling them to try again on a list that is wrong. */
+      btn.textContent = 'Pick a time';
+      toast((res && res.error === 'slot no longer available')
+        ? 'That time just went. Here are the rest.'
+        : 'Could not book that. Try again.');
+      picked = null;
+      return booking();
+    }
+    /* The showing exists. Mark the match so the deck and the lead hub agree
+       on where this one got to. */
+    act(d.id, 'booked');
+    closeSheet();
+    vibrate([12, 40, 12]);
+    var confirmed = res.showing && res.showing.status === 'confirmed';
+    toast(confirmed
+      ? 'Booked — ' + L.d + ' at ' + L.t
+      : 'Requested — ' + L.d + ' at ' + L.t + '. Waiting on the landlord.');
+    loadDeck();
+  }).catch(function(){
+    btn.disabled = false; btn.textContent = 'Pick a time';
+    toast('Could not reach the scheduler.');
+  });
 }
 
 function chase(){
@@ -832,6 +1033,24 @@ function chase(){
 }
 
 /* ----------------------------------------------------------- end state */
+
+/* NOTHING HAS MATCHED YET IS A NORMAL STATE, NOT A FAULT. The whole
+   promise is that silence means nothing fit - so this says that plainly
+   rather than apologising or implying something broke. */
+function showNone(){
+  var t = document.getElementById('tally');
+  t.innerHTML = '';
+  document.getElementById('endH').textContent = 'Nothing fits yet';
+  document.getElementById('endP').innerHTML =
+    (MEMBER
+      ? 'We are looking. When a place clears your budget, your zone and the ' +
+        'landlord’s own requirements, it lands here and we let you know. ' +
+        '<br><br>No matches, no noise.'
+      : 'Open this from your account to see your matches.');
+  var btn = endEl.querySelector('.cta');
+  if (btn) btn.style.display = 'none';
+  endEl.classList.add('on');
+}
 
 function showEnd(){
   var t = document.getElementById('tally');
@@ -844,9 +1063,12 @@ function showEnd(){
     bar.style.animationDelay = (k * 9) + 'ms';
     t.appendChild(bar);
   }
+  var b2 = endEl.querySelector('.cta');
+  if (b2) b2.style.display = '';
+  document.getElementById('endH').textContent = "That's everything worth your time.";
   document.getElementById('endP').innerHTML =
     'We looked at <b>' + SCANNED + '</b> rentals in your search area this week. ' +
-    '<b>' + (SCANNED - shown) + '</b> failed your budget, your dog, the landlord\u2019s ' +
+    '<b>' + (SCANNED - shown) + '</b> failed your budget, your dog, the landlord’s ' +
     'income requirement, or were already gone. You saw the <b>' + shown + '</b> that were left.' +
     (kept.length ? '<br><br>You kept <b>' + kept.length + '</b>.' : '');
   endEl.classList.add('on');
@@ -854,7 +1076,9 @@ function showEnd(){
 
 function reset(){ i = 0; kept = []; render(); }
 
-render();
+/* Availability first so the overlap badge is right on the first sheet a
+   renter opens, rather than correct only on the second. */
+loadMyAvail().then(loadDeck);
 </script>
 </body>
 </html>

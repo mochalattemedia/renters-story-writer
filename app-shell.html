@@ -4,20 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v5">
+<meta name="rdc-version" content="shell-v7">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v5
+/* ============================================================ shell-v7
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
    backend that was built elsewhere, and this file owns none of them:
 
      SPOTS     ap-v11  (schema v4, ?schema=1 / ?status=1 / POST)
-     MATCHES   nothing yet - see below
+     MATCHES   app-deck.html md-v12, embedded (matches.js + showings.js)
      SHOWINGS  showings.js (?action=list, POST confirm/decline/cancel)
                + availability.js and availability-page.js, iframed
      ME        BD, read same-origin at /account/home
@@ -138,7 +138,7 @@ a{color:var(--teal)}
 .frame{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
        background:var(--white);height:100%;min-height:380px}
 .frame iframe{width:100%;height:100%;border:0;display:block}
-.view.on#v-zone,.view.on#v-avail{height:100%;display:flex;flex-direction:column}
+.view.on#v-zone,.view.on#v-avail,.view.on#v-matches{height:100%;display:flex;flex-direction:column}
 
 .done{display:flex;align-items:center;gap:11px;background:rgba(58,158,143,.08);
       border-left:3px solid var(--teal);padding:11px 13px;margin:0 0 14px}
@@ -271,6 +271,62 @@ a{color:var(--teal)}
   box-shadow:0 10px 30px rgba(13,45,78,.3)}
 .toast.on{opacity:1;transform:translate(-50%,0)}
 
+/* -------------------------------------------------------------- preview */
+/* A DEMONSTRATION, NOT A CLAIM. This shows the swipe the way it will
+   behave when a match lands, using an obviously-labelled example. It is
+   the one honest way to show a mechanic before there is anything to run
+   it on: a real-looking listing here would be a fabricated place, and
+   #138 is open precisely because that is what the deck did. */
+.demo{position:relative;height:260px;margin:0 0 8px;perspective:900px}
+.dcard{
+  position:absolute;inset:0;background:var(--white);border-radius:var(--r);
+  border:1px solid var(--line);overflow:hidden;display:flex;flex-direction:column;
+  box-shadow:0 1px 2px rgba(13,45,78,.06),0 14px 30px -18px rgba(13,45,78,.4);
+  transform-origin:50% 120%;
+}
+.dcard.b{transform:translateY(-7px) scale(.965);opacity:.55;z-index:1}
+.dcard.a{z-index:2}
+@media (prefers-reduced-motion:no-preference){
+  .dcard.a{animation:swipe 6.5s var(--ease) infinite}
+}
+@keyframes swipe{
+  0%,14%   {transform:translate(0,0) rotate(0)}
+  26%,38%  {transform:translate(78px,-6px) rotate(7deg)}
+  50%      {transform:translate(420px,26px) rotate(20deg);opacity:0}
+  51%      {transform:translate(0,0) rotate(0);opacity:0}
+  60%,100% {transform:translate(0,0) rotate(0);opacity:1}
+}
+.dband{flex:0 0 auto;background:var(--navy);padding:12px 14px;position:relative}
+.dband .r{font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:24px;
+          color:#fff;letter-spacing:-.03em;line-height:1}
+.dband .r span{font-size:11px;font-weight:700;opacity:.8;letter-spacing:0}
+.dband .v{position:absolute;top:11px;right:12px;background:var(--teal);color:#fff;
+          font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;
+          padding:5px 9px;border-radius:100px}
+.dbody{flex:1 1 auto;padding:11px 14px;min-height:0}
+.dbody .ad{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:14px;
+           margin:0 0 8px}
+.dcrit{list-style:none;margin:0;padding:0}
+.dcrit li{display:flex;align-items:center;gap:8px;font-size:11.5px;padding:4.5px 0;
+          border-bottom:1px solid var(--line);color:var(--ink-2)}
+.dcrit li:last-child{border-bottom:0}
+.dcrit .k{flex:0 0 15px;height:15px;border-radius:50%;background:var(--teal);color:#fff;
+          font-size:8.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.dcrit .val{margin-left:auto;font-weight:700;color:var(--slate)}
+.dstamp{position:absolute;top:56px;left:14px;z-index:3;font-family:'Red Hat Display',sans-serif;
+        font-weight:900;font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+        color:var(--teal);border:2.5px solid var(--teal);border-radius:8px;padding:6px 10px;
+        transform:rotate(-11deg);opacity:0}
+@media (prefers-reduced-motion:no-preference){
+  .dstamp{animation:stamp 6.5s var(--ease) infinite}
+}
+@keyframes stamp{0%,20%{opacity:0}30%,46%{opacity:1}52%,100%{opacity:0}}
+.dpads{display:flex;align-items:center;justify-content:center;gap:16px;margin:0 0 6px}
+.dpad{width:40px;height:40px;border-radius:50%;background:var(--white);border:1px solid var(--line);
+      display:flex;align-items:center;justify-content:center}
+.dpad.y{background:var(--teal);border-color:var(--teal)}
+.dcap{text-align:center;font-size:11.5px;color:var(--slate);margin:0 0 4px}
+
 /* ---------------------------------------------------------------- intro */
 .intro{position:fixed;inset:0;z-index:790;background:var(--paper);overflow-y:auto;
        -webkit-overflow-scrolling:touch;display:none;
@@ -334,12 +390,42 @@ a{color:var(--teal)}
   <div class="step"><span class="n">3</span><span class="c">
     <b>Keep the ones worth your time</b>
     <p>When a place fits, swipe right to look closer and left to lose it.
-      Anything you could never get, you never see.</p></span></div>
+      The card shows the landlord's own requirements checked against you, so
+      anything you could never get, you never see.</p></span></div>
 
-  <div class="step"><span class="n">4</span><span class="c">
+  <div class="demo" aria-hidden="true">
+    <div class="dcard b"></div>
+    <div class="dcard a">
+      <div class="dstamp">Look closer</div>
+      <div class="dband">
+        <span class="v">Strong match</span>
+        <div class="r">$1,895<span> /mo</span></div>
+      </div>
+      <div class="dbody">
+        <p class="ad">2 bed &middot; 1 bath &middot; SE Portland</p>
+        <ul class="dcrit">
+          <li><span class="k">&#10003;</span>Income requirement<span class="val">2.5x &middot; you are 2.8x</span></li>
+          <li><span class="k">&#10003;</span>Dogs allowed<span class="val">Up to 50lb</span></li>
+          <li><span class="k">&#10003;</span>Off-street parking<span class="val">1 space</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="dpads">
+    <span class="dpad"><svg width="15" height="15" viewBox="0 0 22 22" fill="none">
+      <path d="M5 5l12 12M17 5L5 17" stroke="#6b7f93" stroke-width="2.4" stroke-linecap="round"/>
+    </svg></span>
+    <span class="dpad y"><svg width="17" height="17" viewBox="0 0 26 26" fill="none">
+      <path d="M13 22s-8.4-5.1-8.4-11.2A4.9 4.9 0 0 1 13 7.6a4.9 4.9 0 0 1 8.4 3.2C21.4 16.9 13 22 13 22z" fill="#fff"/>
+    </svg></span>
+  </div>
+  <p class="dcap">An example, so you can see how it works. Nothing here is a real listing.</p>
+
+  <div class="step" style="border-top:1px solid var(--line);margin-top:8px">
+    <span class="n">4</span><span class="c">
     <b>Book the showing here</b>
     <p>Set the hours you are free once. A time gets booked and it lands on both
-      calendars, without the phone tag.</p></span></div>
+      calendars, without the phone tag. Decline it or move it in a tap.</p></span></div>
 
   <div class="step"><span class="n q">5</span><span class="c">
     <b>Confirm who you are</b>
@@ -417,7 +503,9 @@ a{color:var(--teal)}
     </section>
 
     <!-- MATCHES -------------------------------------------------- -->
-    <section class="view" id="v-matches"><div id="matchBox"></div></section>
+    <section class="view" id="v-matches">
+      <div class="frame"><iframe id="dk" title="Your matches"></iframe></div>
+    </section>
 
     <!-- SHOWINGS ------------------------------------------------- -->
     <section class="view" id="v-showings"><div id="showBox"></div></section>
@@ -467,7 +555,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v5';
+  var V = 'shell-v7';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -477,6 +565,7 @@ a{color:var(--teal)}
   var AVAIL  = FN + 'availability';
   var AVAILUI = FN + 'availability-page';
   var PICKER = NET + '/zone-picker.html';
+  var DECK   = NET + '/app-deck.html';
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -655,6 +744,22 @@ a{color:var(--teal)}
            whole boot - which is exactly what it cost in v4. */
         try { badges(); } catch (e) { keep(e, 'badges'); }
         $('boot').classList.add('off');
+
+        /* A spot drawn before signing up, written now. loadSpots() has
+           already run, so this APPENDS to whatever is there rather than
+           replacing it - including anything the web teaser claimed in the
+           same minute. */
+        var parked = takeDraft();
+        if (parked && S.spots.length < (S.schema.maxSearches || 5)) {
+          S.draft = parked;
+          S.spots.push(parked);
+          save('Saved. When something fits, you hear from us.').then(function () {
+            S.draft = null;
+            try { go('spots'); } catch (e) { keep(e, 'go(spots)'); }
+          });
+          return;
+        }
+
         try { go('spots'); } catch (e) { keep(e, 'go(spots)'); fail(); }
       });
     });
@@ -1270,9 +1375,18 @@ a{color:var(--teal)}
     $('back').hidden = !(v === 'zone' || v === 'edit' || v === 'avail');
     $('av').hidden = !(S.profile && S.profile.photo) || v === 'me';
     $('actBar').classList.toggle('hidden', !c.act);
-    if (c.cta) $('next').innerHTML = c.cta;
-    $('bodyEl').classList.toggle('tight', v === 'zone' || v === 'avail');
+    if (c.cta) {
+      /* Say what the button does. "Save this spot" when there is no account
+         to save it to is a promise the next screen breaks. */
+      $('next').innerHTML = (v === 'edit' && !S.member)
+        ? 'Save it to your account →' : c.cta;
+    }
+    $('bodyEl').classList.toggle('tight', v === 'zone' || v === 'avail' || v === 'matches');
     $('bodyEl').scrollTop = 0;
+
+    /* No account, no tabs. Three of the four have nothing to show, and a
+       nav bar full of dead ends is a worse first impression than no nav. */
+    $('nav').style.display = S.member ? '' : 'none';
 
     var btns = $('nav').querySelectorAll('button');
     for (var i = 0; i < btns.length; i++) {
@@ -1340,9 +1454,23 @@ a{color:var(--teal)}
       loadAvail().then(function () { go('showings'); });
       return;
     }
-    if (S.view === 'zone') { go('spots'); return; }
+    if (S.view === 'zone') {
+      if (!S.member) {
+        S.draft = null;
+        $('intro').classList.add('on');
+        $('introAct').classList.add('on');
+        return;
+      }
+      go('spots'); return;
+    }
     if (S.view === 'edit') {
       if (!window.confirm('Leave without saving this spot?')) return;
+      if (!S.member) {
+        S.draft = null;
+        $('intro').classList.add('on');
+        $('introAct').classList.add('on');
+        return;
+      }
       S.draft = null; S.editIdx = -1; go('spots');
     }
   });
@@ -1379,6 +1507,17 @@ a{color:var(--teal)}
       }
       if (!(S.draft.name && S.editIdx !== -1)) S.draft.name = nameFor(S.draft);
 
+      /* No member yet: park it and go make one. The spot is written on the
+         way back in, by the same code path any other save uses. */
+      if (!S.member) {
+        if (parkDraft()) {
+          location.href = '/checkout/renters?src=app';
+        } else {
+          toast('Could not hold that. Try again.');
+        }
+        return;
+      }
+
       if (S.editIdx === -1) S.spots.push(S.draft);
       else S.spots[S.editIdx] = S.draft;
 
@@ -1407,10 +1546,51 @@ a{color:var(--teal)}
       'font-size:15px;font-family:inherit">Try again</button></div>';
   }, 12000);
 
-  /* The homepage is where at-v22 lives, so "start" means start there. The
-     app is the place you come back to once there is an account behind it. */
+  /* 🔴 THE FLOW RUNS LOGGED OUT, IN THE APP. Sending a visitor to the
+     homepage to start meant the app's own first action was to leave the
+     app - and the zone picker needs no session to work, so there was never
+     a reason to.
+
+     WHAT IT DOES NOT DO IS FORK THE CLAIM PATH. at-v22 and aclaim-v3 own
+     the web's logged-out capture, and aclaim-v3's shape under schema v4 is
+     not something this file can see. So the app keeps its OWN draft under
+     its own key and writes it through ap-v11 like any other save once a
+     member exists. No second stash, no second token, nothing that can
+     disagree with the web's copy.
+
+     ⚠️ It is device-local by nature. Someone who fills this in on a phone
+     and signs up on a laptop loses it - the web teaser covers that case,
+     and covering it here would mean the fork this avoids. */
+  var K_DRAFT = 'rdc_app_draft';
+
+  function parkDraft() {
+    try {
+      readDraft();
+      localStorage.setItem(K_DRAFT, JSON.stringify({ draft: S.draft, at: Date.now() }));
+      return true;
+    } catch (e) { keep(e, 'parkDraft'); return false; }
+  }
+
+  function takeDraft() {
+    var raw = null;
+    try { raw = localStorage.getItem(K_DRAFT); } catch (e) { return null; }
+    if (!raw) return null;
+    var rec = null;
+    try { rec = JSON.parse(raw); } catch (e) { }
+    try { localStorage.removeItem(K_DRAFT); } catch (e) {}
+    if (!rec || !rec.draft) return null;
+    /* A month-old draft is not what they meant any more. */
+    if (Date.now() - (rec.at || 0) > 30 * 24 * 3600 * 1000) return null;
+    return rec.draft;
+  }
+
   $('introGo').addEventListener('click', function () {
-    location.href = '/?src=app';
+    S.draft = blankDraft();
+    S.editIdx = -1;
+    $('intro').classList.remove('on');
+    $('introAct').classList.remove('on');
+    go('zone');
+    vibrate(6);
   });
 
   boot();
