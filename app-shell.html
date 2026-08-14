@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v14">
+<meta name="rdc-version" content="shell-v15">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v14
+/* ============================================================ shell-v15
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -216,6 +216,14 @@ a{color:var(--teal)}
 
 .fields{display:none}
 .fields.on{display:block}
+/* 🔴 THE FORM IS NOT HIDDEN ANY MORE, AND THE OLD REASON WAS WRONG.
+   It used to stay collapsed until voice finished or "fill it in yourself"
+   was tapped - which is right IF the renter speaks. If they do not, the
+   spot screen shows a microphone, a link, and nothing else: no bedrooms,
+   no rent, no must-haves. There is visibly nothing to build a spot with,
+   and the one control that would reveal it reads as a secondary option.
+   Voice is the SHORTCUT, not the gate. The form is the screen; speaking
+   fills it in. */
 .f{margin:0 0 13px}
 .f label{display:block;font-size:11px;font-weight:700;letter-spacing:.09em;
          text-transform:uppercase;color:var(--slate);margin:0 0 6px}
@@ -541,9 +549,10 @@ a{color:var(--teal)}
         <button class="mini" id="redo" style="margin-top:10px">Use this &rarr;</button>
       </div>
 
-      <p class="or">or <button id="typeIt">fill it in yourself</button></p>
+      <p class="or">Speaking fills this in for you &middot;
+        <button id="typeIt">or just type</button></p>
 
-      <div class="fields" id="fields">
+      <div class="fields on" id="fields">
         <div id="opts"></div>
         <button class="addopt" id="addOpt">+ Would something else work here?</button>
         <p class="hint" id="optHint"></p>
@@ -646,7 +655,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v14';
+  var V = 'shell-v15';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -953,7 +962,23 @@ a{color:var(--teal)}
     });
   }
 
+  /* An empty chip row is indistinguishable from a chip row that has not
+     loaded, and the renter cannot tell which. If the vocabulary is missing
+     the screen says so instead of showing three silent gaps. */
+  function chipsFailed() {
+    ['must', 'nice', 'bad'].forEach(function (id) {
+      var el = $(id);
+      if (el) el.innerHTML = '<p class="cap" style="margin:0">Could not load the ' +
+        'options. Your zone and rent still save.</p>';
+    });
+  }
+
   function buildChips() {
+    if (!S.schema || !S.schema.positiveChips || !S.schema.positiveChips.length) {
+      chipsFailed();
+      keep(new Error('schema had no chips'), 'buildChips');
+      return;
+    }
     /* breakerChips, NOT breakerAccepted. The store still accepts positive
        keys as breakers for back compat and quarantines them
        (legacyBreakersQuarantined: true), so rendering breakerAccepted would
@@ -1126,7 +1151,13 @@ a{color:var(--teal)}
     saving = true;
 
     f.contentWindow.postMessage({ type: 'renters_areas_save' }, '*');
-    toast('Working out the ZIP codes in your zone');
+    /* Resolving a zone is one geocode per zip and genuinely slow on
+       cellular. A button that looks dead for thirty seconds is how a
+       renter concludes it is broken and taps it eight more times. */
+    var nb = $('next');
+    nb.disabled = true;
+    nb.textContent = 'Working out your ZIP codes…';
+    toast('This can take a moment on a big zone');
 
     /* A ceiling, not a retry. Resolving a large zone genuinely takes time,
        so this is generous - and it only fires when the picker has gone
@@ -1135,6 +1166,8 @@ a{color:var(--teal)}
     saveTimer = setTimeout(function () {
       if (!saving) return;
       saving = false;
+      var nb3 = $('next');
+      nb3.disabled = false; nb3.innerHTML = COPY.zone.cta;
       toast('That is taking a while. Tap Next again, or draw a smaller zone.');
     }, 45000);
   }
@@ -1150,6 +1183,8 @@ a{color:var(--teal)}
 
     if (d.type === 'renters_areas_none') {
       saving = false; clearTimeout(saveTimer);
+      var nb2 = $('next');
+      nb2.disabled = false; nb2.innerHTML = COPY.zone.cta;
       toast('Draw a zone on the map first');
       return;
     }
@@ -1157,6 +1192,7 @@ a{color:var(--teal)}
 
     saving = false;
     clearTimeout(saveTimer);
+    $('next').disabled = false;
     var z = (d.zones || [])[0] || {};
     if (!S.draft) S.draft = blankDraft();
     S.draft.zone = {
@@ -1286,7 +1322,15 @@ a{color:var(--teal)}
   }
 
   function showFields() { $('fields').classList.add('on'); }
-  $('typeIt').addEventListener('click', showFields);
+
+  /* The form is already open, so this scrolls to it rather than revealing
+     it - the label promises somewhere to type, and the screen should take
+     them there. */
+  $('typeIt').addEventListener('click', function () {
+    showFields();
+    var f = $('fields');
+    if (f && f.scrollIntoView) f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 
   /* ---------------------------------------------------------- options */
 
@@ -1310,6 +1354,10 @@ a{color:var(--teal)}
 
   function drawOptions() {
     var box = $('opts'); box.innerHTML = '';
+    if (!S.schema || !S.schema.unitTypes) {
+      box.innerHTML = '<p class="cap">Could not load the options. Try reopening the app.</p>';
+      return;
+    }
     var maxO = S.schema.maxOptions || 4;
     S.draft.options.forEach(function (o, i) {
       var el = document.createElement('div');
@@ -1963,7 +2011,7 @@ a{color:var(--teal)}
       }
       S.draft = blankDraft(); S.editIdx = -1;
       $('heard').classList.remove('on'); $('heardT').value = '';
-      $('fields').classList.remove('on');
+      $('fields').classList.add('on');
       go('zone');
       return;
     }
