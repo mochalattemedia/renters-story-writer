@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v3">
+<meta name="rdc-version" content="shell-v4">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v3
+/* ============================================================ shell-v4
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -271,6 +271,32 @@ a{color:var(--teal)}
   box-shadow:0 10px 30px rgba(13,45,78,.3)}
 .toast.on{opacity:1;transform:translate(-50%,0)}
 
+/* ---------------------------------------------------------------- intro */
+.intro{position:fixed;inset:0;z-index:790;background:var(--paper);overflow-y:auto;
+       -webkit-overflow-scrolling:touch;display:none;
+       padding:calc(env(safe-area-inset-top) + 34px) 22px calc(140px + env(safe-area-inset-bottom))}
+.intro.on{display:block}
+.intro .mark{width:52px;height:52px;border-radius:13px;display:block;margin:0 0 20px}
+.intro h1{font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:30px;
+          letter-spacing:-.03em;line-height:1.12;margin:0 0 11px}
+.intro .lede{font-size:14.5px;line-height:1.6;color:var(--ink-2);margin:0 0 26px}
+.step{display:flex;gap:14px;padding:15px 0;border-top:1px solid var(--line)}
+.step:first-of-type{border-top:0;padding-top:0}
+.step .n{flex:0 0 26px;height:26px;border-radius:50%;background:var(--teal);color:#fff;
+         font-size:12.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.step .n.q{background:var(--navy)}
+.step .c{flex:1 1 auto;min-width:0}
+.step .c b{display:block;font-family:'Red Hat Display',sans-serif;font-weight:700;
+           font-size:15.5px;line-height:1.3;margin:0 0 4px}
+.step .c p{margin:0;font-size:13px;line-height:1.6;color:var(--ink-2)}
+.introAct{position:fixed;left:0;right:0;bottom:0;z-index:791;max-width:480px;margin:0 auto;
+  padding:14px 22px calc(16px + env(safe-area-inset-bottom));
+  background:linear-gradient(180deg,rgba(244,246,247,0),var(--paper) 22%);display:none}
+.introAct.on{display:block}
+.introAct .signin{display:block;width:100%;text-align:center;font-size:13px;color:var(--slate);
+                  padding:11px 0 0;font-weight:600}
+.introAct .signin a{font-weight:700}
+
 .boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
       background:var(--paper);z-index:800;font-size:13px;color:var(--slate);text-align:center;
       padding:0 30px}
@@ -284,6 +310,47 @@ a{color:var(--teal)}
 <body>
 
 <div class="boot" id="boot">Loading…</div>
+
+<!-- FIRST SCREEN. A logged-out visitor who installs an app and is met with a
+     login deletes it. This gives before it asks: here is what the thing does,
+     start with the part that costs nothing. -->
+<div class="intro" id="intro">
+  <img class="mark" src="https://renters-story-writer.netlify.app/icon-192.png" alt="">
+  <h1>Dream up your<br>perfect spot.</h1>
+  <p class="lede">Tell us where you would live and what would work there. We keep an eye
+    on it, and when something actually fits, you hear from us. If nothing fits,
+    you hear nothing.</p>
+
+  <div class="step"><span class="n">1</span><span class="c">
+    <b>Pick your zone</b>
+    <p>Draw the area you would really take a place in. Not a radius, not a city —
+      the streets you would actually live on.</p></span></div>
+
+  <div class="step"><span class="n">2</span><span class="c">
+    <b>Describe your spot</b>
+    <p>Say it out loud, the way you would tell a friend. Rent, bedrooms, the dog,
+      what you would never accept.</p></span></div>
+
+  <div class="step"><span class="n">3</span><span class="c">
+    <b>Keep the ones worth your time</b>
+    <p>When a place fits, swipe right to look closer and left to lose it.
+      Anything you could never get, you never see.</p></span></div>
+
+  <div class="step"><span class="n">4</span><span class="c">
+    <b>Book the showing here</b>
+    <p>Set the hours you are free once. A time gets booked and it lands on both
+      calendars, without the phone tag.</p></span></div>
+
+  <div class="step"><span class="n q">5</span><span class="c">
+    <b>Confirm who you are</b>
+    <p>A government ID and a live selfie, once. It is why a landlord takes you
+      seriously, and it is the whole reason this works.</p></span></div>
+</div>
+
+<div class="introAct" id="introAct">
+  <button class="cta" id="introGo">Dream up your perfect spot</button>
+  <span class="signin">Already a member? <a href="/login">Sign in</a></span>
+</div>
 
 <div class="app">
   <div class="top">
@@ -400,7 +467,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v3';
+  var V = 'shell-v4';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -534,13 +601,22 @@ a{color:var(--teal)}
       S.member = S.profile.id;
 
       if (!S.schema) { $('boot').textContent = 'Could not reach Renters.com. Close and reopen.'; return; }
+
+      /* 🔴 NO SESSION IS NOT AN ERROR STATE. v3 met a logged-out visitor with
+         "Sign in to see your spots", which is a wall on the one screen that
+         has to earn the install. It also fires on a member whose cookie is
+         simply not readable, so a bad detection presented as a locked door.
+         Either way the answer is the same: show what the app does.
+
+         The intake itself is NOT forked here. at-v22 owns logged-out capture
+         on the web and aclaim-v3 owns the handoff; duplicating that flow in
+         the app would be a second claim path against a backend this file
+         cannot see. So this hands off to the web and comes back a member. */
       if (!S.member) {
-        $('boot').innerHTML =
-          '<div><b style="display:block;font-family:Red Hat Display,sans-serif;font-size:18px;' +
-          'color:#0d2d4e;margin-bottom:9px">Sign in to see your spots</b>' +
-          '<p style="font-size:13.5px;line-height:1.6;color:#4a5b6d;margin:0 0 18px">' +
-          'Everything you set up stays on your account.</p>' +
-          '<a href="/login" style="font-weight:700">Sign in</a></div>';
+        $('boot').classList.add('off');
+        $('intro').classList.add('on');
+        $('introAct').classList.add('on');
+        console.log('[RDC app ' + V + '] no session, showing intro');
         return;
       }
 
@@ -1301,6 +1377,12 @@ a{color:var(--teal)}
       'color:#0d2d4e;border:0;border-radius:100px;padding:13px 26px;font-weight:700;' +
       'font-size:15px;font-family:inherit">Try again</button></div>';
   }, 12000);
+
+  /* The homepage is where at-v22 lives, so "start" means start there. The
+     app is the place you come back to once there is an account behind it. */
+  $('introGo').addEventListener('click', function () {
+    location.href = '/?src=app';
+  });
 
   boot();
   console.log('[RDC app ' + V + '] booting');
