@@ -1,5 +1,16 @@
 // ============================================================
-//  member-profile.js   ·   VERSION: mp-v1  (2026-08-14)
+//  member-profile.js   ·   VERSION: mp-v2  (2026-08-14)
+//  mp-v2: THE PHONE COLUMN IS phone_number, NOT phone.
+//    mp-v1 guessed `phone` from the shape of the other fields and it read
+//    back EMPTY on a member who plainly had a number on file. The read was
+//    merely wrong; the WRITE would have been worse - it would have created
+//    a `phone` field nobody displays, the read-back would have compared
+//    that new field against itself and reported ok:true, and the number on
+//    her dashboard would never have changed. A write that verifies itself
+//    against the wrong column verifies nothing.
+//    Field names come from BD's Form Manager, where the system variable IS
+//    the column name. Guessing one because it matches the pattern of its
+//    neighbours is how this happened.
 //
 //  ONE RECORD, TWO VIEWS. The app edits name, email and phone natively;
 //  BD's own forms edit the same fields on the web. Both write the same BD
@@ -36,7 +47,7 @@
 
 const https = require("https");
 
-const FN_VERSION = "mp-v1";
+const FN_VERSION = "mp-v2";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 
 // The same light gate the rest of the member-facing functions check. It
@@ -45,7 +56,7 @@ const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const SECRET = "renters2026";
 
 // Exactly what the app may read back and write. Nothing else crosses.
-const FIELDS = ["first_name", "last_name", "email", "phone"];
+const FIELDS = ["first_name", "last_name", "email", "phone_number"];
 
 const cors = {
   "Content-Type": "application/json",
@@ -164,10 +175,15 @@ function pick(member) {
     first_name: member.first_name || "",
     last_name: member.last_name || "",
     email: member.email || "",
-    phone: member.phone || "",
+    // Returned as `phone` for the client, read from phone_number in BD.
+    phone: member.phone_number || "",
     // Read-only context the app displays but cannot change. Included so the
     // Me tab does not need a second call for it.
     verified: String(member.verified || "0") === "1",
+    // Still a guess, and it reads blank on live data. Left in rather than
+    // removed because it costs nothing and is a label, not a decision - but
+    // it should be corrected from the Form Manager rather than guessed at
+    // a third time.
     memberType: member.plan_name || member.membership_plan || ""
   };
 }
@@ -231,10 +247,12 @@ exports.handler = async (event) => {
     else fields.email = e;
   }
 
-  if ("phone" in body) {
-    const p = cleanPhone(body.phone);
+  // Accepts either name from the client and always writes phone_number.
+  if ("phone" in body || "phone_number" in body) {
+    const raw = "phone_number" in body ? body.phone_number : body.phone;
+    const p = cleanPhone(raw);
     if (p === null) errors.push({ field: "phone", error: "a US phone number is 10 digits" });
-    else fields.phone = p;
+    else fields.phone_number = p;
   }
 
   if (errors.length) return json(400, { version: FN_VERSION, error: "check these", errors });
