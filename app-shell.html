@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v4">
+<meta name="rdc-version" content="shell-v5">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v4
+/* ============================================================ shell-v5
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -467,7 +467,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v4';
+  var V = 'shell-v5';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -479,6 +479,26 @@ a{color:var(--teal)}
   var PICKER = NET + '/zone-picker.html';
 
   var $ = function (id) { return document.getElementById(id); };
+
+  /* 🔴 WHY THERE IS AN ERROR BOX AT ALL.
+     v3 added timeouts because a fetch that never settles hangs the boot
+     silently. v4 still hung - for the OTHER silent reason: boot() had no
+     .catch, so ANY exception thrown inside the promise chain rejected it
+     with nothing logged and nothing rendered. Two different failures, one
+     identical symptom: a spinner and an empty console.
+     A promise chain with no catch is an invisible failure by construction,
+     so every entry point below is wrapped and every error is kept. */
+  var lastErr = null;
+  function keep(e, where) {
+    lastErr = (where || '') + ': ' + ((e && e.message) ? e.message : String(e));
+    try { console.error('[RDC app ' + V + '] ' + lastErr, e); } catch (x) {}
+  }
+  function guard(fn, where) {
+    return function () {
+      try { return fn.apply(this, arguments); }
+      catch (e) { keep(e, where); }
+    };
+  }
 
   var S = {
     tab: 'spots', view: 'spots',
@@ -590,7 +610,7 @@ a{color:var(--teal)}
   }
 
   function boot() {
-    Promise.all([
+    return Promise.all([
       withTimeout(
         fetch(PREFS + '?schema=1').then(function (r) { return r.ok ? r.json() : null; }),
         8000, null),
@@ -621,7 +641,7 @@ a{color:var(--teal)}
       }
 
       if (S.profile.photo) { $('av').src = S.profile.photo; $('av').hidden = false; }
-      buildChips();
+      try { buildChips(); } catch (e) { keep(e, 'buildChips'); }
 
       /* Same rule for the three data reads. Each already resolves on
          failure, but a hang is not a failure - it is silence. */
@@ -630,9 +650,12 @@ a{color:var(--teal)}
         withTimeout(loadShowings(), 8000, null),
         withTimeout(loadAvail(), 8000, null)
       ]).then(function () {
+        /* Painting must not be able to prevent the app OPENING. A bad
+           showing record or an odd spot should cost that one row, not the
+           whole boot - which is exactly what it cost in v4. */
+        try { badges(); } catch (e) { keep(e, 'badges'); }
         $('boot').classList.add('off');
-        badges();
-        go('spots');
+        try { go('spots'); } catch (e) { keep(e, 'go(spots)'); fail(); }
       });
     });
   }
@@ -1281,8 +1304,14 @@ a{color:var(--teal)}
     var nav = $('nav');
     var showBtn = nav.querySelector('[data-tab="showings"]');
     var meBtn = nav.querySelector('[data-tab="me"]');
+    /* s.start is assumed to exist by showings.js, but ASSUMED IS NOT
+       GUARANTEED - a record written before a field existed, or a partial
+       write, gives undefined, and .replace on undefined throws. One bad row
+       must not be able to stop the app opening. */
     var upcoming = S.showings.filter(function (s) {
-      return s.status !== 'cancelled' && new Date(s.start.replace(' ', 'T')) > new Date();
+      if (!s || s.status === 'cancelled' || !s.start) return false;
+      var d = new Date(String(s.start).replace(' ', 'T'));
+      return isFinite(d.getTime()) && d > new Date();
     }).length;
     showBtn.classList.toggle('has', upcoming > 0);
     /* The only badge on Me is an unfinished identity, because it is the one
