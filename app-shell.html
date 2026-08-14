@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v15">
+<meta name="rdc-version" content="shell-v16">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v15
+/* ============================================================ shell-v16
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -655,7 +655,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v15';
+  var V = 'shell-v16';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -823,6 +823,15 @@ a{color:var(--teal)}
          on the web and aclaim-v3 owns the handoff; duplicating that flow in
          the app would be a second claim path against a backend this file
          cannot see. So this hands off to the web and comes back a member. */
+      /* 🔴 CHIPS BEFORE THE SESSION CHECK. These rows are built once, from
+         the schema, and they need no member at all - but this call used to
+         sit BELOW the logged-out return, so a visitor who dismissed the
+         intro and started a spot got a form with no Must have, no Nice to
+         have and no Deal breakers. The logged-out flow is the one a
+         stranger takes, which made it the one path where the spot screen
+         was half empty. */
+      try { buildChips(); } catch (e) { keep(e, 'buildChips'); }
+
       if (!S.member) {
         $('boot').classList.add('off');
         /* FIRST RUN ONLY. An explainer earns its place once; on the fourth
@@ -840,7 +849,6 @@ a{color:var(--teal)}
       }
 
       if (S.profile.photo) { $('av').src = S.profile.photo; $('av').hidden = false; }
-      try { buildChips(); } catch (e) { keep(e, 'buildChips'); }
 
       /* 🔴 OPEN ON WHAT THE FIRST SCREEN NEEDS, FETCH THE REST BEHIND IT.
          v10 waited on all five reads before showing anything, and because
@@ -990,8 +998,14 @@ a{color:var(--teal)}
   }
 
   function capLine() {
-    if (!S.draft) return;
-    var cap = S.schema.mustHaveCap || 3, n = S.draft.criteria.must_have.length, el = $('mustCap');
+    var el = $('mustCap');
+    if (!el) return;
+    if (!S.draft || !S.draft.criteria) {
+      el.textContent = 'Pick up to ' + ((S.schema && S.schema.mustHaveCap) || 3) +
+        '. These are the ones we will not compromise on.';
+      return;
+    }
+    var cap = (S.schema && S.schema.mustHaveCap) || 3, n = S.draft.criteria.must_have.length;
     el.textContent = n + ' of ' + cap + '. These are the ones we will not compromise on.';
     el.classList.toggle('hit', n >= cap);
   }
