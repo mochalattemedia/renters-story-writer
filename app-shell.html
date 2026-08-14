@@ -1,0 +1,1261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="theme-color" content="#f4f6f7">
+<meta name="rdc-version" content="shell-v2">
+<title>Renters.com</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================ shell-v2
+   THE APP. Four tabs over engines that already exist.
+
+   WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
+   backend that was built elsewhere, and this file owns none of them:
+
+     SPOTS     ap-v11  (schema v4, ?schema=1 / ?status=1 / POST)
+     MATCHES   nothing yet - see below
+     SHOWINGS  showings.js (?action=list, POST confirm/decline/cancel)
+               + availability.js and availability-page.js, iframed
+     ME        BD, read same-origin at /account/home
+
+   🔴 NOBODY BOOKS A SHOWING FROM THIS APP, AND THAT IS THE MODEL, NOT A
+   GAP. The scheduler needs a hostId, which used to come from browsing to
+   a member's profile and pressing Request a Showing. There is no browsing
+   and no public profile. The introduction is ours to make, so the host id
+   is ours to hold - a showing is placed by us, or opened once a marketing
+   fee is agreed. What a renter does here is BE BOOKABLE and answer what
+   lands: confirm, decline, cancel. All three exist in showings.js.
+
+   IT OWNS NO VOCABULARY. Chip keys, bed sizes, unit types, caps and the
+   match rule all come from ?schema=1 at boot. A list living in two files
+   is how a key valid in one layer gets silently stripped in another.
+
+   ⭐ WHY THE BOTTOM NAV IS THE WHOLE POINT. The PWA runs display:
+   minimal-ui because BD's nav carries no back affordance and a member two
+   pages deep had no way out. A tab bar is the nav stack the web pages
+   never had, and it is the one thing that makes four separate surfaces
+   read as one app instead of four bookmarks.
+
+   🔴 MATCHES IS HONESTLY EMPTY, AND THAT IS DELIBERATE. The deck exists
+   (md-v11) but it renders four INVENTED Portland listings, and there is
+   no matcher: ~16 running spots, ~42 live listings, no cron, and
+   alerts@renters.com does not send. Shipping a swipe deck of fabricated
+   places to a real renter is worse than an empty tab, because the empty
+   tab is true. The moment a matcher writes real matches, this tab renders
+   them and the deck comes back with something behind it.
+
+   ⚠️ showings.js checks a HARDCODED SECRET ('renters2026') on every POST.
+   Booking from a browser ships that string to the client. Pre-existing -
+   the booking page already does this - but it belongs in an env var with
+   the check server-side before this is promoted.
+   ============================================================ */
+
+:root{
+  --navy:#0d2d4e; --teal:#3a9e8f; --lime:#8dc63f; --gold:#e0a92e;
+  --slate:#6b7f93; --paper:#f4f6f7; --line:#e3e9ec;
+  --ink:#0d2d4e; --ink-2:#4a5b6d; --white:#fff;
+  --r:9px; --ease:cubic-bezier(.22,.9,.3,1);
+  --nav:64px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  overscroll-behavior:none;overflow:hidden;-webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,select,textarea{font-family:inherit;font-size:16px}
+a{color:var(--teal)}
+
+.app{position:fixed;inset:0;display:flex;flex-direction:column;max-width:480px;margin:0 auto;
+     padding-top:env(safe-area-inset-top)}
+
+/* -------------------------------------------------------------- header */
+.top{flex:0 0 auto;padding:15px 20px 8px}
+.top .row{display:flex;align-items:flex-start;gap:11px}
+.back{flex:0 0 auto;font-size:22px;line-height:1;color:var(--slate);padding:0 2px;margin-top:-1px}
+.top h1{font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:21px;
+        letter-spacing:-.025em;margin:0;line-height:1.2;flex:1 1 auto}
+.top .av{flex:0 0 32px;width:32px;height:32px;border-radius:50%;object-fit:cover;
+         background:var(--line);display:block}
+.top p{margin:5px 0 0;font-size:12.5px;color:var(--slate);line-height:1.5}
+
+.body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 20px 0;
+      min-height:0}
+.body.tight{overflow:hidden;padding-bottom:12px}
+.view{display:none}
+.view.on{display:block}
+
+/* ---------------------------------------------------------- bottom nav */
+.nav{
+  flex:0 0 auto;height:calc(var(--nav) + env(safe-area-inset-bottom));
+  padding-bottom:env(safe-area-inset-bottom);
+  display:flex;background:var(--white);border-top:1px solid var(--line);
+}
+.nav button{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  font-size:10.5px;font-weight:700;color:var(--slate);letter-spacing:.01em;padding:0;
+  transition:color .14s;
+}
+.nav button svg{display:block}
+.nav button[aria-current="true"]{color:var(--navy)}
+.nav button[aria-current="true"] svg path,
+.nav button[aria-current="true"] svg circle{stroke:var(--teal)}
+.nav .dot{position:absolute;transform:translate(13px,-9px);width:7px;height:7px;
+          border-radius:50%;background:var(--lime);display:none}
+.nav button.has .dot{display:block}
+
+/* --------------------------------------------------------------- spots */
+.spot{background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+      padding:14px 15px;margin:0 0 10px}
+.spot .hd{display:flex;align-items:center;gap:9px;margin:0 0 6px}
+.spot .nm{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:15.5px;
+          line-height:1.25;flex:1 1 auto;min-width:0}
+.pill{font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+      padding:3px 8px;border-radius:100px;background:rgba(58,158,143,.14);color:#1c6357;
+      flex:0 0 auto}
+.pill.off{background:var(--line);color:var(--slate)}
+.zline{font-size:12.5px;color:var(--teal);font-weight:700;margin:0 0 5px}
+.oline{font-size:12.5px;color:var(--ink-2);line-height:1.55;margin:0 0 3px}
+.oline b{font-weight:700;color:var(--ink)}
+.cline{font-size:12px;color:var(--slate);line-height:1.5;margin:5px 0 0}
+.acts{display:flex;gap:8px;margin:12px 0 0;flex-wrap:wrap}
+.mini{border:1.5px solid var(--line);border-radius:100px;padding:7px 15px;font-size:12.5px;
+      font-weight:700;color:var(--navy)}
+.mini.del{border:0;color:var(--slate);text-decoration:underline;font-weight:600;padding:7px 4px}
+
+.empty{text-align:center;padding:26px 12px 20px}
+.empty b{display:block;font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:17px;
+         margin:0 0 7px}
+.empty p{font-size:13.5px;line-height:1.6;color:var(--ink-2);margin:0 0 16px}
+
+/* --------------------------------------------------------------- zone */
+.frame{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
+       background:var(--white);height:100%;min-height:380px}
+.frame iframe{width:100%;height:100%;border:0;display:block}
+.view.on#v-zone,.view.on#v-avail{height:100%;display:flex;flex-direction:column}
+
+.done{display:flex;align-items:center;gap:11px;background:rgba(58,158,143,.08);
+      border-left:3px solid var(--teal);padding:11px 13px;margin:0 0 14px}
+.done .tick{flex:0 0 20px;height:20px;border-radius:50%;background:var(--teal);color:#fff;
+            display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+.done .t{flex:1 1 auto;min-width:0}
+.done .t b{display:block;font-size:14px;font-weight:700;line-height:1.3}
+.done .t span{font-size:11.5px;color:var(--slate)}
+.done button{flex:0 0 auto;font-size:12px;font-weight:700;color:var(--teal);text-decoration:underline}
+
+/* ---------------------------------------------------------------- spot */
+.mic{width:100%;background:var(--navy);color:#fff;border-radius:var(--r);padding:20px 18px;
+     display:flex;flex-direction:column;align-items:center;gap:9px;margin:0 0 12px;
+     transition:transform .16s var(--ease)}
+.mic:active{transform:scale(.99)}
+.mic.live{background:var(--teal)}
+.mic b{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:15.5px}
+.mic span{font-size:12.5px;opacity:.82;text-align:center;line-height:1.45}
+.wave{display:flex;align-items:center;gap:3px;height:18px}
+.wave i{width:3px;height:5px;background:#fff;border-radius:3px;display:block;opacity:.55}
+.mic.live .wave i{animation:w .9s ease-in-out infinite}
+.mic.live .wave i:nth-child(2){animation-delay:.12s}
+.mic.live .wave i:nth-child(3){animation-delay:.24s}
+.mic.live .wave i:nth-child(4){animation-delay:.36s}
+.mic.live .wave i:nth-child(5){animation-delay:.48s}
+@keyframes w{0%,100%{height:5px;opacity:.5}50%{height:17px;opacity:1}}
+
+.heard{background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+       padding:13px 15px;margin:0 0 12px;display:none}
+.heard.on{display:block}
+.heard b{display:block;font-size:10.5px;font-weight:700;letter-spacing:.11em;
+         text-transform:uppercase;color:var(--slate);margin:0 0 7px}
+.heard textarea{width:100%;border:1.5px solid var(--line);border-radius:var(--r);
+  background:var(--paper);padding:11px 13px;font-size:14px;line-height:1.55;color:var(--ink);
+  resize:vertical;min-height:74px}
+.heard textarea:focus{outline:0;border-color:var(--teal);background:var(--white)}
+
+.or{text-align:center;font-size:12px;color:var(--slate);margin:0 0 12px}
+.or button{color:var(--teal);font-weight:700;font-size:12.5px;text-decoration:underline}
+
+.fields{display:none}
+.fields.on{display:block}
+.f{margin:0 0 13px}
+.f label{display:block;font-size:11px;font-weight:700;letter-spacing:.09em;
+         text-transform:uppercase;color:var(--slate);margin:0 0 6px}
+.f input,.f select,.f textarea{width:100%;border:1.5px solid var(--line);border-radius:var(--r);
+  background:var(--white);padding:12px 14px;color:var(--ink);transition:border-color .16s}
+.f input:focus,.f select:focus,.f textarea:focus{outline:0;border-color:var(--teal)}
+.f textarea{resize:vertical;min-height:70px;line-height:1.5}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{border:1.5px solid var(--line);background:var(--white);border-radius:100px;
+      padding:8px 13px;font-size:12.5px;font-weight:600;color:var(--ink-2);
+      transition:border-color .14s,background .14s,color .14s}
+.chip[aria-pressed="true"]{border-color:var(--teal);background:rgba(58,158,143,.1);
+                           color:var(--navy);font-weight:700}
+.chip.bad[aria-pressed="true"]{border-color:var(--slate);background:rgba(107,127,147,.12)}
+.cap{font-size:11.5px;color:var(--slate);margin:7px 0 0;line-height:1.5}
+.cap.hit{color:var(--gold);font-weight:700}
+
+.opt{background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+     padding:13px 14px;margin:0 0 10px}
+.opt .oh{display:flex;align-items:center;gap:8px;margin:0 0 11px}
+.opt .oh b{flex:1 1 auto;font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:14px}
+.opt .oh button{font-size:12px;color:var(--slate);text-decoration:underline;font-weight:600}
+.addopt{width:100%;border:1.5px dashed var(--line);border-radius:var(--r);padding:13px;
+        font-size:13.5px;font-weight:700;color:var(--navy);background:var(--white);margin:0 0 12px}
+.hint{font-size:12px;color:var(--slate);line-height:1.55;margin:0 0 14px}
+
+/* ------------------------------------------------------------ showings */
+.sh{background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+    padding:14px 15px;margin:0 0 10px;display:flex;gap:13px;align-items:flex-start}
+.sh .when{flex:0 0 54px;text-align:center;background:var(--paper);border-radius:8px;padding:7px 4px}
+.sh .when b{display:block;font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:19px;
+            line-height:1;letter-spacing:-.02em}
+.sh .when span{display:block;font-size:10px;font-weight:700;letter-spacing:.08em;
+               text-transform:uppercase;color:var(--slate);margin-top:3px}
+.sh .w{flex:1 1 auto;min-width:0}
+.sh .w b{display:block;font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:14.5px;
+         line-height:1.3;margin:0 0 3px}
+.sh .w .t{font-size:12.5px;color:var(--ink-2)}
+.sh .w .s{font-size:11.5px;color:var(--slate);margin-top:4px}
+.sh .st{font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+        padding:3px 8px;border-radius:100px;background:rgba(58,158,143,.14);color:#1c6357}
+.sh .st.prop{background:rgba(224,169,46,.16);color:#7a5a0c}
+.sh .st.done{background:var(--line);color:var(--slate)}
+
+/* ------------------------------------------------------------------ me */
+.card{background:var(--white);border:1px solid var(--line);border-radius:var(--r);
+      padding:0;margin:0 0 12px;overflow:hidden}
+.card h2{font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;
+         color:var(--slate);margin:0;padding:13px 15px 9px}
+.row{display:flex;align-items:center;gap:12px;padding:13px 15px;border-top:1px solid var(--line);
+     width:100%;text-align:left;font-size:14px;color:var(--ink)}
+.row .lbl{flex:1 1 auto;min-width:0;font-weight:600}
+.row .val{flex:0 0 auto;font-size:12.5px;color:var(--slate);font-weight:600}
+.row .chev{flex:0 0 auto;color:#b6c2cc;font-size:15px}
+.row.ok .val{color:var(--teal);font-weight:700}
+.row.todo .val{color:var(--gold);font-weight:700}
+
+.who{display:flex;align-items:center;gap:14px;padding:16px 15px}
+.who img{width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--line);
+         flex:0 0 56px}
+.who .n{flex:1 1 auto;min-width:0}
+.who .n b{display:block;font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:17px;
+          line-height:1.25}
+.who .n span{font-size:12.5px;color:var(--slate)}
+
+.bar{height:6px;background:var(--line);border-radius:6px;overflow:hidden;margin:0 15px 14px}
+.bar i{display:block;height:100%;background:var(--teal);border-radius:6px;
+       transition:width .5s var(--ease)}
+
+/* -------------------------------------------------------------- actions */
+.act{flex:0 0 auto;padding:11px 20px 12px;
+     background:linear-gradient(180deg,rgba(244,246,247,0),var(--paper) 26%)}
+.act.hidden{display:none}
+.cta{width:100%;background:var(--lime);color:#0d2d4e;border-radius:100px;padding:15px;
+     font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:15.5px;
+     letter-spacing:-.01em;transition:transform .14s var(--ease)}
+.cta:active{transform:scale(.985)}
+.cta[disabled]{background:var(--line);color:var(--slate)}
+.cta.ghost{background:transparent;color:var(--slate);font-size:13px;padding:9px;margin-top:2px}
+.cta.navy{background:var(--navy);color:#fff}
+
+.toast{position:fixed;left:50%;bottom:calc(var(--nav) + 68px + env(safe-area-inset-bottom));
+  transform:translate(-50%,18px);background:var(--navy);color:#fff;padding:12px 19px;
+  border-radius:12px;font-size:13px;font-weight:600;z-index:900;opacity:0;pointer-events:none;
+  transition:opacity .22s,transform .22s var(--ease);max-width:86%;text-align:center;
+  box-shadow:0 10px 30px rgba(13,45,78,.3)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+.boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+      background:var(--paper);z-index:800;font-size:13px;color:var(--slate);text-align:center;
+      padding:0 30px}
+.boot.off{display:none}
+
+:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:6px}
+@media (prefers-reduced-motion:reduce){*{transition-duration:.01ms !important;
+  animation-duration:.01ms !important}}
+</style>
+</head>
+<body>
+
+<div class="boot" id="boot">Loading…</div>
+
+<div class="app">
+  <div class="top">
+    <div class="row">
+      <button class="back" id="back" hidden aria-label="Back">&#8592;</button>
+      <h1 id="h">Your perfect spots</h1>
+      <img class="av" id="av" alt="" hidden>
+    </div>
+    <p id="sub" hidden></p>
+  </div>
+
+  <div class="body" id="bodyEl">
+
+    <!-- SPOTS ---------------------------------------------------- -->
+    <section class="view on" id="v-spots"><div id="list"></div></section>
+
+    <!-- ZONE ----------------------------------------------------- -->
+    <section class="view" id="v-zone">
+      <div class="frame"><iframe id="zp" title="Draw your zone"></iframe></div>
+    </section>
+
+    <!-- SPOT EDITOR ---------------------------------------------- -->
+    <section class="view" id="v-edit">
+      <div class="done" id="zdone">
+        <span class="tick">&#10003;</span>
+        <span class="t"><b id="zname"></b><span id="zmeta"></span></span>
+        <button id="zedit">Change</button>
+      </div>
+
+      <button class="mic" id="mic">
+        <span class="wave"><i></i><i></i><i></i><i></i><i></i></span>
+        <b id="micB">Describe it out loud</b>
+        <span id="micS">Say what would work there, the way you would tell a friend.</span>
+      </button>
+
+      <div class="heard" id="heard">
+        <b>What we heard &middot; tap to fix anything</b>
+        <textarea id="heardT" rows="4" placeholder="Your words appear here"></textarea>
+        <button class="mini" id="redo" style="margin-top:10px">Use this &rarr;</button>
+      </div>
+
+      <p class="or">or <button id="typeIt">fill it in yourself</button></p>
+
+      <div class="fields" id="fields">
+        <div id="opts"></div>
+        <button class="addopt" id="addOpt">+ Would something else work here?</button>
+        <p class="hint" id="optHint"></p>
+        <div class="two">
+          <div class="f"><label for="moveE">Earliest you could move</label>
+            <input id="moveE" type="date"></div>
+          <div class="f"><label for="moveL">Must be in by</label>
+            <input id="moveL" type="date"></div>
+        </div>
+        <div class="f"><label>Must have</label>
+          <div class="chips" id="must"></div><p class="cap" id="mustCap"></p></div>
+        <div class="f"><label>Nice to have</label><div class="chips" id="nice"></div></div>
+        <div class="f"><label>Deal breakers</label>
+          <div class="chips" id="bad"></div>
+          <p class="cap">If a place has one of these, we will not send it.</p></div>
+        <div class="f"><label for="notes">Anything else</label>
+          <textarea id="notes" placeholder="Quiet street, close to the bus, a landlord who answers the phone"></textarea>
+          <p class="cap">Only we read this. It never goes to a landlord.</p></div>
+      </div>
+    </section>
+
+    <!-- MATCHES -------------------------------------------------- -->
+    <section class="view" id="v-matches"><div id="matchBox"></div></section>
+
+    <!-- SHOWINGS ------------------------------------------------- -->
+    <section class="view" id="v-showings"><div id="showBox"></div></section>
+
+    <!-- AVAILABILITY --------------------------------------------- -->
+    <section class="view" id="v-avail">
+      <div class="frame"><iframe id="ap" title="Set your availability"></iframe></div>
+    </section>
+
+    <!-- ME ------------------------------------------------------- -->
+    <section class="view" id="v-me"><div id="meBox"></div></section>
+
+  </div>
+
+  <div class="act" id="actBar">
+    <button class="cta" id="next">Add a perfect spot</button>
+  </div>
+
+  <nav class="nav" id="nav">
+    <button data-tab="spots" aria-current="true">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <path d="M11 2.5c-3 0-5.5 2.4-5.5 5.4 0 4 5.5 11.6 5.5 11.6s5.5-7.6 5.5-11.6c0-3-2.5-5.4-5.5-5.4z"
+              stroke="#6b7f93" stroke-width="1.7" stroke-linejoin="round"/>
+        <circle cx="11" cy="8" r="2" stroke="#6b7f93" stroke-width="1.7"/>
+      </svg>Spots</button>
+    <button data-tab="matches"><span class="dot"></span>
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <path d="M11 18.5s-7-4.3-7-9.3A4.1 4.1 0 0 1 11 6.4a4.1 4.1 0 0 1 7 2.8c0 5-7 9.3-7 9.3z"
+              stroke="#6b7f93" stroke-width="1.7" stroke-linejoin="round"/>
+      </svg>Matches</button>
+    <button data-tab="showings"><span class="dot"></span>
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <path d="M4 5.5h14v13H4zM4 9.5h14M8 3v4M14 3v4"
+              stroke="#6b7f93" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>Showings</button>
+    <button data-tab="me"><span class="dot"></span>
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <circle cx="11" cy="7.5" r="3.3" stroke="#6b7f93" stroke-width="1.7"/>
+        <path d="M4.5 18.5c0-3.3 2.9-5.5 6.5-5.5s6.5 2.2 6.5 5.5"
+              stroke="#6b7f93" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>Me</button>
+  </nav>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var V = 'shell-v2';
+
+  var NET    = 'https://renters-story-writer.netlify.app';
+  var FN     = NET + '/.netlify/functions/';
+  var PREFS  = FN + 'alerts-prefs';
+  var VOICE  = FN + 'alerts-voice';
+  var SHOWS  = FN + 'showings';
+  var AVAIL  = FN + 'availability';
+  var AVAILUI = FN + 'availability-page';
+  var PICKER = NET + '/zone-picker.html';
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  var S = {
+    tab: 'spots', view: 'spots',
+    schema: null, member: null, profile: null,
+    consent: null, household: null,
+    spots: [], showings: [], avail: null,
+    editIdx: -1, draft: null
+  };
+
+  function toast(m) {
+    var t = $('toast'); t.textContent = m; t.classList.add('on');
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove('on'); }, 2800);
+  }
+  function vibrate(x) { try { if (navigator.vibrate) navigator.vibrate(x); } catch (e) {} }
+  function pretty(k) {
+    return String(k).replace(/_/g, ' ').replace(/^./, function (c) { return c.toUpperCase(); });
+  }
+  function money(n) { return '$' + Number(n).toLocaleString('en-US'); }
+  function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : t; return d.innerHTML; }
+
+  /* ============================================================== BOOT */
+
+  /* THE MEMBER ID COMES FROM THE COOKIE, NOT THE DASHBOARD.
+     input[name=logged_user] exists ONLY on /account/home. The `userid`
+     cookie is present everywhere, needs no network call, and works on the
+     first frame - so it is the primary source and the dashboard scrape is
+     the fallback. Getting this backwards is a documented cost in this
+     codebase: a widget that reads logged_user off a profile page gets the
+     PROFILE OWNER, not the viewer. */
+  function cookieId() {
+    var parts = String(document.cookie || '').split(';');
+    for (var i = 0; i < parts.length; i++) {
+      var kv = parts[i].split('=');
+      if (kv.length < 2) continue;
+      if (kv[0].trim() === 'userid') {
+        var v = decodeURIComponent(kv.slice(1).join('=').trim());
+        var d = v.replace(/[^0-9]/g, '');
+        if (d) return d;
+      }
+    }
+    return null;
+  }
+
+  /* /app is proxied onto the renters.com origin, so these reads carry the
+     BD session cookie. That is the whole reason the worker proxies rather
+     than redirects - a netlify.app origin could not do this. */
+  function readBD() {
+    return fetch('/account/home', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.text() : ''; })
+      .then(function (html) {
+        var out = { id: cookieId(), name: '', photo: '', verified: false, pct: null };
+        if (!out.id) {
+          var m = html.match(/logged_user[^0-9]{0,12}([0-9]{2,7})/);
+          if (m) out.id = m[1];
+        }
+
+        var doc;
+        try {
+          doc = new DOMParser().parseFromString(html, 'text/html');
+        } catch (e) { return out; }
+
+        var img = doc.querySelector('.member-photo img, .profile-photo img, img.avatar');
+        if (img && img.getAttribute('src')) out.photo = img.getAttribute('src');
+
+        var nm = doc.querySelector('.member-name, .profile-name');
+        if (nm) out.name = (nm.textContent || '').trim();
+
+        /* Verified state and profile percent are read as TEXT, not as a
+           structural promise. BD's markup for both has changed before, and
+           a missing badge must read as "not sure" rather than as "no". */
+        var t = (doc.body ? doc.body.textContent : '') || '';
+        var low = t.toLowerCase();
+        if (low.indexOf('identity confirmed') !== -1 || low.indexOf('verified') !== -1) {
+          out.verified = true;
+        }
+        var pi = low.indexOf('profile is ');
+        if (pi !== -1) {
+          var n = parseInt(t.substr(pi + 11, 3), 10);
+          if (isFinite(n) && n >= 0 && n <= 100) out.pct = n;
+        }
+        return out;
+      })
+      .catch(function () { return { id: cookieId(), name: '', photo: '', verified: false, pct: null }; });
+  }
+
+  function boot() {
+    Promise.all([
+      fetch(PREFS + '?schema=1').then(function (r) { return r.ok ? r.json() : null; }),
+      readBD()
+    ]).then(function (out) {
+      S.schema = out[0];
+      S.profile = out[1] || {};
+      S.member = S.profile.id;
+
+      if (!S.schema) { $('boot').textContent = 'Could not reach Renters.com. Close and reopen.'; return; }
+      if (!S.member) {
+        $('boot').innerHTML =
+          '<div><b style="display:block;font-family:Red Hat Display,sans-serif;font-size:18px;' +
+          'color:#0d2d4e;margin-bottom:9px">Sign in to see your spots</b>' +
+          '<p style="font-size:13.5px;line-height:1.6;color:#4a5b6d;margin:0 0 18px">' +
+          'Everything you set up stays on your account.</p>' +
+          '<a href="/login" style="font-weight:700">Sign in</a></div>';
+        return;
+      }
+
+      if (S.profile.photo) { $('av').src = S.profile.photo; $('av').hidden = false; }
+      buildChips();
+
+      return Promise.all([loadSpots(), loadShowings(), loadAvail()]).then(function () {
+        $('boot').classList.add('off');
+        badges();
+        go('spots');
+      });
+    });
+  }
+
+  /* ============================================================ SPOTS */
+
+  /* 🔴 THE WRITE REPLACES THE WHOLE SET, so nothing is saved without
+     reading the current set first. A partial write destroys spots this
+     screen never knew about - including one claimed from the homepage
+     teaser thirty seconds earlier. */
+  function loadSpots() {
+    return fetch(PREFS + '?status=1&memberId=' + encodeURIComponent(S.member))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d) return;
+        S.spots = Array.isArray(d.searches) ? d.searches : [];
+        S.consent = d.consent || null;
+        S.household = d.household || null;
+      })
+      .catch(function () {});
+  }
+
+  function save(msg) {
+    var btn = $('next'), was = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    return fetch(PREFS, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        memberId: S.member, searches: S.spots,
+        consent: S.consent, household: S.household
+      })
+    })
+      .then(function (r) { return r.json().catch(function () { return {}; })
+        .then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        btn.disabled = false; btn.textContent = was;
+        if (!res.ok) { toast('Could not save. Try again.'); return false; }
+        /* Re-read rather than trusting the local copy: the web card can have
+           written this same member record while this screen was open. */
+        return loadSpots().then(function () { badges(); if (msg) toast(msg); return true; });
+      })
+      .catch(function () {
+        btn.disabled = false; btn.textContent = was;
+        toast('Could not save. Check your connection.'); return false;
+      });
+  }
+
+  function chipRow(box, keys, cap, bag, bad) {
+    var el = $(box); el.innerHTML = '';
+    (keys || []).forEach(function (k) {
+      var b = document.createElement('button');
+      b.className = 'chip' + (bad ? ' bad' : '');
+      b.type = 'button'; b.dataset.k = k;
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = pretty(k);
+      b.addEventListener('click', function () {
+        if (!S.draft) return;
+        var arr = S.draft.criteria[bag], i = arr.indexOf(k);
+        if (i === -1) {
+          if (cap && arr.length >= cap) { toast('Pick up to ' + cap); return; }
+          arr.push(k); b.setAttribute('aria-pressed', 'true');
+        } else { arr.splice(i, 1); b.setAttribute('aria-pressed', 'false'); }
+        capLine(); vibrate(5);
+      });
+      el.appendChild(b);
+    });
+  }
+
+  function buildChips() {
+    /* breakerChips, NOT breakerAccepted. The store still accepts positive
+       keys as breakers for back compat and quarantines them
+       (legacyBreakersQuarantined: true), so rendering breakerAccepted would
+       offer 36 chips, 22 of which are silently discarded on write. */
+    chipRow('must', S.schema.positiveChips, S.schema.mustHaveCap, 'must_have', false);
+    chipRow('nice', S.schema.positiveChips, 0, 'nice_to_have', false);
+    chipRow('bad',  S.schema.breakerChips,  0, 'deal_breakers', true);
+    $('notes').setAttribute('maxlength', String(S.schema.notesMax || 400));
+  }
+
+  function capLine() {
+    if (!S.draft) return;
+    var cap = S.schema.mustHaveCap || 3, n = S.draft.criteria.must_have.length, el = $('mustCap');
+    el.textContent = n + ' of ' + cap + '. These are the ones we will not compromise on.';
+    el.classList.toggle('hit', n >= cap);
+  }
+
+  function paintChips() {
+    ['must', 'nice', 'bad'].forEach(function (box) {
+      var bag = box === 'must' ? 'must_have' : (box === 'nice' ? 'nice_to_have' : 'deal_breakers');
+      var arr = (S.draft.criteria[bag]) || [];
+      var all = $(box).querySelectorAll('.chip');
+      for (var i = 0; i < all.length; i++) {
+        all[i].setAttribute('aria-pressed', String(arr.indexOf(all[i].dataset.k) !== -1));
+      }
+    });
+    capLine();
+  }
+
+  function optSummary(o) {
+    var bits = [];
+    if (o.unit_types && o.unit_types.length) bits.push(o.unit_types.map(pretty).join(' or '));
+    if (o.beds && o.beds.length) {
+      bits.push(o.beds.map(function (b) {
+        return b === 'studio' ? 'Studio' : (b === '4plus' ? '4+ bed' : b + ' bed');
+      }).join('/'));
+    }
+    if (o.rent_max) bits.push('to ' + money(o.rent_max) +
+      (o.rent_stretch ? ' (+' + money(o.rent_stretch) + ')' : ''));
+    return bits.join(' · ') || 'Anything';
+  }
+
+  function drawSpots() {
+    var box = $('list'); box.innerHTML = '';
+    if (!S.spots.length) {
+      box.innerHTML = '<div class="empty"><b>No spots yet</b>' +
+        '<p>A perfect spot is one place you would live, and what would work inside it. ' +
+        'Draw the zone first, then tell us what you are after.</p></div>';
+      return;
+    }
+    S.spots.forEach(function (sp, i) {
+      var z = sp.zone || {}, c = sp.criteria || {};
+      var opts = (sp.options && sp.options.length) ? sp.options : [{}];
+      var extras = [];
+      if (c.move_in_latest) extras.push('by ' + c.move_in_latest);
+      else if (c.move_in_earliest) extras.push('from ' + c.move_in_earliest);
+      if (c.must_have && c.must_have.length) extras.push(c.must_have.map(pretty).join(', '));
+      if (c.deal_breakers && c.deal_breakers.length) {
+        extras.push('no ' + c.deal_breakers.map(pretty).join(', ').toLowerCase());
+      }
+
+      var el = document.createElement('div');
+      el.className = 'spot';
+      el.innerHTML =
+        '<div class="hd"><span class="nm">' + esc(sp.name || 'My spot') + '</span>' +
+          '<span class="pill' + (sp.enabled === false ? ' off' : '') + '">' +
+          (sp.enabled === false ? 'Paused' : 'Running') + '</span></div>' +
+        '<p class="zline">' + esc((z.name || 'No zone') +
+          (z.zips && z.zips.length ? ' · ' + z.zips.length + ' ZIPs' : '')) + '</p>' +
+        opts.map(function (o) {
+          return '<p class="oline">' + (opts.length > 1 ? '<b>or</b> ' : '') +
+                 esc(optSummary(o)) + '</p>';
+        }).join('') +
+        (extras.length ? '<p class="cline">' + esc(extras.join(' · ')) + '</p>' : '') +
+        '<div class="acts">' +
+          '<button type="button" class="mini e">Edit</button>' +
+          '<button type="button" class="mini p">' +
+            (sp.enabled === false ? 'Start again' : 'Pause') + '</button>' +
+          '<button type="button" class="mini del">Delete</button>' +
+        '</div>';
+
+      el.querySelector('.e').addEventListener('click', function () { edit(i); });
+
+      /* PAUSING WITHDRAWS THE ASK. Running is the consent, so this button
+         is the revocation - one the renter already has and understands. It
+         stops FUTURE sends and cannot recall one already sent, which is why
+         the copy says "stop" and never implies an undo. */
+      el.querySelector('.p').addEventListener('click', function () {
+        sp.enabled = sp.enabled === false;
+        save(sp.enabled ? 'Running again.' : 'Paused. We will stop sending this one.')
+          .then(function (ok) { if (ok) drawSpots(); });
+        vibrate(6);
+      });
+
+      el.querySelector('.del').addEventListener('click', function () {
+        if (!window.confirm('Delete this spot? The zone goes with it.')) return;
+        S.spots.splice(i, 1);
+        save('Spot deleted.').then(function (ok) { if (ok) drawSpots(); });
+        vibrate(8);
+      });
+
+      box.appendChild(el);
+    });
+  }
+
+  /* ------------------------------------------------------------- zone */
+
+  function blankOption() {
+    return { unit_types: [], rent_max: null, rent_stretch: null, rent_basis: null,
+             beds: [], baths_min: null, label: '' };
+  }
+  function blankDraft() {
+    return {
+      id: '', name: '', created: '', updated: '', enabled: true, source: 'form',
+      zone: null, options: [blankOption()],
+      criteria: { move_in_earliest: null, move_in_latest: null, lease_terms: [], pets: [],
+                  voucher: false, voucher_program: '', must_have: [], nice_to_have: [],
+                  deal_breakers: [], notes: '' }
+    };
+  }
+
+  var saving = false, tries = 0;
+
+  function askSave() {
+    var f = $('zp');
+    if (!f || !f.contentWindow) return;
+    if (!saving) { saving = true; tries = 0; }
+    tries++;
+    f.contentWindow.postMessage({ type: 'renters_areas_save' }, '*');
+    if (tries === 2) toast('Working out the ZIP codes in your zone');
+    if (tries > 12) { saving = false; toast('Draw a zone on the map, then tap again'); return; }
+    setTimeout(function () { if (saving && !(S.draft && S.draft.zone)) askSave(); }, 750);
+  }
+
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (!d) return;
+    if (d.type === 'renters_areas_none') { saving = false; toast('Draw a zone on the map first'); return; }
+    if (d.type !== 'renters_areas_zips') return;
+
+    saving = false;
+    var z = (d.zones || [])[0] || {};
+    if (!S.draft) S.draft = blankDraft();
+    S.draft.zone = {
+      name: z.name || 'My zone',
+      zips: (d.zips || []).slice(0, (S.schema && S.schema.zoneZipCap) || 40),
+      custom: !!z.custom,
+      /* The path is the ONLY coordinates a spot carries. BD holds a zip
+         index and nothing more. A few hundred bytes now is the difference
+         between point-in-polygon matching being a build later and being
+         impossible, because nobody redraws a zone a year on to supply
+         precision we chose not to keep. */
+      path: (z.path || []).slice(0, (S.schema && S.schema.zonePathCap) || 120)
+    };
+    if (e.source) {
+      e.source.postMessage({ type: 'renters_areas_result',
+        saved: 1, skipped: 0, existing: 1, cap: 15 }, '*');
+    }
+    vibrate([8, 24, 8]);
+    go('edit');
+  });
+
+  /* ------------------------------------------------------------ voice */
+
+  var rec = null, listening = false, transcript = '', readyToOpen = false;
+  function speechOK() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
+
+  $('mic').addEventListener('click', function () {
+    if (!speechOK()) { toast('This browser will not listen. Fill it in instead.'); showFields(); return; }
+    listening ? stopListening() : startListening();
+  });
+
+  function startListening() {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    rec = new SR();
+    rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US';
+    transcript = '';
+    rec.onresult = function (e) {
+      var t = '';
+      for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      transcript = t;
+      $('heard').classList.add('on'); $('heardT').value = t;
+    };
+    rec.onerror = function () { stopListening(); toast('Could not hear that. Try again.'); };
+    rec.onend = function () { if (listening) stopListening(); };
+    try { rec.start(); } catch (e) { return; }
+    listening = true;
+    $('mic').classList.add('live');
+    $('micB').textContent = 'Listening. Tap when done.';
+    $('micS').textContent = 'Rent, bedrooms, when you need to move, the dog.';
+    vibrate(10);
+  }
+
+  function stopListening() {
+    listening = false;
+    try { if (rec) rec.stop(); } catch (e) {}
+    $('mic').classList.remove('live');
+    $('micB').textContent = 'Describe it out loud';
+    $('micS').textContent = 'Say what would work there, the way you would tell a friend.';
+    var typed = ($('heardT').value || '').trim();
+    if (typed.length > 12) extract(typed);
+  }
+
+  $('heardT').addEventListener('input', function () {
+    readyToOpen = false; $('redo').textContent = 'Use this →';
+  });
+  $('redo').addEventListener('click', function () {
+    if (readyToOpen) { showFields(); vibrate(8); return; }
+    var t = ($('heardT').value || '').trim();
+    if (t.length < 13) { toast('Say a little more'); return; }
+    extract(t);
+  });
+
+  function extract(t) {
+    $('micB').textContent = 'Working out what you said';
+    fetch(VOICE, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript: t, memberId: S.member }) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        $('micB').textContent = 'Describe it out loud';
+        if (!d || !d.criteria) { showFields(); toast('Have a look and fill in the gaps'); return; }
+        merge(d.criteria);
+        readyToOpen = true; $('redo').textContent = 'Looks right →';
+        toast(d.unclear && d.unclear.length
+          ? 'Add ' + d.unclear.slice(0, 2).map(pretty).join(' and ').toLowerCase()
+          : 'Check it over, then keep going');
+      })
+      .catch(function () {
+        $('micB').textContent = 'Describe it out loud';
+        showFields(); toast('Could not process that. Fill it in instead.');
+      });
+  }
+
+  /* 🔴 MERGE, NEVER REPLACE. alerts-voice deliberately ignores place names,
+     so a transcript has NOTHING to say about a zone and must never be able
+     to erase one. Only keys the renter actually mentioned are taken. Three
+     separate instances of this exact bug in two days. */
+  function merge(c) {
+    var o = S.draft.options[0], cr = S.draft.criteria;
+    if (c.rent_max) o.rent_max = c.rent_max;
+    if (c.rent_stretch) o.rent_stretch = c.rent_stretch;
+    if (c.rent_basis) o.rent_basis = c.rent_basis;
+    if (Array.isArray(c.beds) && c.beds.length) o.beds = c.beds.slice();
+    if (c.baths_min) o.baths_min = c.baths_min;
+    if (Array.isArray(c.unit_types) && c.unit_types.length) o.unit_types = c.unit_types.slice();
+
+    if (c.move_in_earliest) cr.move_in_earliest = c.move_in_earliest;
+    if (c.move_in_latest) cr.move_in_latest = c.move_in_latest;
+    if (Array.isArray(c.lease_terms) && c.lease_terms.length) cr.lease_terms = c.lease_terms.slice();
+    if (Array.isArray(c.pets) && c.pets.length) cr.pets = c.pets.slice();
+    if (typeof c.voucher === 'boolean') cr.voucher = c.voucher;
+    if (c.notes) cr.notes = String(c.notes).slice(0, S.schema.notesMax || 400);
+
+    var capN = S.schema.mustHaveCap || 3;
+    (c.must_have || []).forEach(function (k) {
+      if (cr.must_have.indexOf(k) === -1 && cr.must_have.length < capN) cr.must_have.push(k);
+    });
+    (c.nice_to_have || []).forEach(function (k) {
+      if (cr.nice_to_have.indexOf(k) === -1) cr.nice_to_have.push(k);
+    });
+    (c.deal_breakers || []).forEach(function (k) {
+      if (S.schema.breakerChips.indexOf(k) !== -1 && cr.deal_breakers.indexOf(k) === -1) {
+        cr.deal_breakers.push(k);
+      }
+    });
+    S.draft.source = 'voice';
+    paintDraft();
+  }
+
+  function showFields() { $('fields').classList.add('on'); }
+  $('typeIt').addEventListener('click', showFields);
+
+  /* ---------------------------------------------------------- options */
+
+  function mini(box, keys, obj, bag, label) {
+    box.innerHTML = '';
+    (keys || []).forEach(function (k) {
+      var b = document.createElement('button');
+      b.className = 'chip'; b.type = 'button';
+      b.textContent = label ? label(k) : pretty(k);
+      b.setAttribute('aria-pressed', String((obj[bag] || []).indexOf(k) !== -1));
+      b.addEventListener('click', function () {
+        if (!obj[bag]) obj[bag] = [];
+        var i = obj[bag].indexOf(k);
+        if (i === -1) { obj[bag].push(k); b.setAttribute('aria-pressed', 'true'); }
+        else { obj[bag].splice(i, 1); b.setAttribute('aria-pressed', 'false'); }
+        vibrate(5);
+      });
+      box.appendChild(b);
+    });
+  }
+
+  function drawOptions() {
+    var box = $('opts'); box.innerHTML = '';
+    var maxO = S.schema.maxOptions || 4;
+    S.draft.options.forEach(function (o, i) {
+      var el = document.createElement('div');
+      el.className = 'opt';
+      el.innerHTML =
+        '<div class="oh"><b>' + (i === 0 ? 'What would work here' : 'Or this would work') + '</b>' +
+          (i > 0 ? '<button type="button" class="rm">Remove</button>' : '') + '</div>' +
+        '<div class="f"><label>Type of place</label><div class="chips t"></div></div>' +
+        '<div class="f"><label>Bedrooms</label><div class="chips b"></div></div>' +
+        '<div class="two">' +
+          '<div class="f"><label>Rent up to</label>' +
+            '<input class="mx" type="number" inputmode="numeric" placeholder="2100"></div>' +
+          '<div class="f"><label>Could stretch by</label>' +
+            '<input class="st" type="number" inputmode="numeric" placeholder="200"></div>' +
+        '</div>';
+
+      mini(el.querySelector('.chips.t'), S.schema.unitTypes, o, 'unit_types');
+      mini(el.querySelector('.chips.b'), S.schema.bedSizes, o, 'beds', function (k) {
+        return k === 'studio' ? 'Studio' : (k === '4plus' ? '4+' : k);
+      });
+
+      var mx = el.querySelector('.mx');
+      mx.value = o.rent_max || '';
+      mx.addEventListener('input', function () {
+        var n = parseInt(this.value, 10); o.rent_max = isFinite(n) && n > 0 ? n : null;
+      });
+      var st = el.querySelector('.st');
+      st.value = o.rent_stretch || '';
+      st.addEventListener('input', function () {
+        var n = parseInt(this.value, 10); o.rent_stretch = isFinite(n) && n > 0 ? n : null;
+      });
+      var rm = el.querySelector('.rm');
+      if (rm) rm.addEventListener('click', function () {
+        S.draft.options.splice(i, 1); drawOptions(); vibrate(6);
+      });
+      box.appendChild(el);
+    });
+
+    $('addOpt').style.display = S.draft.options.length >= maxO ? 'none' : 'block';
+    $('optHint').textContent = S.draft.options.length > 1
+      ? 'A place matches if it fits any one of these. ' + S.draft.options.length + ' of ' + maxO + '.'
+      : 'A house at one price and a condo at another are two options, not two spots.';
+  }
+
+  $('addOpt').addEventListener('click', function () {
+    if (S.draft.options.length >= (S.schema.maxOptions || 4)) return;
+    S.draft.options.push(blankOption());
+    drawOptions(); showFields(); vibrate(6);
+  });
+
+  function paintDraft() {
+    var z = S.draft.zone || {}, cr = S.draft.criteria;
+    $('zname').textContent = z.name || 'Your zone';
+    $('zmeta').textContent = z.zips ? z.zips.length + ' ZIP codes' : '';
+    drawOptions(); paintChips();
+    $('moveE').value = cr.move_in_earliest || '';
+    $('moveL').value = cr.move_in_latest || '';
+    $('notes').value = cr.notes || '';
+  }
+
+  function readDraft() {
+    var cr = S.draft.criteria;
+    cr.move_in_earliest = $('moveE').value || null;
+    cr.move_in_latest = $('moveL').value || null;
+    cr.notes = ($('notes').value || '').slice(0, S.schema.notesMax || 400);
+  }
+
+  function nameFor(d) {
+    var z = d.zone || {}, o = d.options[0] || {}, bits = [];
+    if (o.beds && o.beds.length) {
+      bits.push(o.beds[0] === 'studio' ? 'Studio'
+        : (o.beds[0] === '4plus' ? '4+ bed' : o.beds[0] + ' bed'));
+    }
+    if (o.rent_max) bits.push('to ' + money(o.rent_max));
+    if (z.name) bits.push('in ' + z.name);
+    return bits.length ? bits.join(' ') : (z.name || 'My spot');
+  }
+
+  function edit(i) {
+    S.editIdx = i;
+    /* Deep copy: an abandoned edit must not mutate the saved set. */
+    S.draft = JSON.parse(JSON.stringify(S.spots[i]));
+    if (!S.draft.options || !S.draft.options.length) S.draft.options = [blankOption()];
+    if (!S.draft.criteria) S.draft.criteria = blankDraft().criteria;
+    ['must_have','nice_to_have','deal_breakers','lease_terms','pets'].forEach(function (k) {
+      if (!Array.isArray(S.draft.criteria[k])) S.draft.criteria[k] = [];
+    });
+    $('heard').classList.remove('on');
+    showFields();
+    go('edit');
+  }
+
+  /* =========================================================== MATCHES */
+
+  function drawMatches() {
+    var running = S.spots.filter(function (s) { return s.enabled !== false; }).length;
+    var box = $('matchBox');
+
+    /* 🔴 NOTHING IS INVENTED HERE. The deck renders four fabricated
+       listings and there is no matcher behind it - no cron, and
+       alerts@renters.com does not send. A swipe deck of places that do not
+       exist is worse than an empty tab, because the empty tab is true. */
+    if (!running) {
+      box.innerHTML = '<div class="empty"><b>Nothing to show yet</b>' +
+        '<p>Set up a perfect spot and we will start looking. When something fits, ' +
+        'it lands here and we let you know.</p></div>';
+      return;
+    }
+    box.innerHTML = '<div class="empty"><b>Nothing yet</b>' +
+      '<p>We are looking at ' + running + ' spot' + (running === 1 ? '' : 's') +
+      '. Nothing has fit so far, and that is the point — you only hear from us ' +
+      'when something actually does.</p></div>';
+  }
+
+  /* ========================================================== SHOWINGS */
+
+  function loadShowings() {
+    return fetch(SHOWS + '?action=list&memberId=' + encodeURIComponent(S.member))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { S.showings = (d && d.showings) || []; })
+      .catch(function () { S.showings = []; });
+  }
+
+  function drawShowings() {
+    var box = $('showBox'); box.innerHTML = '';
+    var live = S.showings.filter(function (s) { return s.status !== 'cancelled'; });
+
+    if (!live.length) {
+      box.innerHTML = '<div class="empty"><b>No showings booked</b>' +
+        '<p>When a place fits and you want to see it, you book a time here and it ' +
+        'lands on both calendars. No phone tag.</p></div>';
+      return;
+    }
+
+    var now = new Date();
+    live.sort(function (a, b) { return a.start < b.start ? -1 : 1; });
+
+    live.forEach(function (s) {
+      var d = new Date(s.start.replace(' ', 'T'));
+      var past = d < now;
+      var st = s.status === 'proposed' ? 'prop' : (past || s.status === 'completed' ? 'done' : '');
+      var el = document.createElement('div');
+      el.className = 'sh';
+      el.innerHTML =
+        '<div class="when"><b>' + d.getDate() + '</b><span>' +
+          d.toLocaleString('en-US', { month: 'short' }) + '</span></div>' +
+        '<div class="w"><b>' + esc(s.propertyLabel || 'Showing') + '</b>' +
+          '<div class="t">' + d.toLocaleString('en-US',
+            { weekday: 'short', hour: 'numeric', minute: '2-digit' }) + '</div>' +
+          '<div class="s">' + esc(s.city || '') +
+            (s.role === 'guest' ? '' : ' · you are hosting') + '</div></div>' +
+        '<span class="st ' + st + '">' +
+          (s.status === 'proposed' ? 'Awaiting' : (past ? 'Past' : 'Confirmed')) + '</span>';
+      box.appendChild(el);
+    });
+  }
+
+  /* ================================================================ ME */
+
+  function drawMe() {
+    var p = S.profile || {};
+    var running = S.spots.filter(function (s) { return s.enabled !== false; }).length;
+
+    /* Everything here EDITS ON THE WEB. The app is not a second place to
+       change your name - it shows state and hands off, so there is one
+       form per field and no chance of two screens disagreeing. */
+    var box = $('meBox');
+    box.innerHTML =
+      '<div class="card">' +
+        '<div class="who">' +
+          '<img id="mePhoto" alt="">' +
+          '<div class="n"><b>' + esc(p.name || 'Your account') + '</b>' +
+          '<span>Member #' + esc(S.member) + '</span></div>' +
+        '</div>' +
+        (p.pct !== null && p.pct !== undefined
+          ? '<div class="bar"><i style="width:' + Math.max(0, Math.min(100, p.pct)) + '%"></i></div>'
+          : '') +
+      '</div>' +
+
+      '<div class="card"><h2>Getting matched</h2>' +
+        '<a class="row" href="/account/locations">' +
+          '<span class="lbl">Perfect spots</span>' +
+          '<span class="val">' + running + ' running</span>' +
+          '<span class="chev">&rsaquo;</span></a>' +
+        '<a class="row ' + (p.verified ? 'ok' : 'todo') + '" href="/account/confirm-identity">' +
+          '<span class="lbl">Identity</span>' +
+          '<span class="val">' + (p.verified ? 'Confirmed' : 'Confirm now') + '</span>' +
+          '<span class="chev">&rsaquo;</span></a>' +
+        '<a class="row" href="/account/profile-photo">' +
+          '<span class="lbl">Photo</span>' +
+          '<span class="val">' + (p.photo ? 'Added' : 'Take a selfie') + '</span>' +
+          '<span class="chev">&rsaquo;</span></a>' +
+      '</div>' +
+
+      '<div class="card"><h2>Your details</h2>' +
+        '<a class="row" href="/account/about-me">' +
+          '<span class="lbl">About me</span><span class="chev">&rsaquo;</span></a>' +
+        '<a class="row" href="/account/home">' +
+          '<span class="lbl">Full dashboard</span><span class="chev">&rsaquo;</span></a>' +
+      '</div>' +
+
+      '<div class="card"><h2>Account</h2>' +
+        '<a class="row" href="/account/change-password">' +
+          '<span class="lbl">Change password</span><span class="chev">&rsaquo;</span></a>' +
+        '<a class="row" href="/logout"><span class="lbl">Log out</span></a>' +
+      '</div>' +
+
+      '<p class="cap" style="text-align:center;padding:0 10px 18px">' +
+        'Renters.com &middot; ' + V + '</p>';
+
+    var img = $('mePhoto');
+    if (p.photo) img.src = p.photo;
+    else img.style.background = '#e3e9ec';
+  }
+
+  /* =========================================================== ROUTING */
+
+  var COPY = {
+    spots:    { h: 'Your perfect spots', s: '', cta: 'Add a perfect spot', act: true },
+    zone:     { h: 'Pick your zone', s: '', cta: 'Next →', act: true },
+    edit:     { h: 'Describe your spot',
+                s: 'Dream it up. We will only send places that fit.',
+                cta: 'Save this spot →', act: true },
+    matches:  { h: 'Matches', s: '', cta: '', act: false },
+    showings: { h: 'Showings', s: '', cta: '', act: false },
+    avail:    { h: 'Your availability',
+                s: 'The hours you could show someone around, or be shown around.',
+                cta: '', act: false },
+    me:       { h: 'You', s: '', cta: '', act: false }
+  };
+
+  var TAB_OF = { spots: 'spots', zone: 'spots', edit: 'spots',
+                 matches: 'matches', showings: 'showings', avail: 'showings',
+                 me: 'me' };
+
+  function go(v) {
+    S.view = v;
+    S.tab = TAB_OF[v];
+
+    ['spots', 'zone', 'edit', 'matches', 'showings', 'avail', 'me'].forEach(function (k) {
+      $('v-' + k).classList.toggle('on', k === v);
+    });
+
+    var c = COPY[v];
+    $('h').textContent = c.h;
+    $('sub').textContent = c.s;
+    $('sub').hidden = !c.s;
+    $('back').hidden = !(v === 'zone' || v === 'edit' || v === 'avail');
+    $('av').hidden = !(S.profile && S.profile.photo) || v === 'me';
+    $('actBar').classList.toggle('hidden', !c.act);
+    if (c.cta) $('next').innerHTML = c.cta;
+    $('bodyEl').classList.toggle('tight', v === 'zone' || v === 'avail');
+    $('bodyEl').scrollTop = 0;
+
+    var btns = $('nav').querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].setAttribute('aria-current', String(btns[i].dataset.tab === S.tab));
+    }
+
+    if (v === 'spots') drawSpots();
+    if (v === 'matches') drawMatches();
+    if (v === 'showings') drawShowings();
+    if (v === 'avail') {
+      /* The availability widget is already built to be iframed. Embedding
+         it means one editor for these hours, not two that can disagree. */
+      var asrc = AVAILUI + '?memberId=' + encodeURIComponent(S.member) + '&embed=1';
+      if ($('ap').getAttribute('src') !== asrc) $('ap').setAttribute('src', asrc);
+    }
+    if (v === 'me') drawMe();
+    if (v === 'edit') paintDraft();
+    if (v === 'zone') {
+      var src = PICKER + '?embed=1';
+      /* ?place= opens the map where they said rather than on the whole
+         country. Only meaningful when a zone name already exists. */
+      var z = S.draft && S.draft.zone;
+      if (z && z.name) src += '&place=' + encodeURIComponent(z.name);
+      if ($('zp').getAttribute('src') !== src) $('zp').setAttribute('src', src);
+    }
+  }
+
+  function badges() {
+    var nav = $('nav');
+    var showBtn = nav.querySelector('[data-tab="showings"]');
+    var meBtn = nav.querySelector('[data-tab="me"]');
+    var upcoming = S.showings.filter(function (s) {
+      return s.status !== 'cancelled' && new Date(s.start.replace(' ', 'T')) > new Date();
+    }).length;
+    showBtn.classList.toggle('has', upcoming > 0);
+    /* The only badge on Me is an unfinished identity, because it is the one
+       thing that changes what a lead is worth. Badging everything trains
+       people to ignore badges. */
+    meBtn.classList.toggle('has', !(S.profile && S.profile.verified));
+  }
+
+  var navBtns = $('nav').querySelectorAll('button');
+  for (var i = 0; i < navBtns.length; i++) {
+    navBtns[i].addEventListener('click', function () {
+      var t = this.dataset.tab;
+      if (S.view === 'avail' && t !== 'showings') { loadAvail(); }
+      if (S.view === 'edit' && t !== 'spots') {
+        if (!window.confirm('Leave without saving this spot?')) return;
+        S.draft = null; S.editIdx = -1;
+      }
+      go(t);
+      vibrate(4);
+    });
+  }
+
+  $('back').addEventListener('click', function () {
+    if (S.view === 'avail') {
+      /* Re-read on the way out: the widget wrote these hours, not us. */
+      loadAvail().then(function () { go('showings'); });
+      return;
+    }
+    if (S.view === 'zone') { go('spots'); return; }
+    if (S.view === 'edit') {
+      if (!window.confirm('Leave without saving this spot?')) return;
+      S.draft = null; S.editIdx = -1; go('spots');
+    }
+  });
+
+  $('zedit').addEventListener('click', function () { go('zone'); });
+
+  $('next').addEventListener('click', function () {
+    if (S.view === 'spots') {
+      if (S.spots.length >= (S.schema.maxSearches || 5)) {
+        toast('Five spots is the limit. Delete one to add another.'); return;
+      }
+      S.draft = blankDraft(); S.editIdx = -1;
+      $('heard').classList.remove('on'); $('heardT').value = '';
+      $('fields').classList.remove('on');
+      go('zone');
+      return;
+    }
+
+    if (S.view === 'zone') {
+      if (S.draft && S.draft.zone) { go('edit'); return; }
+      askSave();
+      return;
+    }
+
+    if (S.view === 'edit') {
+      readDraft();
+      /* A DRAWN ZONE SAVES ON ITS OWN. Refusing because the spot half is
+         empty throws away the most expensive thing the renter just did. */
+      var now = new Date().toISOString();
+      S.draft.updated = now;
+      if (!S.draft.created) S.draft.created = now;
+      if (!S.draft.id) {
+        S.draft.id = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      }
+      if (!(S.draft.name && S.editIdx !== -1)) S.draft.name = nameFor(S.draft);
+
+      if (S.editIdx === -1) S.spots.push(S.draft);
+      else S.spots[S.editIdx] = S.draft;
+
+      save('Saved. When something fits, you hear from us.').then(function (ok) {
+        if (!ok) return;
+        S.draft = null; S.editIdx = -1;
+        vibrate([10, 30, 10]);
+        go('spots');
+      });
+    }
+  });
+
+  boot();
+  console.log('[RDC app ' + V + '] ready');
+})();
+</script>
+</body>
+</html>
