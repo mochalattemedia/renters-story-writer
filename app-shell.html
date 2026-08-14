@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v2">
+<meta name="rdc-version" content="shell-v3">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v2
+/* ============================================================ shell-v3
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -400,7 +400,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v2';
+  var V = 'shell-v3';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -459,7 +459,18 @@ a{color:var(--teal)}
      BD session cookie. That is the whole reason the worker proxies rather
      than redirects - a netlify.app origin could not do this. */
   function readBD() {
-    return fetch('/account/home', { credentials: 'same-origin' })
+    /* 🔴 THIS READ IS ENRICHMENT, NOT A DEPENDENCY, AND v2 TREATED IT AS
+       ONE. The boot waited on Promise.all([schema, readBD]) - so a request
+       to /account/home that never SETTLES (a redirect chain, a slow BD
+       page, a service worker holding a navigation) left the app on
+       "Loading…" forever with nothing in the console, because a hung
+       promise throws nothing. A .catch does not help; only a timeout does.
+       The member id comes from the cookie anyway, so this can lose and the
+       app still works. */
+    var timed = new Promise(function (resolve) {
+      setTimeout(function () { resolve(null); }, 4000);
+    });
+    var live = fetch('/account/home', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.text() : ''; })
       .then(function (html) {
         var out = { id: cookieId(), name: '', photo: '', verified: false, pct: null };
@@ -494,12 +505,28 @@ a{color:var(--teal)}
         }
         return out;
       })
-      .catch(function () { return { id: cookieId(), name: '', photo: '', verified: false, pct: null }; });
+      .catch(function () { return null; });
+
+    return Promise.race([live, timed]).then(function (out) {
+      return out || { id: cookieId(), name: '', photo: '', verified: false, pct: null };
+    });
+  }
+
+  /* Any network call that the boot WAITS on gets a deadline. A promise
+     that never settles is invisible - no error, no log, no rejection - and
+     it presents to a member as an app that simply never opens. */
+  function withTimeout(p, ms, fallback) {
+    return Promise.race([
+      p.catch(function () { return fallback; }),
+      new Promise(function (resolve) { setTimeout(function () { resolve(fallback); }, ms); })
+    ]);
   }
 
   function boot() {
     Promise.all([
-      fetch(PREFS + '?schema=1').then(function (r) { return r.ok ? r.json() : null; }),
+      withTimeout(
+        fetch(PREFS + '?schema=1').then(function (r) { return r.ok ? r.json() : null; }),
+        8000, null),
       readBD()
     ]).then(function (out) {
       S.schema = out[0];
@@ -520,7 +547,13 @@ a{color:var(--teal)}
       if (S.profile.photo) { $('av').src = S.profile.photo; $('av').hidden = false; }
       buildChips();
 
-      return Promise.all([loadSpots(), loadShowings(), loadAvail()]).then(function () {
+      /* Same rule for the three data reads. Each already resolves on
+         failure, but a hang is not a failure - it is silence. */
+      return Promise.all([
+        withTimeout(loadSpots(), 8000, null),
+        withTimeout(loadShowings(), 8000, null),
+        withTimeout(loadAvail(), 8000, null)
+      ]).then(function () {
         $('boot').classList.add('off');
         badges();
         go('spots');
@@ -1253,8 +1286,24 @@ a{color:var(--teal)}
     }
   });
 
+  /* LAST RESORT. If anything above still manages to hang, the member gets
+     a way out instead of a spinner. A dead end is worse than an error. */
+  setTimeout(function () {
+    var b = $('boot');
+    if (!b || b.classList.contains('off')) return;
+    console.warn('[RDC app ' + V + '] boot did not complete in 12s');
+    b.innerHTML =
+      '<div><b style="display:block;font-family:Red Hat Display,sans-serif;font-size:18px;' +
+      'color:#0d2d4e;margin-bottom:9px">This is taking too long</b>' +
+      '<p style="font-size:13.5px;line-height:1.6;color:#4a5b6d;margin:0 0 18px">' +
+      'Something did not load. Your spots are safe.</p>' +
+      '<button type="button" onclick="location.reload()" style="background:#8dc63f;' +
+      'color:#0d2d4e;border:0;border-radius:100px;padding:13px 26px;font-weight:700;' +
+      'font-size:15px;font-family:inherit">Try again</button></div>';
+  }, 12000);
+
   boot();
-  console.log('[RDC app ' + V + '] ready');
+  console.log('[RDC app ' + V + '] booting');
 })();
 </script>
 </body>
