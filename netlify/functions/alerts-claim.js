@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-claim.js  —  aclaim-v3
+// alerts-claim.js  —  aclaim-v4
 // The bridge between the logged-OUT homepage teaser and the logged-IN
 // dashboard. A visitor's search is parked here under a random token, and
 // claimed onto their new member record after signup.
@@ -14,6 +14,18 @@
 // a claim or a peek past expiry is treated as not-found. getStore() gets
 // siteID + token passed explicitly (it only throws on read/write, not on
 // creation).
+//
+// aclaim-v4: A DRAWN ZONE FROM THE TEASER ARRIVES INTACT. The homepage
+// now offers the map, so a visitor can hand over real zips and a real
+// polygon before they have an account.
+// That changes what a signup is worth: a typed name lands as a zone with
+// NO ZIPS - a half-state the dashboard has to ask them to complete - while
+// a drawn zone lands MATCHABLE. `needsAreas` is now false in that case, so
+// the claim banner stops asking for something they already gave.
+// A drawn zone always wins over a typed name; the name carries neither
+// zips nor a path and exists only to be confirmed later.
+// ⚠️ Re-sanitised here as well as in the teaser. A stash token is a
+// BEARER capability and its contents are not trusted on the way back in.
 //
 // aclaim-v3: MUST-HAVES WERE BEING DROPPED AT THE DOOR. at-v14 split the
 // teaser's single chip row into MUST HAVE and NICE TO HAVE - a genuine
@@ -77,7 +89,7 @@ const https = require("https");
 const crypto = require("crypto");
 const { getStore } = require("@netlify/blobs");
 
-const FN_VERSION = "aclaim-v3";
+const FN_VERSION = "aclaim-v4";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const STORE_NAME = "alert-stash";
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -201,7 +213,8 @@ function sanitizeSearch(raw) {
     notes: typeof s.notes === "string" ? s.notes.slice(0, 200) : "",
     // Free-text location from the teaser. NOT zones. Surfaced to the member
     // so they convert it to real Search Areas on the dashboard.
-    where: typeof s.where === "string" ? s.where.slice(0, 80) : ""
+    where: typeof s.where === "string" ? s.where.slice(0, 80) : "",
+    zone: sanitizeDrawnZone(s.zone)
   };
 }
 
@@ -239,6 +252,43 @@ function zoneFromWhere(where) {
   const w = typeof where === "string" ? where.trim().slice(0, 60) : "";
   if (!w) return null;
   return { name: w, zips: [], custom: false, path: [] };
+}
+
+// aclaim-v4: A ZONE THE VISITOR ACTUALLY DREW, from the teaser's optional
+// map. This is the difference between a signup that arrives MATCHABLE and
+// one that still owes us a step: real zips and a real polygon rather than
+// a place name we have to ask them to confirm.
+// Sanitised here as well as in the teaser - a stash is a bearer token and
+// its contents are not trusted on the way back in.
+function sanitizeDrawnZone(raw) {
+  const z = raw && typeof raw === "object" ? raw : null;
+  if (!z) return null;
+
+  const zips = [];
+  const seen = {};
+  const src = Array.isArray(z.zips) ? z.zips : [];
+  for (let i = 0; i < src.length && zips.length < 40; i++) {
+    // Exactly five digits. NEVER truncate - "9999999" cut to five is a
+    // syntactically valid zip nobody typed, and a fabricated zip in a
+    // match key is worse than a dropped one.
+    const v = String(src[i] || "").replace(/[^0-9]/g, "");
+    if (v.length === 5 && !seen[v]) { seen[v] = 1; zips.push(v); }
+  }
+
+  const path = [];
+  const rawPath = Array.isArray(z.path) ? z.path : [];
+  for (let i = 0; i < rawPath.length && path.length < 120; i++) {
+    const pt = rawPath[i];
+    if (!pt || typeof pt !== "object") continue;
+    const lat = Number(pt.lat), lng = Number(pt.lng);
+    if (!isFinite(lat) || !isFinite(lng)) continue;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
+    path.push({ lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 });
+  }
+
+  const name = typeof z.name === "string" ? z.name.trim().slice(0, 60) : "";
+  if (!name && !zips.length) return null;
+  return { name: name, zips: zips, custom: z.custom === true, path: path };
 }
 
 function optionFromTeaser(c) {
@@ -315,7 +365,7 @@ exports.handler = async (event) => {
     const search = sanitizeSearch(body.search);
     const empty = !search.rent_max && !search.beds_min && !search.baths_min &&
                   !search.move_in_by && !search.notes && !search.where &&
-                  !search.wants.length && !search.musts.length;
+                  !search.wants.length && !search.musts.length && !search.zone;
     if (empty) return json(400, { version: FN_VERSION, error: "empty search" });
 
     const token = newToken();
@@ -385,7 +435,9 @@ exports.handler = async (event) => {
     }
 
     const nowIso = new Date().toISOString();
-    const zone = zoneFromWhere(search.where);
+    // A DRAWN zone wins over a typed name. It carries zips and a polygon;
+    // the name carries neither and only exists to be confirmed later.
+    const zone = search.zone || zoneFromWhere(search.where);
     const opt = optionFromTeaser(search);
     const rec2 = {
       id: newId(),
@@ -445,7 +497,9 @@ exports.handler = async (event) => {
       /* Still true, and now actionable: the zone has a NAME but no zips,
          so the dashboard knows both that a zone is needed AND where to
          centre the picker when it asks. */
-      needsAreas: true,
+      // FALSE when they drew one on the teaser - that spot is already
+      // matchable and the dashboard must not ask again.
+      needsAreas: !(zone && (zone.zips || []).length),
       where: search.where,
       zoneName: zone ? zone.name : ""
     });

@@ -23,6 +23,33 @@
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
 //
+// at-v28: ⭐ THE MAP IS ON THE HOMEPAGE. A visitor can draw their zone
+// before they have an account, so a teaser signup can arrive MATCHABLE
+// instead of owing us a step. It is also the only thing on this page that
+// SHOWS what the product does rather than describing it - a polygon over
+// your own neighbourhood resolving into real zip codes is not something a
+// headline can convey.
+//
+// ⚠️ OFFERED, NEVER REQUIRED, AND THAT IS THE WHOLE DESIGN. Typing a place
+// still answers this step completely. The map sits behind a quiet "or
+// draw it on a map" link, so the teaser is no taller than it was for
+// anyone who ignores it - which matters most on a phone, where a 520px
+// map would push everything else below the fold before a stranger knows
+// what this page is.
+//
+// 🔴 AND THE ESCAPE IS VISIBLE FROM INSIDE THE MAP, THE WHOLE TIME.
+// Someone who opens a polygon tool, struggles for ten seconds and cannot
+// find the way out does NOT quietly fall back to typing - they leave the
+// page. "Type it instead" sits under the map permanently and carries
+// everything already entered. Start over is next to it, because zp-v6
+// takes Clear All away when embedded.
+//
+// The frame is built ONCE and re-attached rather than written as markup:
+// every render rebuilds this card's innerHTML, and an iframe in that
+// markup reloads Google Maps and throws away a half-drawn polygon each
+// time. Same lesson as ac-v19. renters_areas_busy is a REFUSAL, not
+// progress, so it retries rather than spinning - same as ac-v25.
+//
 // at-v27: 🔴 iOS NEVER SENDS A FINAL RESULT, SO EVERY SPOKEN WORD WAS
 // THROWN AWAY. voice.transcript only ever grew on isFinal. Safari streams
 // interim results and ENDS THE SESSION WITHOUT EVER SETTING IT - so the
@@ -373,7 +400,8 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v27";
+const FN_VERSION = "at-v28";
+const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -403,6 +431,7 @@ const JS = `
   var VOICE = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-voice";
   var SIGNUP_URL = "${SIGNUP_URL}";
   var CHIPS = ${JSON.stringify(CHIPS)};
+  var PICKER = "${PICKER}";
   var MOUNT_SELECTOR = "#renters-alert-teaser";
   console.log("[Renters teaser] version: " + V);
 
@@ -433,6 +462,9 @@ const JS = `
     inlineBox: "background:#f4faf8;border:1px solid #cfe6df;border-radius:12px;padding:14px 15px;margin:0 0 14px;text-align:left;",
     busyBox: "background:#f7fbfa;border:2px solid " + TEAL + ";border-radius:12px;padding:28px 16px;margin:0 0 16px;text-align:center;",
     spin: "display:inline-block;width:30px;height:30px;border-radius:50%;border:3px solid #d7e8e4;border-top-color:" + TEAL + ";animation:rdcSpin .8s linear infinite;",
+    mapWrap: "background:#f7fbfa;border:1px solid #cfe6df;border-radius:12px;padding:12px;margin:0 0 12px;",
+    zoneDone: "background:#eaf5f2;border:1px solid #cfe6df;border-radius:12px;padding:11px 13px;margin:0 0 12px;text-align:left;",
+    tick: "flex:0 0 auto;width:20px;height:20px;border-radius:999px;background:#3a9e8f;color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-top:2px;",
     heard: "background:#eef7f4;border:1px solid #cfe6df;border-radius:11px;padding:13px 15px;margin:0 0 16px;text-align:left;",
     area: "width:100%;padding:11px 12px;border:1px solid #d7dee8;border-radius:9px;font-size:15px;font-family:inherit;line-height:1.45;box-sizing:border-box;resize:vertical;min-height:74px;",
     inp: "width:100%;padding:11px 13px;border:1px solid #d7dee8;border-radius:10px;font-size:15px;box-sizing:border-box;",
@@ -512,6 +544,13 @@ const JS = `
   var seededFromVoice = false;
   var inlineRec = false;
   var filtersOpen = false;
+  // at-v28: the map is OPT-IN and never blocks. See the header note.
+  var mapOpen = false;
+  var mapWired = false;
+  var drawnZone = null;
+  var mapFrame = null;
+  var mapH = 0;
+  var mapTries = 0;
   var VIEW = "form";  // "form" | "voice"
 
   function speechOK() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
@@ -556,6 +595,12 @@ const JS = `
       baths_min: numVal("rt-baths"),
       move_in_by: val("rt-move"),
       where: String(val("rt-where")).trim(),
+      // at-v28: real zips when they drew, nothing when they typed.
+      // aclaim-v3 turns a bare name into a zone with no zips - the
+      // half-state the dashboard then asks them to complete - so a drawn
+      // zone arriving here is the ONLY way a teaser signup lands
+      // immediately matchable.
+      zone: drawnZone,
       wants: wants.slice(),
       musts: musts.slice(),
       notes: String(val("rt-notes")).trim()
@@ -588,7 +633,41 @@ const JS = `
               '<p style="font-size:14px;color:#2c4f49;margin:0;line-height:1.5;">' + esc(seed.heard) + '</p>' +
             '</div>'
           : "") +
-        '<div style="margin-bottom:10px;"><input id="rt-where" placeholder="Where do you want to live? City or ZIP" value="' + esc(seed.where) + '" style="' + S.bigInp + '"></div>' +
+        '<div style="margin-bottom:8px;"><input id="rt-where" placeholder="Where do you want to live? City or ZIP" value="' + esc(seed.where) + '" style="' + S.bigInp + '"></div>' +
+
+        // ---- at-v28: THE MAP. OFFERED, NEVER REQUIRED. -----------------
+        // Typing a place still answers this step completely. The map is a
+        // second way to answer it, for anyone who wants to be exact - and
+        // it is the only thing on this page that shows what the product
+        // actually does rather than describing it.
+        // ⚠️ IT MUST NEVER BECOME A WALL. A stranger who opens a polygon
+        // tool, struggles for ten seconds and cannot find the way out does
+        // not fall back to typing - they leave the page. So the escape is
+        // visible from INSIDE the map, the whole time, and anything
+        // already typed survives using it.
+        (drawnZone
+          ? '<div style="' + S.zoneDone + '">' +
+              '<div style="display:flex;align-items:flex-start;gap:9px;">' +
+                '<span style="' + S.tick + '">&#10003;</span>' +
+                '<div style="flex:1;min-width:0;">' +
+                  '<p style="font-size:14.5px;font-weight:700;color:#0d2d4e;margin:0 0 2px;">' + esc(drawnZone.name || "Your area") + '</p>' +
+                  '<p style="font-size:12.5px;color:#5b7a74;margin:0;">' + (drawnZone.zips || []).length + ' zip code' +
+                    ((drawnZone.zips || []).length === 1 ? "" : "s") + ' &middot; ' + esc((drawnZone.zips || []).join(", ")) + '</p>' +
+                '</div>' +
+                '<button id="rt-map-clear" type="button" style="' + S.quiet + 'flex:0 0 auto;padding:0 0 0 8px;">Change</button>' +
+              '</div>' +
+            '</div>'
+          : (mapOpen
+            ? '<div style="' + S.mapWrap + '">' +
+                '<div id="rt-map-slot" style="border:1px solid #dde9e6;border-radius:10px;overflow:hidden;"></div>' +
+                '<button id="rt-map-use" type="button" style="' + S.btn + 'margin-top:9px;">Use this area</button>' +
+                '<div style="display:flex;gap:12px;align-items:center;justify-content:center;margin-top:7px;flex-wrap:wrap;">' +
+                  '<button id="rt-map-reset" type="button" style="' + S.quiet + '">Start over</button>' +
+                  '<button id="rt-map-skip" type="button" style="' + S.quiet + '">Type it instead</button>' +
+                '</div>' +
+                '<span id="rt-map-msg" style="' + S.hint + 'display:block;margin-top:6px;"></span>' +
+              '</div>'
+            : '<button id="rt-map-open" type="button" style="' + S.quiet + 'display:block !important;margin:0 auto 10px;">or draw it on a map</button>')) +
         '<div style="text-align:center;margin-bottom:22px;">' +
           '<button id="rt-toggle" type="button" style="' + S.addLink + '">' + (filtersOpen ? "Hide filters" : "Add filters (rent, beds, more)") + '</button>' +
         '</div>' +
@@ -762,6 +841,124 @@ const JS = `
       }
       extractVoice(text);
     };
+
+    // ---- at-v28: MAP WIRING -----------------------------------------
+    var mo = document.getElementById("rt-map-open");
+    if (mo) mo.onclick = function () {
+      captureIntoSeed();
+      mapOpen = true;
+      renderForm();
+    };
+
+    var mc = document.getElementById("rt-map-clear");
+    if (mc) mc.onclick = function () {
+      captureIntoSeed();
+      drawnZone = null;
+      mapOpen = true;
+      renderForm();
+    };
+
+    var msk = document.getElementById("rt-map-skip");
+    if (msk) msk.onclick = function () {
+      // The escape. Whatever they typed is still in seed, and the field
+      // comes back exactly as they left it.
+      captureIntoSeed();
+      mapOpen = false;
+      renderForm();
+      var w = document.getElementById("rt-where");
+      if (w) { try { w.focus(); } catch (e) {} }
+    };
+
+    var mr = document.getElementById("rt-map-reset");
+    if (mr) mr.onclick = function () {
+      captureIntoSeed();
+      mapFrame = null;
+      var sl = document.getElementById("rt-map-slot");
+      if (sl) sl.innerHTML = "";
+      renderForm();
+    };
+
+    var mu = document.getElementById("rt-map-use");
+    if (mu) mu.onclick = function () {
+      var f = document.getElementById("rt-picker");
+      var msg = document.getElementById("rt-map-msg");
+      if (!f || !f.contentWindow) return;
+      if (msg) msg.textContent = "Saving that area...";
+      mapTries = 0;
+      f.contentWindow.postMessage({ type: "renters_areas_save" }, "*");
+    };
+
+    // The frame is built ONCE and re-attached, never written as markup.
+    // Every render rebuilds this card's innerHTML, and an iframe in that
+    // markup would reload Google Maps and throw away a half-drawn polygon
+    // each time. Same lesson as ac-v19 on the dashboard.
+    var slot = document.getElementById("rt-map-slot");
+    if (slot) {
+      if (!mapFrame) {
+        var fr = document.createElement("iframe");
+        fr.id = "rt-picker";
+        var place = String(seed.where || "").trim();
+        fr.src = PICKER + "?embed=1" + (place ? "&place=" + encodeURIComponent(place) : "");
+        fr.setAttribute("allow", "geolocation");
+        fr.style.cssText = "width:100%;height:" + (mapH || 520) + "px;border:0;display:block;";
+        mapFrame = fr;
+      }
+      if (mapFrame.parentNode !== slot) slot.appendChild(mapFrame);
+    }
+
+    if (!mapWired) {
+      mapWired = true;
+      window.addEventListener("message", function (e) {
+        var d = e.data;
+        if (!d || !d.type) return;
+        var msg = document.getElementById("rt-map-msg");
+
+        if (d.type === "rdcZoneHeight") {
+          var h = Number(d.height);
+          if (!isFinite(h) || h < 300 || h > 900) return;
+          mapH = h;
+          if (mapFrame) mapFrame.style.height = h + "px";
+          return;
+        }
+        if (d.type === "renters_areas_none") {
+          mapTries = 0;
+          if (msg) msg.textContent = "Draw an area on the map first, or type it instead.";
+          return;
+        }
+        if (d.type === "renters_areas_busy") {
+          // A refusal, not progress - the picker returns without saving
+          // while a zone is still resolving. Retry rather than spin.
+          mapTries = (mapTries || 0) + 1;
+          if (mapTries <= 12) {
+            if (msg) msg.textContent = "Finishing the zip codes...";
+            setTimeout(function () {
+              var f2 = document.getElementById("rt-picker");
+              if (f2 && f2.contentWindow) f2.contentWindow.postMessage({ type: "renters_areas_save" }, "*");
+            }, 800);
+          } else if (msg) {
+            msg.textContent = "That area is taking too long. Tap Start over, or type it instead.";
+          }
+          return;
+        }
+        if (d.type !== "renters_areas_zips") return;
+
+        var z = (d.zones || [])[0];
+        if (!z) return;
+        mapTries = 0;
+        drawnZone = {
+          name: z.name || "",
+          zips: z.zips || [],
+          custom: z.custom === true,
+          path: z.path || []
+        };
+        // The drawn name also answers the typed field, so the two never
+        // disagree about where this spot is.
+        if (z.name) seed.where = String(z.name).slice(0, 80);
+        mapOpen = false;
+        mapFrame = null;
+        renderForm();
+      });
+    }
 
     var ir = document.getElementById("rt-inline-rec");
     if (ir) ir.onclick = function () {
