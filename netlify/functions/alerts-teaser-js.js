@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v23
+// alerts-teaser-js.js  —  at-v24
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -22,6 +22,22 @@
 // DROP-IN: head code / page content carries only a loader that points a
 // container at this. Set MOUNT_SELECTOR to the id of the div you place
 // in the homepage content area.
+//
+// at-v24: 🔴 continuous = true KILLED VOICE ON MOBILE. iOS Safari does
+// not support continuous recognition; setting it makes the session end
+// immediately or never deliver a result. The recorder opened and nothing
+// happened - exactly the reported symptom - and DESKTOP CHROME HONOURS
+// THE FLAG, so it was invisible everywhere it was tested.
+// Off on touch devices. The renter speaks one utterance, the recogniser
+// ends on its pause, and at-v23's "Add this" / "Say more" take it from
+// there. That is the correct mobile shape anyway, not a downgrade.
+//
+// ⚠️ AND A WATCHDOG, because the failure mode here is SILENCE. When a
+// mobile browser refuses to start, or starts and never delivers audio,
+// NOTHING FIRES - no error, no result, no end - and the renter watches a
+// panel that looks like it is listening. Eight seconds without audio now
+// says so and points at the mic permission.
+// 📌 ANYTHING THAT CAN FAIL WITHOUT SAYING SO NEEDS A CLOCK ON IT.
 //
 // at-v23: 🔴 MOBILE HAD NO WAY TO SUBMIT WHAT IT HEARD.
 //
@@ -321,7 +337,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v23";
+const FN_VERSION = "at-v24";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
 // ⬇⬇⬇  SET THIS to your real BD signup URL (right-click your Sign up
@@ -907,7 +923,22 @@ const JS = `
     var Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
     var r;
     try { r = new Ctor(); } catch (e) { voice.status = "We could not start the microphone. Type it instead."; paint(); return; }
-    r.continuous = true; r.interimResults = true; r.lang = "en-US";
+    // 🔴 at-v24: CONTINUOUS IS NOT SUPPORTED ON iOS. Setting it makes the
+    // session end immediately or never fire a result at all, which looks
+    // exactly like the recorder opening and nothing happening - the
+    // reported symptom. Desktop Chrome honours it, so this was invisible
+    // there.
+    // Off on touch devices. The renter then speaks one utterance, the
+    // recogniser ends on its pause, and at-v23's "Add this" / "Say more"
+    // buttons take it from there - which is the correct mobile shape
+    // anyway, not a downgrade.
+    var isTouch = false;
+    try {
+      isTouch = ("ontouchstart" in window) || (navigator.maxTouchPoints > 0);
+    } catch (e) {}
+    r.continuous = !isTouch;
+    r.interimResults = true;
+    r.lang = "en-US";
     voice.transcript = ""; voice.interim = ""; voice.status = "Listening. Take your time."; voice.active = true; voice.rec = r;
     r.onresult = function (ev) {
       var interim = "";
@@ -916,11 +947,31 @@ const JS = `
         if (ev.results[i].isFinal) voice.transcript += t; else interim += t;
       }
       voice.interim = interim;
+      heard = true;
+      clearTimeout(watchdog);
       // Touch only the live line. Whichever surface is showing.
       var live = document.getElementById("rt-live") || document.getElementById("rt-inline-live");
       if (live) live.textContent = voice.transcript + voice.interim;
     };
+    // ⚠️ A WATCHDOG, because the failure mode here is SILENCE. When a
+    // mobile browser refuses to start, or starts and never delivers audio,
+    // nothing fires - no error, no result, no end - and the renter is left
+    // watching a panel that looks like it is listening. Anything that can
+    // fail without saying so needs a clock on it.
+    var heard = false;
+    var watchdog = setTimeout(function () {
+      if (heard || !voice.active) return;
+      voice.active = false;
+      try { r.stop(); } catch (e) {}
+      voice.status = "We are not picking up any audio. Check the mic permission, or type it instead.";
+      paint();
+    }, 8000);
+
+    r.onstart = function () { voice.status = "Listening. Take your time."; paint(); };
+
     r.onerror = function (ev) {
+      heard = true;
+      clearTimeout(watchdog);
       voice.active = false;
       voice.status = (ev && ev.error === "not-allowed")
         ? "Microphone permission was declined. Type it instead."
@@ -928,6 +979,7 @@ const JS = `
       paint();
     };
     r.onend = function () {
+      clearTimeout(watchdog);
       if (!voice.active) return;
       // 🔴 THE RECOGNISER ENDING IS NOT THE RENTER FINISHING. On mobile it
       // stops on a pause. Say so, rather than leaving a silent panel that
