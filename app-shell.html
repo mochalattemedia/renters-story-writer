@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v13">
+<meta name="rdc-version" content="shell-v14">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v13
+/* ============================================================ shell-v14
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -496,6 +496,7 @@ a{color:var(--teal)}
 
 <div class="introAct" id="introAct">
   <button class="cta" id="introGo">Dream up your perfect spot</button>
+  <button class="cta ghost" id="introSkip">Got it, do not show this again</button>
   <span class="signin">Already a member? <a href="/login">Sign in</a></span>
 </div>
 
@@ -645,7 +646,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v13';
+  var V = 'shell-v14';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -815,9 +816,17 @@ a{color:var(--teal)}
          cannot see. So this hands off to the web and comes back a member. */
       if (!S.member) {
         $('boot').classList.add('off');
-        $('intro').classList.add('on');
-        $('introAct').classList.add('on');
-        console.log('[RDC app ' + V + '] no session, showing intro');
+        /* FIRST RUN ONLY. An explainer earns its place once; on the fourth
+           visit it is a door you have to push open every time. Dismissing
+           it is remembered, and signing in makes it irrelevant anyway. */
+        if (introSeen()) {
+          console.log('[RDC app ' + V + '] no session, intro already seen');
+          go('spots');
+        } else {
+          $('intro').classList.add('on');
+          $('introAct').classList.add('on');
+          console.log('[RDC app ' + V + '] no session, showing intro');
+        }
         return;
       }
 
@@ -1395,27 +1404,157 @@ a{color:var(--teal)}
 
   /* =========================================================== MATCHES */
 
-  function drawMatches() {
-    var running = S.spots.filter(function (s) { return s.enabled !== false; }).length;
-    var box = $('matchBox');
+  /* Not a wall and not an error. Each says what the tab is for and what is
+     missing, which is the difference between "come back when you have an
+     account" and a screen that looks broken. */
+  function signedOut(which) {
+    var copy = {
+      matches: ['Matches land here',
+        'Set up a perfect spot and we will start looking. When a place clears your ' +
+        'budget, your zone and the landlord’s own requirements, it shows up here.'],
+      showings: ['Showings land here',
+        'Set the hours you are free and a time can be booked with you. It goes onto ' +
+        'both calendars, without the phone tag.'],
+      me: ['Your account',
+        'Your photo, your identity check and your details. Everything you set up in ' +
+        'the app lives on your account, not on this phone.']
+    }[which];
 
-    /* 🔴 NOTHING IS INVENTED HERE. The deck renders four fabricated
-       listings and there is no matcher behind it - no cron, and
-       alerts@renters.com does not send. A swipe deck of places that do not
-       exist is worse than an empty tab, because the empty tab is true. */
-    if (!running) {
-      box.innerHTML = '<div class="empty"><b>Nothing to show yet</b>' +
-        '<p>Set up a perfect spot and we will start looking. When something fits, ' +
-        'it lands here and we let you know.</p></div>';
-      return;
-    }
-    box.innerHTML = '<div class="empty"><b>Nothing yet</b>' +
-      '<p>We are looking at ' + running + ' spot' + (running === 1 ? '' : 's') +
-      '. Nothing has fit so far, and that is the point — you only hear from us ' +
-      'when something actually does.</p></div>';
+    $('v-' + which).innerHTML =
+      '<div class="empty"><b>' + copy[0] + '</b><p>' + copy[1] + '</p>' +
+      '<button type="button" class="cta" style="max-width:280px;margin:0 auto" ' +
+        'id="so-go">Dream up your perfect spot</button>' +
+      '<p class="cap" style="text-align:center;margin-top:12px">' +
+        'Already a member? <a href="/login">Sign in</a></p></div>';
+
+    var g = document.getElementById('so-go');
+    if (g) g.addEventListener('click', function () {
+      markIntroSeen();
+      S.draft = blankDraft(); S.editIdx = -1;
+      go('zone'); vibrate(6);
+    });
   }
 
+  /* THE DECK IS THE TAB. md-v12 reads matches.js, books through
+     showings.js and marks slots where both calendars agree, so it is
+     embedded rather than reimplemented - one implementation, one place a
+     bug can live. */
+  function drawMatches() {
+    if (!S.member) { signedOut('matches'); return; }
+    if (!$('dk')) {
+      $('v-matches').innerHTML =
+        '<div class="frame"><iframe id="dk" title="Your matches"></iframe></div>';
+    }
+    var src = DECK + '?memberId=' + encodeURIComponent(S.member) + '&embed=1';
+    if ($('dk').getAttribute('src') !== src) $('dk').setAttribute('src', src);
+  }
+
+
   /* ========================================================== SHOWINGS */
+
+  /* ---------------------------------------------------------------------
+     THE FIVE THAT WENT MISSING.
+     Everything below was written across several passes and none of it
+     survived - the calls landed, the definitions did not, and JavaScript
+     says nothing about a function that does not exist until the line runs.
+     The first one to run threw, the boot chain rejected, and the app hid
+     its loading screen and then did nothing. It looked like a lockup and
+     it was a ReferenceError.
+     --------------------------------------------------------------------- */
+
+  /* The failure screen NAMES the failure. "Something did not load" with a
+     Try again button is useless to a member and useless to whoever has to
+     fix it - it hides the one fact that matters. */
+  function fail(msg) {
+    var b = $('boot');
+    if (!b) return;
+    b.classList.remove('off');
+    b.innerHTML =
+      '<div><b style="display:block;font-family:Red Hat Display,sans-serif;font-size:18px;' +
+      'color:#0d2d4e;margin-bottom:9px">This did not load</b>' +
+      '<p style="font-size:13.5px;line-height:1.6;color:#4a5b6d;margin:0 0 16px">' +
+      (msg || 'Something went wrong on our side. Nothing you saved is affected.') + '</p>' +
+      (lastErr ? '<p style="font-size:11px;color:#8fa0b0;margin:0 0 18px;' +
+        'font-family:ui-monospace,monospace;word-break:break-word">' + esc(lastErr) + '</p>' : '') +
+      '<button type="button" id="retry" style="background:#8dc63f;color:#0d2d4e;border:0;' +
+      'border-radius:100px;padding:13px 26px;font-weight:700;font-size:15px;' +
+      'font-family:inherit">Try again</button></div>';
+    var r = document.getElementById('retry');
+    if (r) r.addEventListener('click', function () { location.reload(); });
+  }
+
+  /* Availability is read for its SUMMARY only. The widget owns editing, so
+     this must never become a second place that writes the same record. */
+  function loadAvail() {
+    if (!S.member) return Promise.resolve();
+    return fetch(AVAIL + '?memberId=' + encodeURIComponent(S.member))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { S.avail = d || null; })
+      .catch(function () { S.avail = null; });
+  }
+
+  function paintAvail() {
+    var el = $('availVal');
+    if (!el) return;
+    var a = S.avail;
+    var w = a && a.windows;
+    var on = a && a.enabled !== false && w && w.length;
+    el.textContent = on ? w.length + ' window' + (w.length === 1 ? '' : 's') : 'Set your hours';
+    el.style.color = on ? '#3a9e8f' : '';
+    el.style.fontWeight = on ? '700' : '';
+  }
+
+  /* Counted, not listed. The deck owns rendering matches; this only needs
+     the number of untouched ones so the banner can be honest. */
+  function loadMatchCount() {
+    if (!S.member) return Promise.resolve();
+    return fetch(MATCHES + '?memberId=' + encodeURIComponent(S.member))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        var list = (d && d.matches) || [];
+        S.totalMatches = list.length;
+        S.newMatches = list.filter(function (m) { return m.state === 'new'; }).length;
+      })
+      .catch(function () { S.newMatches = 0; S.totalMatches = 0; });
+  }
+
+  /* The editable half of the member record, through mp-v3. One record, two
+     views - "native" means the FORM is native, not that the data is a copy. */
+  function loadProfile() {
+    if (!S.member) return Promise.resolve();
+    return fetch(PROFILE + '?memberId=' + encodeURIComponent(S.member))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.profile) S.editable = d.profile; })
+      .catch(function () {});
+  }
+
+  /* ⚠️ showings.js checks a HARDCODED SECRET on every POST, so it ships to
+     the client here exactly as it already does on the booking page. It
+     belongs in an env var with the check server-side. */
+  var SH_SECRET = 'renters2026';
+
+  /* Decline and cancel are the SAME transition in showings.js - both land
+     on 'cancelled'. The words differ because declining something proposed
+     and cancelling something confirmed feel different to the person doing
+     it, and the other party is told either way. */
+  function transition(sh, action) {
+    fetch(SHOWS, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: action, secret: SH_SECRET, id: sh.id, by: S.member })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.ok) { toast('Could not update that showing.'); return; }
+        return loadShowings().then(function () {
+          badges(); drawShowings();
+          toast(action === 'confirm' ? 'Confirmed. It is on both calendars.'
+                                     : 'Done. The other person has been told.');
+        });
+      })
+      .catch(function () { toast('Could not reach the scheduler.'); });
+    vibrate(8);
+  }
 
   function loadShowings() {
     return fetch(SHOWS + '?action=list&memberId=' + encodeURIComponent(S.member))
@@ -1924,11 +2063,32 @@ a{color:var(--teal)}
     return rec.draft;
   }
 
-  $('introGo').addEventListener('click', function () {
-    S.draft = blankDraft();
-    S.editIdx = -1;
+  var K_INTRO = 'rdc_app_intro_seen';
+
+  function introSeen() {
+    try { return localStorage.getItem(K_INTRO) === '1'; } catch (e) { return false; }
+  }
+  function markIntroSeen() {
+    try { localStorage.setItem(K_INTRO, '1'); } catch (e) {}
+  }
+
+  function hideIntro() {
     $('intro').classList.remove('on');
     $('introAct').classList.remove('on');
+  }
+
+  $('introSkip').addEventListener('click', function () {
+    markIntroSeen();
+    hideIntro();
+    go('spots');
+    vibrate(5);
+  });
+
+  $('introGo').addEventListener('click', function () {
+    markIntroSeen();
+    S.draft = blankDraft();
+    S.editIdx = -1;
+    hideIntro();
     go('zone');
     vibrate(6);
   });
