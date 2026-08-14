@@ -5,7 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>My Areas - Renters.com</title>
-<!-- zone-picker.html  zp-v11
+<!-- zone-picker.html  zp-v13
+     zp-v13: the toolbar sticks to the top when embedded, so Draw Zone
+     cannot scroll away from the map it belongs to.
+     zp-v12: gestureHandling 'greedy' - one finger pans. Google's default
+     needs two fingers on touch and the map reads as frozen to anyone who
+     tries to drag it normally.
      zp-v11: ?place=NAME centres the map there on load. The renter told us
      where in words on the teaser; handing them a map of the whole country
      and asking again turns confirming into starting over.
@@ -188,7 +193,22 @@ function initMap() {
        rare misclick; on a phone, where the target is a fingertip, it happens
        constantly and reads as the map being unresponsive. Drawing points is
        the only thing anyone does here, so the icons lose. */
-    clickableIcons: false
+    clickableIcons: false,
+
+    /* zp-v12: ONE FINGER PANS THE MAP. Google's default is 'cooperative',
+       which requires TWO FINGERS on a touch device - a one-finger drag
+       scrolls the page instead and the map appears frozen. That default
+       exists to stop a full-bleed map trapping the page scroll, which is
+       the right trade for a map dropped mid-article. It is the WRONG trade
+       here: this map is the tool, the renter came to it deliberately, and
+       "drag with two fingers" is a thing nobody reads and everybody
+       fights.
+       The page stays scrollable because the map is a FIXED-HEIGHT box with
+       the card's own content above and below it - a finger outside the map
+       scrolls normally.
+       ⚠️ 'greedy' would be wrong on a page where the map filled the
+       viewport. If this is ever embedded full-screen, revisit it. */
+    gestureHandling: 'greedy'
   });
 
   geocoder = new google.maps.Geocoder();
@@ -916,6 +936,22 @@ function setStatus(msg) {
     css.textContent =
       '#zp-instructions{display:none !important}' +
       '#zp-toolbar{padding:10px 12px}' +
+
+      /* zp-v13: THE TOOLBAR STICKS TO THE TOP OF THE MAP AREA. Draw Zone
+         sat above the map in normal flow, so ANY scroll took the only
+         control off screen while the map stayed - and a map you cannot
+         start drawing on is worse than no map. On a phone that happened
+         constantly, because reaching the part of the map you actually
+         want means scrolling.
+         Sticky rather than absolute: it keeps its space in the layout, so
+         nothing underneath jumps when it pins. */
+      '#zp-toolbar{position:sticky;top:0;z-index:5;background:#fff;' +
+        'box-shadow:0 2px 6px rgba(13,45,78,.06)}' +
+
+      /* And it stays reachable while drawing: startDrawing() hides the
+         button and the Finish/Cancel controls take its place, so the
+         sticky row is never empty. */
+      '#zp-map{position:relative}' +
       '#zp-finish-btn{flex:1 1 auto;font-size:15px;padding:12px}';
     document.head.appendChild(css);
   } catch (e) {}
