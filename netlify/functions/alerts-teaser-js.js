@@ -1,5 +1,5 @@
 // ==================================================================
-// alerts-teaser-js.js  —  at-v30
+// alerts-teaser-js.js  —  at-v31
 // Homepage teaser for Daily Listing Alerts. Logged-OUT capture.
 //
 // PURPOSE: a visitor with no account builds a search, hits a wall that
@@ -38,6 +38,26 @@
 // margins; a target somebody aims a fingertip at does not.
 // 📌 AND: MEASURE BEFORE CUTTING. Four nested paddings, and I trimmed the
 // two smallest twice before looking at which one was actually large.
+//
+// at-v31: ⭐ IT KEEPS LISTENING UNTIL YOU SAY STOP. at-v24 turned
+// continuous OFF on touch because iOS does not support it. That was right,
+// and it bought its own problem: recognition then ends at the FIRST PAUSE,
+// so anyone who drew breath mid-sentence was cut off and lost the rest of
+// what they were saying.
+//
+// onend now RESTARTS THE SAME RECOGNISER rather than stopping. Restarting
+// the same object preserves voice.transcript - startRec() would clear it -
+// so the words accumulate across as many utterances as it takes. It is
+// continuous behaviour assembled out of non-continuous sessions, which is
+// the only shape iOS allows.
+//
+// ⚠️ GUARDED THREE WAYS: only while the renter has not tapped Stop, only
+// up to 20 restarts, and NEVER after an error - a permission failure that
+// restarts itself is an infinite loop.
+//
+// The interim promotion now APPENDS across restarts instead of replacing,
+// with a containment check first, so a browser that DOES finalise cannot
+// bank the same words twice.
 //
 // at-v30: 🔴 THE MAP WAS LOSING 144px OF A 400px SCREEN, and at-v29 fixed
 // the smallest layer of it. Measured rather than guessed:
@@ -438,7 +458,7 @@
 // claimer (alerts-claim-js) reads whichever is present.
 // ==================================================================
 
-const FN_VERSION = "at-v30";
+const FN_VERSION = "at-v31";
 const PICKER = "https://renters-story-writer.netlify.app/zone-picker.html";
 const CLAIM = "https://renters-story-writer.netlify.app/.netlify/functions/alerts-claim";
 
@@ -618,6 +638,8 @@ const JS = `
   var mapFrame = null;
   var mapH = 0;
   var mapTries = 0;
+  var wantMore = false;
+  var restarts = 0;
   var VIEW = "form";  // "form" | "voice"
 
   function speechOK() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
@@ -1258,6 +1280,7 @@ const JS = `
     r.interimResults = true;
     r.lang = "en-US";
     voice.transcript = ""; voice.interim = ""; voice.status = "Listening. Take your time."; voice.active = true; voice.rec = r;
+    wantMore = true; restarts = 0;
     r.onresult = function (ev) {
       var interim = "";
       for (var i = ev.resultIndex; i < ev.results.length; i++) {
@@ -1297,6 +1320,8 @@ const JS = `
     r.onstart = function () { voice.status = "Listening. Take your time."; paint(); };
 
     r.onerror = function (ev) {
+      // An error ends the whole attempt. Never restart into one.
+      wantMore = false;
       heard = true;
       clearTimeout(watchdog);
       voice.active = false;
@@ -1312,10 +1337,57 @@ const JS = `
       // the spoken words can be rescued - one line later and they are
       // gone. Desktop Chrome always sends a final result, so it never
       // needed this and never revealed that it was missing.
-      if (!String(voice.transcript || "").trim() && lastInterim) {
-        voice.transcript = lastInterim;
-        console.log("[Renters teaser] promoted an interim result, no final was sent");
+      if (lastInterim) {
+        var already = String(voice.transcript || "");
+        if (!already.trim()) {
+          voice.transcript = lastInterim;
+        } else if (already.indexOf(lastInterim) === -1) {
+          // Across a restart the earlier text is already banked, so the
+          // new interim is APPENDED rather than replacing it. Checked for
+          // containment first: a browser that DOES finalise would
+          // otherwise bank the same words twice.
+          // No regex: this file is served from inside a TEMPLATE LITERAL
+          // and a lone backslash escape is consumed before the browser
+          // sees it, so /\\s+$/ would arrive as /s+$/ and strip letters.
+          var trimmed = already;
+          while (trimmed.length && trimmed.charAt(trimmed.length - 1) === " ") {
+            trimmed = trimmed.slice(0, trimmed.length - 1);
+          }
+          voice.transcript = trimmed + " " + lastInterim;
+        }
+        lastInterim = "";
       }
+
+      // ⭐ at-v31: KEEP LISTENING UNTIL THEY SAY STOP. at-v24 turned
+      // continuous OFF on touch because iOS does not support it - correct,
+      // and it introduced its own problem: recognition now ends at the
+      // FIRST PAUSE, so anyone who drew breath mid-sentence was cut off
+      // and lost the rest of their thought.
+      // Restarting the SAME recogniser preserves voice.transcript, which
+      // startRec() would clear, so the words accumulate across as many
+      // utterances as it takes. It is continuous behaviour built out of
+      // non-continuous sessions, which is the only shape iOS allows.
+      // ⚠️ GUARDED THREE WAYS: only while the renter has not tapped Stop,
+      // only up to 20 restarts, and never after an error - a permission
+      // failure that restarts itself is an infinite loop.
+      if (voice.active && wantMore && restarts < 20) {
+        restarts++;
+        try {
+          r.start();
+          voice.status = "Listening. Take your time.";
+          paint();
+          return;
+        } catch (e) {
+          // Some browsers refuse a restart that comes too fast. One more
+          // try on a short delay, then give up gracefully.
+          setTimeout(function () {
+            if (!voice.active || !wantMore) return;
+            try { r.start(); paint(); } catch (e2) { voice.active = false; paint(); }
+          }, 250);
+          return;
+        }
+      }
+
       if (!voice.active) return;
       // 🔴 THE RECOGNISER ENDING IS NOT THE RENTER FINISHING. On mobile it
       // stops on a pause. Say so, rather than leaving a silent panel that
@@ -1334,6 +1406,8 @@ const JS = `
   }
 
   function stopRec() {
+    // The renter asked to stop, so onend must not restart.
+    wantMore = false;
     voice.active = false;
     // Tapping Stop reads voice.transcript on the very next line, which is
     // before onend gets a chance to run - so the same rescue has to happen
