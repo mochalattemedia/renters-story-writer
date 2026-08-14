@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v16">
+<meta name="rdc-version" content="shell-v17">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v16
+/* ============================================================ shell-v17
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -655,7 +655,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v16';
+  var V = 'shell-v17';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -800,6 +800,83 @@ a{color:var(--teal)}
     ]);
   }
 
+  /* ============================================================ DEMO
+     /app?demo=1 - a fully populated app with invented data, for showing
+     somebody what this looks like when it is working.
+
+     🔴 IT LABELS ITSELF, AND THAT IS NOT OPTIONAL. A demo that cannot be
+     told apart from the real thing is how a screenshot ends up in a deck
+     as evidence, and #138 is open precisely because fabricated listings
+     were reachable at a public URL. The banner is fixed to the top and
+     does not scroll away.
+
+     It also WRITES NOTHING. Every action toasts and returns; the save
+     paths are short-circuited, so a demo cannot touch a real record. */
+  var DEMO = (function () {
+    try { return new URLSearchParams(location.search).get('demo') === '1'; }
+    catch (e) { return false; }
+  })();
+
+  function demoDate(daysFromNow, hh, mm) {
+    var d = new Date();
+    d.setDate(d.getDate() + daysFromNow);
+    d.setHours(hh, mm, 0, 0);
+    var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) +
+           ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':00';
+  }
+
+  function loadDemo() {
+    S.member = 'demo';
+    S.profile = { id: 'demo', name: 'Maya Ellison',
+      photo: 'https://renters-story-writer.netlify.app/icon-192.png',
+      verified: true, pct: 80 };
+    S.editable = { first_name: 'Maya', last_name: 'Ellison',
+      email: 'maya.ellison@example.com', phone: '503-555-0142',
+      verified: true, memberType: 'Renter' };
+    S.avail = { enabled: true, windows: [
+      { day: 'TU', start: '17:00', end: '20:00' },
+      { day: 'TH', start: '17:00', end: '20:00' },
+      { day: 'SA', start: '09:00', end: '15:00' } ] };
+    S.newMatches = 3;
+    S.totalMatches = 5;
+    S.spots = [
+      { id: 'd1', name: '2 bed to $2,100 in Hosford-Abernethy', enabled: true,
+        zone: { name: 'Hosford-Abernethy', zips: ['97202','97214','97215'] },
+        options: [
+          { unit_types: ['apartment','condo'], beds: ['2'], rent_max: 2100, rent_stretch: 150 },
+          { unit_types: ['house'], beds: ['2','3'], rent_max: 2600 } ],
+        criteria: { move_in_latest: demoDate(45,0,0).slice(0,10),
+          must_have: ['yard','parking','large_dog_ok'],
+          nice_to_have: ['washer_dryer_in_unit','dishwasher'],
+          deal_breakers: ['no_pets_allowed','basement_unit'], notes: '' } },
+      { id: 'd2', name: 'Studio to $1,450 in Sabin', enabled: false,
+        zone: { name: 'Sabin', zips: ['97212','97211'] },
+        options: [{ unit_types: ['apartment'], beds: ['studio','1'], rent_max: 1450 }],
+        criteria: { must_have: ['near_transit'], nice_to_have: [], deal_breakers: [], notes: '' } }
+    ];
+    S.showings = [
+      { id: 'sd1', start: demoDate(2,17,30), status: 'confirmed', role: 'guest',
+        propertyLabel: '2140 SE Clinton St · Unit 3', city: 'Portland, OR' },
+      { id: 'sd2', start: demoDate(5,10,0), status: 'proposed', role: 'guest',
+        propertyLabel: '618 NE Failing St', city: 'Portland, OR' },
+      { id: 'sd3', start: demoDate(-6,18,15), status: 'completed', role: 'guest',
+        propertyLabel: '4407 SE Woodstock Blvd · Apt B', city: 'Portland, OR' },
+      { id: 'sd4', start: demoDate(-13,11,30), status: 'completed', role: 'guest',
+        propertyLabel: '3312 NE 72nd Ave', city: 'Portland, OR' }
+    ];
+
+    var tag = document.createElement('div');
+    tag.textContent = 'DEMO — invented data, nothing here is real';
+    tag.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:999;background:#e0a92e;' +
+      'color:#4a3708;font:700 10.5px/1.4 Open Sans,sans-serif;letter-spacing:.09em;' +
+      'text-transform:uppercase;text-align:center;padding:6px 8px;' +
+      'padding-top:calc(6px + env(safe-area-inset-top))';
+    document.body.appendChild(tag);
+    document.querySelector('.app').style.paddingTop =
+      'calc(env(safe-area-inset-top) + 24px)';
+  }
+
   function boot() {
     return Promise.all([
       withTimeout(
@@ -812,6 +889,18 @@ a{color:var(--teal)}
       S.member = S.profile.id;
 
       if (!S.schema) { $('boot').textContent = 'Could not reach Renters.com. Close and reopen.'; return; }
+
+      /* Demo replaces the member and every read, but keeps the REAL schema,
+         so the chips, caps and unit types on screen are the live vocabulary
+         rather than a second invented list that could drift from it. */
+      if (DEMO) {
+        loadDemo();
+        try { buildChips(); } catch (e) { keep(e, 'buildChips'); }
+        $('boot').classList.add('off');
+        try { badges(); } catch (e) { keep(e, 'badges'); }
+        go('spots');
+        return;
+      }
 
       /* 🔴 NO SESSION IS NOT AN ERROR STATE. v3 met a logged-out visitor with
          "Sign in to see your spots", which is a wall on the one screen that
@@ -924,6 +1013,7 @@ a{color:var(--teal)}
   }
 
   function save(msg) {
+    if (DEMO) { toast('Demo — nothing is saved'); return Promise.resolve(true); }
     var btn = $('next'), was = btn.textContent;
     btn.disabled = true; btn.textContent = 'Saving…';
     return fetch(PREFS, {
@@ -1599,7 +1689,139 @@ a{color:var(--teal)}
      on 'cancelled'. The words differ because declining something proposed
      and cancelling something confirmed feel different to the person doing
      it, and the other party is told either way. */
-  function transition(sh, action) {
+  function loadShowings() {
+    return fetch(SHOWS + '?action=list&memberId=' + encodeURIComponent(S.member))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { S.showings = (d && d.showings) || []; })
+      .catch(function () { S.showings = []; });
+  }
+
+  /* ⚠️ showings.js checks a HARDCODED SECRET on every POST, so it ships to
+     the client here exactly as it already does on the booking page. It
+     belongs in an env var with the check server-side. */
+  
+
+  function shDate(v) {
+    var d = new Date(String(v || '').replace(' ', 'T'));
+    return isFinite(d.getTime()) ? d : null;
+  }
+
+  function drawShowings() {
+    if (!S.member) { signedOut('showings'); return; }
+    if (!$('showBox')) $('v-showings').innerHTML = '<div id="showBox"></div>';
+    var box = $('showBox');
+
+    /* Being bookable comes first, because nothing else on this tab can
+       happen until it is true. */
+    var a = S.avail, w = a && a.windows;
+    var on = a && a.enabled !== false && w && w.length;
+    box.innerHTML =
+      '<button type="button" class="row" id="goAvail" style="background:#fff;' +
+        'border:1px solid var(--line);border-radius:9px;margin:0 0 16px">' +
+        '<span class="lbl">Your availability</span>' +
+        '<span class="val" style="' + (on ? 'color:#3a9e8f;font-weight:700' : '') + '">' +
+          (on ? w.length + ' window' + (w.length === 1 ? '' : 's') : 'Set your hours') +
+        '</span><span class="chev">&rsaquo;</span></button>' +
+      '<div id="shUp"></div><div id="shPast"></div>';
+
+    $('goAvail').addEventListener('click', function () { go('avail'); });
+
+    var now = new Date();
+    var live = S.showings.filter(function (x) { return x && x.start && x.status !== 'cancelled'; });
+
+    var upcoming = [], past = [];
+    live.forEach(function (x) {
+      var d = shDate(x.start);
+      if (!d) return;                      /* skip the row, never the screen */
+      (d >= now ? upcoming : past).push(x);
+    });
+    upcoming.sort(function (a2, b2) { return a2.start < b2.start ? -1 : 1; });
+    past.sort(function (a2, b2) { return a2.start > b2.start ? -1 : 1; });   /* newest first */
+
+    if (!upcoming.length && !past.length) {
+      $('shUp').innerHTML = '<div class="empty"><b>No showings yet</b>' +
+        '<p>Set your hours above so a time can be booked with you. When a showing is ' +
+        'arranged it lands here and on your calendar.</p></div>';
+      return;
+    }
+
+    section($('shUp'), 'Upcoming', upcoming, false);
+    section($('shPast'), 'Past', past, true);
+  }
+
+  function section(host, title, list, isPast) {
+    if (!list.length) { host.innerHTML = ''; return; }
+    host.innerHTML = '<h2 style="font-size:10.5px;font-weight:700;letter-spacing:.11em;' +
+      'text-transform:uppercase;color:var(--slate);margin:0 0 9px">' + title + '</h2>';
+
+    list.forEach(function (sh) {
+      var d = shDate(sh.start);
+      var proposed = sh.status === 'proposed';
+      var st = proposed ? 'prop' : (isPast ? 'done' : '');
+      var el = document.createElement('div');
+      el.className = 'sh';
+      el.style.opacity = isPast ? '.72' : '';
+
+      el.innerHTML =
+        '<div class="when"><b>' + d.getDate() + '</b><span>' +
+          d.toLocaleString('en-US', { month: 'short' }) + '</span></div>' +
+        '<div class="w"><b>' + esc(sh.propertyLabel || 'Showing') + '</b>' +
+          '<div class="t">' + d.toLocaleString('en-US',
+            { weekday: 'short', hour: 'numeric', minute: '2-digit' }) + '</div>' +
+          '<div class="s">' + esc(sh.city || '') +
+            (sh.role === 'guest' ? '' : ' · you are hosting') + '</div>' +
+          (isPast ? '' :
+            '<div class="acts">' +
+              (proposed ? '<button type="button" class="mini ok">Confirm</button>' : '') +
+              '<button type="button" class="mini mv">Ask to move it</button>' +
+              '<button type="button" class="mini del no">' +
+                (proposed ? 'Decline' : 'Cancel') + '</button>' +
+            '</div>') +
+        '</div>' +
+        '<span class="st ' + st + '">' +
+          (proposed ? 'Awaiting' : (isPast ? 'Done' : 'Confirmed')) + '</span>';
+
+      var ok = el.querySelector('.ok');
+      if (ok) ok.addEventListener('click', function () { transition(sh, 'confirm'); });
+
+      var no = el.querySelector('.no');
+      if (no) no.addEventListener('click', function () {
+        var word = proposed ? 'Decline this showing?' : 'Cancel this showing?';
+        if (!window.confirm(word + ' The other person will be told.')) return;
+        transition(sh, proposed ? 'decline' : 'cancel');
+      });
+
+      /* 🔴 THERE IS NO RESCHEDULE IN showings.js, AND PRETENDING OTHERWISE
+         WOULD BE THE WRONG KIND OF POLISH. A move is a cancel plus a new
+         booking, and the new booking needs the landlord's open times - which
+         is ours to arrange under an operator-initiated model. So the button
+         says what actually happens: this one is released, and we come back
+         with times. */
+      var mv = el.querySelector('.mv');
+      if (mv) mv.addEventListener('click', function () {
+        if (!window.confirm('Ask to move this showing? The time is released and we ' +
+                            'will come back to you with other options.')) return;
+        transition(sh, proposed ? 'decline' : 'cancel', 'We will come back with new times');
+      });
+
+      host.appendChild(el);
+    });
+  }
+
+  /* Decline and cancel are the SAME transition in showings.js - both land on
+     'cancelled'. The words differ because declining something proposed and
+     cancelling something confirmed feel different to the person doing it,
+     and the other party is told either way. */
+  function transition(sh, action, msg) {
+    if (DEMO) {
+      /* Acts on the local copy so the screen behaves, and posts nothing. */
+      if (action === 'confirm') sh.status = 'confirmed';
+      else S.showings = S.showings.filter(function (x) { return x.id !== sh.id; });
+      badges(); drawShowings();
+      toast(msg || (action === 'confirm' ? 'Confirmed (demo)' : 'Done (demo)'));
+      vibrate(8);
+      return;
+    }
     fetch(SHOWS, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1610,53 +1832,13 @@ a{color:var(--teal)}
         if (!d || !d.ok) { toast('Could not update that showing.'); return; }
         return loadShowings().then(function () {
           badges(); drawShowings();
-          toast(action === 'confirm' ? 'Confirmed. It is on both calendars.'
-                                     : 'Done. The other person has been told.');
+          toast(msg || (action === 'confirm'
+            ? 'Confirmed. It is on both calendars.'
+            : 'Done. The other person has been told.'));
         });
       })
       .catch(function () { toast('Could not reach the scheduler.'); });
     vibrate(8);
-  }
-
-  function loadShowings() {
-    return fetch(SHOWS + '?action=list&memberId=' + encodeURIComponent(S.member))
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { S.showings = (d && d.showings) || []; })
-      .catch(function () { S.showings = []; });
-  }
-
-  function drawShowings() {
-    var box = $('showBox'); box.innerHTML = '';
-    var live = S.showings.filter(function (s) { return s.status !== 'cancelled'; });
-
-    if (!live.length) {
-      box.innerHTML = '<div class="empty"><b>No showings booked</b>' +
-        '<p>When a place fits and you want to see it, you book a time here and it ' +
-        'lands on both calendars. No phone tag.</p></div>';
-      return;
-    }
-
-    var now = new Date();
-    live.sort(function (a, b) { return a.start < b.start ? -1 : 1; });
-
-    live.forEach(function (s) {
-      var d = new Date(s.start.replace(' ', 'T'));
-      var past = d < now;
-      var st = s.status === 'proposed' ? 'prop' : (past || s.status === 'completed' ? 'done' : '');
-      var el = document.createElement('div');
-      el.className = 'sh';
-      el.innerHTML =
-        '<div class="when"><b>' + d.getDate() + '</b><span>' +
-          d.toLocaleString('en-US', { month: 'short' }) + '</span></div>' +
-        '<div class="w"><b>' + esc(s.propertyLabel || 'Showing') + '</b>' +
-          '<div class="t">' + d.toLocaleString('en-US',
-            { weekday: 'short', hour: 'numeric', minute: '2-digit' }) + '</div>' +
-          '<div class="s">' + esc(s.city || '') +
-            (s.role === 'guest' ? '' : ' · you are hosting') + '</div></div>' +
-        '<span class="st ' + st + '">' +
-          (s.status === 'proposed' ? 'Awaiting' : (past ? 'Past' : 'Confirmed')) + '</span>';
-      box.appendChild(el);
-    });
   }
 
   /* ================================================================ ME */
@@ -1799,6 +1981,7 @@ a{color:var(--teal)}
   $('pCancel').addEventListener('click', closeEdit);
 
   $('pSave').addEventListener('click', function () {
+    if (DEMO) { closeEdit(); toast('Demo — nothing is saved'); return; }
     var btn = $('pSave');
     var err = $('pErr');
     err.hidden = true;
