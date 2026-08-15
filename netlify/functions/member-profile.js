@@ -1,7 +1,29 @@
 // ============================================================
-//  member-profile.js   ·   VERSION: mp-v7  (2026-08-15)
-//  mp-v7: THREE BD ROUND TRIPS BECAME TWO, AND THE THIRD WAS THE ONE
-//    BREAKING SAVES. Every POST did read -> write -> read-back. Netlify
+//  member-profile.js   ·   VERSION: mp-v8  (2026-08-15)
+//  mp-v8: 🔴 `str` WAS CALLED AND NEVER DEFINED, AND IT BROKE EVERY
+//    ABOUT ME SAVE SINCE mp-v4.
+//
+//    One line - the one that cleans all five About Me fields - called a
+//    helper that does not exist anywhere in this file. Node throws
+//    ReferenceError, the function crashes, and NETLIFY'S ERROR PAGE
+//    CARRIES NO CORS HEADERS. So the browser rejects the response before
+//    any status is visible and fetch throws. Safari words that as "Load
+//    failed", which reads exactly like a network problem - and sent this
+//    investigation through CORS, the preflight, the response chain and a
+//    function timeout across four versions.
+//
+//    ⚠️ WHY IT ONLY EVER HIT ABOUT ME: name, email and phone are cleaned
+//    by cleanName / cleanEmail / cleanPhone, which all exist. Nothing
+//    else in the file touches line 433. A save of Your details ran fine
+//    and the same endpoint failed for About Me, which is what made it
+//    look like a body problem.
+//
+//    🔑 THE LESSON IS ALREADY IN THIS PROJECT'S NOTES: a called-but-
+//    undefined function says nothing until the line runs. It is the same
+//    failure as the seven missing functions in the shell. AUDIT EVERY
+//    SYMBOL AFTER EDITING, in functions as well as in the app.
+//
+//  mp-v7: THREE BD ROUND TRIPS BECAME TWO. Every POST did read -> write -> read-back. Netlify
 //    kills a synchronous function at 10 SECONDS, BD's API is slow and
 //    throttled, and three sequential calls could cross that line - at
 //    which point the connection is dropped and the browser reports it as
@@ -117,7 +139,7 @@
 
 const https = require("https");
 
-const FN_VERSION = "mp-v7";
+const FN_VERSION = "mp-v8";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 
 // The same light gate the rest of the member-facing functions check. It
@@ -223,6 +245,14 @@ async function updateMember(fields) {
 // Shape validation is not validation - a correctly shaped value can still be
 // wrong - but a wrongly shaped one is certainly wrong and costs nothing to
 // catch here rather than in a bounced email six weeks later.
+
+// 🔴 THE MISSING ONE. Called by the About Me block since mp-v4 and never
+// written. Same shape as cleanName - coerce, strip angle brackets, trim,
+// cap - because BD owns the option lists and a client-side allowlist of
+// values here would go stale the day somebody edits the form.
+function str(v, max) {
+  return String(v == null ? "" : v).replace(/[<>]/g, "").trim().slice(0, max || 120);
+}
 
 function cleanName(v) {
   return String(v == null ? "" : v).replace(/[<>]/g, "").trim().slice(0, 60);
