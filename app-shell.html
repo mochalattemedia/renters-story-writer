@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v54                                       -->
+<!--  VERSION: shell-v55                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v54">
+<meta name="rdc-version" content="shell-v55">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v54
+/* ============================================================ shell-v55
+
+   v55: THE TOUR CAN ALWAYS BE REOPENED, AND IT SAYS WHAT IT DID.
+
+   v54 could put somebody in a state with no way back: dismiss the welcome,
+   or get halfway and reload, and there was no affordance anywhere to bring
+   it back. Reported immediately in testing - "it popped up but now I
+   cannot find it" - which is the same shape as the login cover that could
+   not be undone. A THING WITH NO WAY BACK IS A TRAP, however small.
+
+   Two fixes. A permanent RESTART TOUR row on the Me tab whenever a tour
+   link is being used, so the way back is always on screen. And the tour
+   writes to the same trail everything else does, so the next report is a
+   sequence rather than a symptom.
 
    v54: ⭐ THE TOUR. A guided walkthrough for renters we already work with.
 
@@ -1219,7 +1232,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v54';
+  var V = 'shell-v55';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2724,6 +2737,17 @@ a{color:var(--teal)}
           '<span class="lbl">Log out</span></button>' +
       '</div>' +
 
+      /* ⭐ Only in a tour session, and always there. The welcome can be
+         dismissed, the bar can be skipped, the whole thing can be finished
+         - and there is still one row that brings it back. */
+      (TOUR_ON
+        ? '<div class="card"><h2>Walkthrough</h2>' +
+            '<button type="button" class="row" id="meTour">' +
+              '<span class="lbl">Start the walkthrough again</span>' +
+              '<span class="chev">&rsaquo;</span></button>' +
+          '</div>'
+        : '') +
+
       /* Tappable. It looks like the version line it already was, and it
          is the only route to the trail for somebody who is signed in. */
       '<button type="button" class="cap" id="meVer" ' +
@@ -2789,6 +2813,9 @@ a{color:var(--teal)}
     box.querySelectorAll('[data-go]').forEach(function (btn) {
       btn.addEventListener('click', function () { go(this.getAttribute('data-go')); });
     });
+
+    var tr = $('meTour');
+    if (tr) tr.addEventListener('click', tourRestart);
 
     var ver = $('meVer');
     if (ver) ver.addEventListener('click', showTrail);
@@ -4576,15 +4603,22 @@ a{color:var(--teal)}
   function esc2(x) { return esc(String(x == null ? '' : x)); }
 
   function tourStart() {
-    if (!DEMO) return;
+    if (!DEMO) { trail('tour: not demo, standing down'); return; }
+    trail('tour: start, TOUR_ON=' + TOUR_ON);
     /* ?reset=1 wipes the run. Without it the second person handed the same
        phone inherits the first person's answers and half-finished tour. */
     try {
       if (new URLSearchParams(location.search).get('reset') === '1') tourReset();
     } catch (e) {}
     tourLoad();
+    trail('tour: state i=' + tour.i + ' done=' + tour.done + ' on=' + tour.on);
     tourPaintWelcome();
-    if (tour.done || tour.i >= 0) { tourResume(); return; }
+    if (tour.done || tour.i >= 0) {
+      trail('tour: resuming');
+      tourResume();
+      return;
+    }
+    trail('tour: showing welcome');
     $('tWelcome').classList.add('on');
   }
 
@@ -4607,12 +4641,30 @@ a{color:var(--teal)}
     $('twSkip').addEventListener('click', function () {
       $('tWelcome').classList.remove('on');
       tour.on = false; tour.i = -1; tourSave();
+      trail('tour: skipped from welcome');
+      /* Says where it went. Dismissing something with no idea how to get it
+         back is the complaint this version exists to answer. */
+      toast('Walkthrough closed. Restart it from the You tab.');
     });
   }
 
   function tourResume() {
-    if (tour.done) return;
+    if (tour.done) { trail('tour: already finished'); return; }
     if (tour.i >= 0) { tour.on = true; tourShow(); }
+  }
+
+  /* 🔑 THE WAY BACK, AND IT IS ALWAYS ON SCREEN. Reachable whether the
+     welcome was dismissed, the tour was skipped mid-way, or it finished
+     and somebody wants another look. */
+  function tourRestart() {
+    tourReset();
+    $('tourBar').classList.remove('on');
+    $('tFeedback').classList.remove('on');
+    $('tBiz').classList.remove('on');
+    tourPaintWelcome();
+    $('tWelcome').classList.add('on');
+    trail('tour: restarted from the You tab');
+    vibrate(8);
   }
 
   /* The bar narrates and the app moves underneath it. The renter is never
