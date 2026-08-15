@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v48                                       -->
+<!--  VERSION: shell-v49                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,24 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v48">
+<meta name="rdc-version" content="shell-v49">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v48
+/* ============================================================ shell-v49
+
+   v49: THE TRAIL IS READABLE WHILE SIGNED IN.
+
+   Same mistake as v35, one layer along. v35 put the version stamp on the
+   logged-out intro because sign-in is tested signed out. The SAVE trail
+   is the opposite: every failure it records happens to somebody who is
+   signed IN, and the only way to read it was a screen they cannot reach.
+   A diagnostic you cannot get at is not a diagnostic.
+
+   The Me tab already prints the version at its foot. It is now a button,
+   and it reads out the same trail.
 
    v48: ABOUT ME USES THE RESPONSE HANDLING THAT DEMONSTRABLY WORKS.
 
@@ -997,7 +1008,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v48';
+  var V = 'shell-v49';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2467,8 +2478,12 @@ a{color:var(--teal)}
           '<span class="lbl">Log out</span></button>' +
       '</div>' +
 
-      '<p class="cap" style="text-align:center;padding:0 10px 18px">' +
-        'Renters.com &middot; ' + V + '</p>';
+      /* Tappable. It looks like the version line it already was, and it
+         is the only route to the trail for somebody who is signed in. */
+      '<button type="button" class="cap" id="meVer" ' +
+        'style="text-align:center;padding:0 10px 18px;width:100%;background:none;' +
+        'border:0;font:inherit;color:var(--slate)">' +
+        'Renters.com &middot; ' + V + '</button>';
 
     var img = $('mePhoto');
     if (p.photo) img.src = p.photo;
@@ -2531,6 +2546,9 @@ a{color:var(--teal)}
     box.querySelectorAll('[data-go]').forEach(function (btn) {
       btn.addEventListener('click', function () { go(this.getAttribute('data-go')); });
     });
+
+    var ver = $('meVer');
+    if (ver) ver.addEventListener('click', showTrail);
 
     var out = $('meOut');
     if (out) out.addEventListener('click', function () {
@@ -3492,6 +3510,18 @@ a{color:var(--teal)}
      happened and in what order. */
   var K_TRAIL = 'rdc_web_trail';
 
+  /* One reader, reachable from both the logged-out stamp and the Me tab
+     foot. Whatever was recorded last - a sign-in attempt or a save - is
+     what comes back. */
+  function showTrail() {
+    var t = trailRead();
+    if (t.length) {
+      window.alert(V + '\n\nLast recorded run:\n\n' + t.join('\n'));
+      return;
+    }
+    toast(V + (lastErr ? ' · ' + lastErr : ' · no errors'));
+  }
+
   function trail(step) {
     try {
       var t = JSON.parse(localStorage.getItem(K_TRAIL) || '[]');
@@ -3893,14 +3923,7 @@ a{color:var(--teal)}
     var v = $('vstamp');
     if (!v) return;
     v.textContent = V;
-    v.addEventListener('click', function () {
-      var t = trailRead();
-      if (t.length) {
-        window.alert(V + '\n\nLast sign-in attempt:\n\n' + t.join('\n'));
-        return;
-      }
-      toast(V + (lastErr ? ' · ' + lastErr : ' · no errors'));
-    });
+    v.addEventListener('click', showTrail);
   })();
 
   $('introGo').addEventListener('click', function () {
