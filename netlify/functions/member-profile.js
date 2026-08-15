@@ -1,5 +1,26 @@
 // ============================================================
-//  member-profile.js   ·   VERSION: mp-v6  (2026-08-14)
+//  member-profile.js   ·   VERSION: mp-v7  (2026-08-15)
+//  mp-v7: THREE BD ROUND TRIPS BECAME TWO, AND THE THIRD WAS THE ONE
+//    BREAKING SAVES. Every POST did read -> write -> read-back. Netlify
+//    kills a synchronous function at 10 SECONDS, BD's API is slow and
+//    throttled, and three sequential calls could cross that line - at
+//    which point the connection is dropped and the browser reports it as
+//    a network failure. Safari says "Load failed", which sent us looking
+//    at CORS and at the client for two versions while the request was
+//    reaching the function perfectly well and being killed mid-flight.
+//
+//    🔑 THE PRE-READ IS ONLY EVER USED FOR ONE THING: comparing a phone
+//    number, so a save does not rewrite a number whose punctuation merely
+//    differs. A request carrying no phone never needed it. It is now
+//    fetched ONLY when a phone is present.
+//
+//    ⚠️ THE READ-BACK STAYS, ALWAYS. It is the one that matters: BD
+//    accepts a write it does not apply and answers 200, so success means
+//    the value CHANGED. Dropping that to save time would trade a slow
+//    save for a silent one.
+//
+//    Also logs elapsed ms per call, so the next time this is near the
+//    limit it says so instead of being inferred.
 //  mp-v6: monthly_budget is no longer written from the app. The spot holds
 //    an exact rent_max per option; a coarse band asked a second time is the
 //    duplication that made the dashboard confusing in the first place. It
@@ -96,7 +117,7 @@
 
 const https = require("https");
 
-const FN_VERSION = "mp-v6";
+const FN_VERSION = "mp-v7";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 
 // The same light gate the rest of the member-facing functions check. It
@@ -373,8 +394,20 @@ exports.handler = async (event) => {
   const memberId = String(body.memberId || "").replace(/[^0-9]/g, "");
   if (!memberId) return json(400, { version: FN_VERSION, error: "memberId required" });
 
-  const before = await getMember(memberId);
-  if (!before) return json(502, { version: FN_VERSION, error: "member read failed" });
+  // ⏱️ mp-v7: the clock matters here. Three sequential BD calls against a
+  // 10s Netlify budget is how a save becomes a dropped connection.
+  const t0 = Date.now();
+
+  // 🔑 READ FIRST ONLY WHEN A PHONE IS INVOLVED. `before` exists solely to
+  // compare phone digits; every other field is written and then verified by
+  // the read-back below. An About Me save carries no phone and paid for
+  // this round trip anyway.
+  const needsBefore = ("phone" in body) || ("phone_number" in body);
+  let before = null;
+  if (needsBefore) {
+    before = await getMember(memberId);
+    if (!before) return json(502, { version: FN_VERSION, error: "member read failed" });
+  }
 
   // Only fields actually PRESENT in the request are touched. A form that
   // submits three fields must not blank the fourth, and an app screen that
@@ -404,7 +437,7 @@ exports.handler = async (event) => {
     const raw = "phone_number" in body ? body.phone_number : body.phone;
     const p = cleanPhone(raw);
     if (p === null) errors.push({ field: "phone", error: "a US phone number is 10 digits" });
-    else if (samePhone(p, before.phone_number)) {
+    else if (before && samePhone(p, before.phone_number)) {
       // Same digits, different punctuation. Nothing to do, and writing it
       // anyway would touch a record the renter did not change.
     } else {
@@ -417,6 +450,7 @@ exports.handler = async (event) => {
     return json(400, { version: FN_VERSION, error: "nothing to update" });
   }
 
+  const tWrite = Date.now();
   const w = await updateMember(fields);
 
   // READ BACK. BD accepts a write it did not apply and answers 200 - it has
@@ -424,6 +458,15 @@ exports.handler = async (event) => {
   // whether the value CHANGED, not whether the call returned cleanly.
   const after = await getMember(memberId);
   if (!after) return json(502, { version: FN_VERSION, error: "could not verify the save" });
+
+  // Elapsed, so a save creeping toward the 10s cut-off is visible in the
+  // logs rather than reported by somebody as "it just fails sometimes".
+  const elapsed = Date.now() - t0;
+  if (elapsed > 6000) {
+    console.warn(FN_VERSION, "slow save", {
+      memberId, elapsed, preRead: needsBefore, writeAt: tWrite - t0
+    });
+  }
 
   const landed = {};
   let allLanded = true;
@@ -448,6 +491,7 @@ exports.handler = async (event) => {
     version: FN_VERSION,
     ok: allLanded,
     landed,
+    elapsedMs: elapsed,
     profile: pick(after)
   });
 };
