@@ -1,23 +1,47 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v31                                       -->
+<!--  VERSION: shell-v33                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v31">
+<meta name="rdc-version" content="shell-v33">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v31
+/* ============================================================ shell-v33
 
    THE APP. Four tabs over engines that already exist.
+
+   v33: 🔴 THE LOGIN FRAME WAS BREAKING OUT OF THE APP. It carried no
+   sandbox, so BD's page could navigate the TOP window - which is exactly
+   what it did, and it presented as "sign in still goes to the website"
+   even though the sheet was working. The frame is now sandboxed without
+   allow-top-navigation, and any form or link aiming at _top or _parent is
+   rewritten to stay in the frame. See THE WEB SHEET.
+
+   And the app no longer pinch-zooms or double-tap-zooms. Inputs were
+   already 16px so focus zoom was never the cause; nothing was suppressing
+   the gestures themselves.
+
+   v32: THREE BUCKETS, THREE COLOURS. Must have and nice to have both
+   rendered teal, so two of the three buckets were indistinguishable once
+   selected. Must have is now navy - the heaviest of the three, and the
+   only one that currently excludes anything.
+
+   And the shell now HANDLES AN UNCAPPED SCHEMA. mustHaveCap: 0 means no
+   limit, in the counter, in the chip row and in the voice merge. Until
+   alerts-prefs sets it, the cap is still 3 and the screen still says so.
+   ⚠️ The cap was enforced in THREE separate places in this file. Two of
+   them defaulted to 3 on their own, so flipping the schema alone would
+   have left must have silently capped by a second copy of the rule - the
+   exact failure this project keeps paying for.
 
    v31: text boxes grow with what is typed instead of scrolling inside
    themselves, and the vestigial "or just type" link says what it does.
@@ -94,6 +118,14 @@
   --nav:64px;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* 🔴 NO PINCH, NO DOUBLE-TAP ZOOM. A form that zooms on a stray gesture
+   reads as a web page in a browser, which is the one thing this shell
+   exists not to be. touch-action does the work Safari ignores
+   user-scalable for. The MAP is exempt below - pinching a map is the
+   gesture, not an accident. Inputs are 16px throughout, so focus zoom
+   was never in play here. */
+html,body{touch-action:manipulation}
+.frame,.frame iframe,.lg-wrap,.lg-frame{touch-action:auto}
 html,body{height:100%}
 body{
   margin:0;background:var(--paper);color:var(--ink);
@@ -273,6 +305,12 @@ a{color:var(--teal)}
       transition:border-color .14s,background .14s,color .14s}
 .chip[aria-pressed="true"]{border-color:var(--teal);background:rgba(58,158,143,.1);
                            color:var(--navy);font-weight:700}
+/* THREE BUCKETS, THREE COLOURS. Teal is the default and belongs to nice
+   to have. Must have takes navy because it is the heaviest of the three.
+   Deal breakers keep slate: a struck-out, muted register reads as "not
+   this" without borrowing the red this product reserves for real alarm. */
+.chip.must[aria-pressed="true"]{border-color:var(--navy);background:rgba(13,45,78,.09);
+                                color:var(--navy)}
 .chip.bad[aria-pressed="true"]{border-color:var(--slate);background:rgba(107,127,147,.12)}
 .cap{font-size:11.5px;color:var(--slate);margin:7px 0 0;line-height:1.5}
 .cap.hit{color:var(--gold);font-weight:700}
@@ -684,7 +722,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v31';
+  var V = 'shell-v33';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -1096,11 +1134,11 @@ a{color:var(--teal)}
       });
   }
 
-  function chipRow(box, keys, cap, bag, bad) {
+  function chipRow(box, keys, cap, bag, tone) {
     var el = $(box); el.innerHTML = '';
     (keys || []).forEach(function (k) {
       var b = document.createElement('button');
-      b.className = 'chip' + (bad ? ' bad' : '');
+      b.className = 'chip' + (tone ? ' ' + tone : '');
       b.type = 'button'; b.dataset.k = k;
       b.setAttribute('aria-pressed', 'false');
       b.textContent = pretty(k);
@@ -1108,6 +1146,8 @@ a{color:var(--teal)}
         if (!S.draft) return;
         var arr = S.draft.criteria[bag], i = arr.indexOf(k);
         if (i === -1) {
+          /* cap 0 means no limit - the same convention nice to have and
+             deal breakers already run on. */
           if (cap && arr.length >= cap) { toast('Pick up to ' + cap); return; }
           arr.push(k); b.setAttribute('aria-pressed', 'true');
         } else { arr.splice(i, 1); b.setAttribute('aria-pressed', 'false'); }
@@ -1138,21 +1178,39 @@ a{color:var(--teal)}
        keys as breakers for back compat and quarantines them
        (legacyBreakersQuarantined: true), so rendering breakerAccepted would
        offer 36 chips, 22 of which are silently discarded on write. */
-    chipRow('must', S.schema.positiveChips, S.schema.mustHaveCap, 'must_have', false);
-    chipRow('nice', S.schema.positiveChips, 0, 'nice_to_have', false);
-    chipRow('bad',  S.schema.breakerChips,  0, 'deal_breakers', true);
+    chipRow('must', S.schema.positiveChips, mustCap(), 'must_have', 'must');
+    chipRow('nice', S.schema.positiveChips, 0, 'nice_to_have', '');
+    chipRow('bad',  S.schema.breakerChips,  0, 'deal_breakers', 'bad');
     $('notes').setAttribute('maxlength', String(S.schema.notesMax || 400));
+  }
+
+  /* ONE READING OF THE CAP, USED EVERYWHERE. An explicit 0 in the schema
+     means uncapped and must survive; anything missing or nonsense falls
+     back to 3. Written once because this value was previously read in
+     three places, two of which defaulted on their own. */
+  function mustCap() {
+    var c = S.schema ? S.schema.mustHaveCap : undefined;
+    if (c === 0) return 0;
+    return (typeof c === 'number' && c > 0) ? c : 3;
   }
 
   function capLine() {
     var el = $('mustCap');
     if (!el) return;
-    if (!S.draft || !S.draft.criteria) {
-      el.textContent = 'Pick up to ' + ((S.schema && S.schema.mustHaveCap) || 3) +
-        '. These are the ones we will not compromise on.';
+    var cap = mustCap();
+    var n = (S.draft && S.draft.criteria) ? S.draft.criteria.must_have.length : 0;
+
+    if (!cap) {
+      el.textContent = n
+        ? n + ' picked. Pick as many as matter to you.'
+        : 'Pick as many as matter to you.';
+      el.classList.remove('hit');
       return;
     }
-    var cap = (S.schema && S.schema.mustHaveCap) || 3, n = S.draft.criteria.must_have.length;
+    if (!S.draft || !S.draft.criteria) {
+      el.textContent = 'Pick up to ' + cap + '. These are the ones we will not compromise on.';
+      return;
+    }
     el.textContent = n + ' of ' + cap + '. These are the ones we will not compromise on.';
     el.classList.toggle('hit', n >= cap);
   }
@@ -1520,9 +1578,14 @@ a{color:var(--teal)}
     if (typeof c.voucher === 'boolean') cr.voucher = c.voucher;
     if (c.notes) cr.notes = String(c.notes).slice(0, S.schema.notesMax || 400);
 
-    var capN = S.schema.mustHaveCap || 3;
+    /* The voice path enforced its own copy of the cap and defaulted to 3.
+       Flipping the schema alone would have left speech silently dropping
+       must-haves past the third while the chip row accepted them. */
+    var capN = mustCap();
     (c.must_have || []).forEach(function (k) {
-      if (cr.must_have.indexOf(k) === -1 && cr.must_have.length < capN) cr.must_have.push(k);
+      if (cr.must_have.indexOf(k) !== -1) return;
+      if (capN && cr.must_have.length >= capN) return;
+      cr.must_have.push(k);
     });
     (c.nice_to_have || []).forEach(function (k) {
       if (cr.nice_to_have.indexOf(k) === -1) cr.nice_to_have.push(k);
@@ -2977,6 +3040,17 @@ a{color:var(--teal)}
       'a{color:#3a9e8f !important}';
     if (doc.head) doc.head.appendChild(st);
 
+    /* ⚠️ ANYTHING AIMED AT _top OR _parent IS BROUGHT BACK IN. The sandbox
+       already refuses those, but a refused navigation is a form that
+       silently does nothing, which is worse than one that escapes because
+       there is no error to see. Rewritten so the post lands in the frame
+       where the poll is watching for the cookie. _blank is left alone -
+       terms and password reset are fine in their own window. */
+    var esc_t = doc.querySelectorAll('[target="_top"],[target="_parent"]'), z;
+    for (z = 0; z < esc_t.length; z++) {
+      try { esc_t[z].setAttribute('target', '_self'); } catch (e) {}
+    }
+
     /* The moment they submit, say something. BD's round trip is not fast and
        a sheet that sits still reads as a sheet that broke. */
     var forms = doc.querySelectorAll('form'), k;
@@ -2999,7 +3073,15 @@ a{color:var(--teal)}
       '<div class="lg-head"><h3>' + esc(cfg.title) + '</h3>' +
         '<p class="lede">' + esc(cfg.lede) + '</p></div>' +
       '<div class="lg-wrap">' +
+        /* 🔴 NO allow-top-navigation, AND THAT IS THE WHOLE POINT. Without a
+           sandbox BD's page navigated the TOP window straight out of the
+           app - the sheet was working and the site replaced it anyway.
+           allow-same-origin is required for strip() to reach the document
+           and for the session cookie; allow-popups keeps the security check
+           and the password-reset link working. */
         '<iframe class="lg-frame" id="lgFrame" title="' + esc(cfg.title) + '" ' +
+          'sandbox="allow-forms allow-scripts allow-same-origin allow-popups ' +
+          'allow-popups-to-escape-sandbox" ' +
           'src="' + cfg.url + '"></iframe>' +
         '<div class="lg-load" id="lgLoad">Opening…</div>' +
       '</div>';
