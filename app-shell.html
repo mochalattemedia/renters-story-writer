@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v37                                       -->
+<!--  VERSION: shell-v38                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,15 +9,43 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v37">
+<meta name="rdc-version" content="shell-v38">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v37
+/* ============================================================ shell-v38
 
    THE APP. Four tabs over engines that already exist.
+
+   v38: 🔴 SUCCESS IS THE FRAME REACHING THE DASHBOARD, NOT A COOKIE.
+
+   The v36 breadcrumb trail settled this from a phone with no console:
+
+       openWeb login -> /login
+       sheet shown
+       frame load /login
+       stripped ok
+       frame load /account/home     <- the login WORKED
+       stripped ok                  <- and then it stripped the dashboard
+
+   The sign-in succeeded every time. What failed was noticing. Both the
+   load handler and the 1.5s poll asked cookieId(), and BD'S SESSION
+   COOKIE IS NOT READABLE FROM document.cookie ON THIS HOST - HttpOnly,
+   or named something else. So nothing ever fired, the sheet sat open on
+   a stripped dashboard, and the app never rebooted. The moment of
+   "website version" reported in testing was exactly that: strip() doing
+   its job on /account/home.
+
+   ⚠️ THE COOKIE WAS THE WRONG SIGNAL AND THE BIBLE SAYS SO IN ANOTHER
+   VOICE: input[name=logged_user] exists ONLY on the real dashboard. That
+   is a positive, same-origin, unambiguous signal, and it is what this now
+   watches for. The cookie is kept as a fast path where it IS readable.
+
+   Note the reboot never needed the cookie either - fetch sends HttpOnly
+   cookies with credentials, so readBD() could always see the session.
+   Only the detection was blind.
 
    v37: 🔴 THE APP WAS SHOWING A STRANGER AS YOU. readBD() fetched
    /account/home, and when a signed-out visitor got bounced to a PUBLIC
@@ -782,7 +810,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v37';
+  var V = 'shell-v38';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -3101,6 +3129,21 @@ a{color:var(--teal)}
 
   var webPoll = null, webFirst = true, webOpen = false;
 
+  /* 🔴 THE ONE RELIABLE SIGNAL THAT SOMEBODY IS NOW SIGNED IN.
+     input[name=logged_user] is rendered ONLY on the real dashboard, so
+     its presence in the frame means BD accepted the login and sent them
+     there. Same-origin, so it can be read; positive, so it cannot be
+     faked by a bounce to a public page the way a scraped name could. */
+  function frameSignedIn(doc) {
+    if (!doc) return false;
+    try {
+      if (doc.querySelector('input[name=logged_user]')) return true;
+      var p = String((doc.location && doc.location.pathname) || '');
+      if (p.indexOf('/account/') === 0) return true;
+    } catch (e) {}
+    return false;
+  }
+
   function visiblePw(doc) {
     var all = doc.querySelectorAll('input[type=password]'), i;
     for (i = 0; i < all.length; i++) {
@@ -3272,7 +3315,18 @@ a{color:var(--teal)}
       }
     }
     if (!doc || !doc.body) return;
-    if (cookieId()) { trail('cookie present on load -> won'); webWon(); return; }
+
+    /* ⭐ CHECKED BEFORE STRIPPING, AND THE ORDER IS THE FIX. v37 stripped
+       first and asked about the cookie only - so when the frame landed on
+       /account/home it dressed the dashboard up and sat there. That is
+       what a tester sees as a flash of the website inside the app. */
+    if (cookieId() || frameSignedIn(doc)) {
+      trail('signed in -> rebooting');
+      var ok = $('lgLoad');
+      if (ok) { ok.textContent = 'Signing you in…'; ok.classList.remove('off'); }
+      webWon();
+      return;
+    }
 
     try { strip(doc); trail('stripped ok'); } catch (e) { keep(e, 'web strip'); trail('strip THREW'); }
     var l = $('lgLoad');
@@ -3308,10 +3362,21 @@ a{color:var(--teal)}
   /* Coming back to the app is the useful moment, and it beats any interval. */
   function onWebVisible() { if (!document.hidden) checkSignedIn(); }
 
-  function checkSignedIn() { if (webOpen && cookieId()) webWon(); }
+  /* The poll asks the same two questions the load handler does, because a
+     navigation inside the frame does not always fire a load this code
+     sees, and a sheet that stays open on a signed-in dashboard is the
+     failure this whole version exists to remove. */
+  function checkSignedIn() {
+    if (!webOpen) return;
+    if (cookieId()) { trail('poll: cookie -> won'); webWon(); return; }
+    var f = $('lgFrame');
+    if (!f) return;
+    var doc = null;
+    try { doc = f.contentDocument; } catch (e) { return; }
+    if (frameSignedIn(doc)) { trail('poll: frame on dashboard -> won'); webWon(); }
+  }
 
   function webWon() {
-    trail('signed in -> rebooting');
     closeWeb();
     hideIntro();
     markIntroSeen();
@@ -3322,8 +3387,10 @@ a{color:var(--teal)}
        parked draft in one pass, which is the same path a cold open takes -
        so there is no second code path here to drift out of step with it. */
     try {
-      boot().catch(function (e) { keep(e, 'boot after sign in'); fail(); });
-    } catch (e) { keep(e, 'boot after sign in'); fail(); }
+      boot().then(function () {
+        trail('rebooted, member=' + (S.member || 'NONE'));
+      }).catch(function (e) { keep(e, 'boot after sign in'); trail('reboot threw'); fail(); });
+    } catch (e) { keep(e, 'boot after sign in'); trail('reboot threw'); fail(); }
   }
 
   function closeWeb() {
