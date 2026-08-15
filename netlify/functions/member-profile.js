@@ -1,5 +1,9 @@
 // ============================================================
-//  member-profile.js   ·   VERSION: mp-v5  (2026-08-14)
+//  member-profile.js   ·   VERSION: mp-v6  (2026-08-14)
+//  mp-v6: monthly_budget is no longer written from the app. The spot holds
+//    an exact rent_max per option; a coarse band asked a second time is the
+//    duplication that made the dashboard confusing in the first place. It
+//    is still READ, so the app can show the general picture.
 //  mp-v5: A RAW READ, ADMIN ONLY, BECAUSE GUESSING KEEPS COSTING US.
 //    ?admin=KEY&raw=1&memberId=ID returns BD's unmodified user object, and
 //    ?admin=KEY&values=1 samples several members to show which VALUES are
@@ -92,7 +96,7 @@
 
 const https = require("https");
 
-const FN_VERSION = "mp-v5";
+const FN_VERSION = "mp-v6";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 
 // The same light gate the rest of the member-facing functions check. It
@@ -391,8 +395,8 @@ exports.handler = async (event) => {
   // Accepts either name from the client and always writes phone_number.
   // About me. Only fields actually PRESENT in the request are touched, so a
   // sheet that edits three of them cannot blank the other four.
-  ["number_of_peop", "monthly_budget", "gross_monthly_combined",
-   "do_you_have_pets", "co_signer", "i_want_to_relocate", "seeking"].forEach((k) => {
+  ["number_of_peop", "gross_monthly_combined",
+   "do_you_have_pets", "co_signer", "i_want_to_relocate"].forEach((k) => {
     if (k in body) fields[k] = str(body[k], ABOUT_MAX);
   });
 
