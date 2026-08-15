@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v53                                       -->
+<!--  VERSION: shell-v54                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,41 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v53">
+<meta name="rdc-version" content="shell-v54">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v53
+/* ============================================================ shell-v54
+
+   v54: ⭐ THE TOUR. A guided walkthrough for renters we already work with.
+
+   WHO IT IS FOR, because it decides everything else: people mid-search on
+   the five-showings product, spoken to directly and sent a link. Warm, not
+   cold. They open it alone, days later, with nobody there to explain it.
+   So the intro carries the weight and every dead end costs the session.
+
+   🔴 IT RIDES ENTIRELY ON DEMO. Every line of this is inside the DEMO
+   branch or a tour-only element. A live member never loads it, never runs
+   it, and nothing on a live path was rewritten to make it work. That was
+   goal one and it is worth stating plainly rather than hoping.
+
+   ⚠️ THE TIME COMMITMENT IS A CONTRACT, NOT A CLOCK. Somebody who agrees
+   to five minutes has decided to pay attention. Somebody who wandered in
+   is skimming and will judge the product on whatever is on screen when
+   they lose interest. Which is also why the number has to be honest: if it
+   runs eight and the screen said five, that is the first promise broken.
+
+   🔑 AND IT SAYS THERE IS NO INVENTORY, UP FRONT. These are renters
+   actively searching this week. They will notice within thirty seconds, so
+   naming it first is not modesty, it is the thing that makes everything
+   after it credible. Said afterwards it reads as a confession.
+
+   The business leg is OPT-IN and LAST. A renter mid-search who is told how
+   we monetise starts wondering whether they are being sold something, and
+   that cost is real. Offered once, at the end, easy to skip, never in the
+   tab bar - the tab bar is the product.
 
    v53: 🔴 THE PASSWORD SHEET CLOSED ITSELF THE INSTANT IT OPENED.
 
@@ -884,6 +912,60 @@ a{color:var(--teal)}
    The Me tab already prints this, but the Me tab needs a session, and the
    thing most often tested WITHOUT a session is signing in. Quiet enough
    to ignore, present enough to read out loud. */
+/* --------------------------------------------------------------- tour */
+.tour{position:fixed;left:0;right:0;bottom:0;z-index:900;max-width:480px;margin:0 auto;
+  background:var(--white);border-top:1px solid var(--line);
+  box-shadow:0 -10px 30px rgba(13,45,78,.12);
+  padding:14px 20px calc(14px + env(safe-area-inset-bottom));
+  transform:translateY(105%);transition:transform .38s var(--ease)}
+.tour.on{transform:translateY(0)}
+.tour-bar{height:3px;border-radius:3px;background:var(--line);overflow:hidden;margin:0 0 12px}
+.tour-bar i{display:block;height:100%;background:var(--teal);width:0;
+  transition:width .45s var(--ease)}
+.tour-step{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--slate);margin:0 0 5px}
+.tour h4{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:16.5px;
+  color:var(--navy);margin:0 0 6px;line-height:1.3}
+.tour p{font-size:13px;line-height:1.6;color:var(--ink-2);margin:0 0 13px}
+.tour-act{display:flex;gap:10px;align-items:center}
+.tour-act .cta{flex:1 1 auto;margin:0}
+.tour-skip{flex:0 0 auto;background:none;border:0;font-size:12.5px;font-weight:700;
+  color:var(--slate);text-decoration:underline;padding:8px 2px}
+/* The full-screen panels: welcome, feedback, and the optional last leg. */
+.tour-full{position:fixed;inset:0;z-index:940;background:var(--paper);
+  overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:calc(26px + env(safe-area-inset-top)) 22px calc(26px + env(safe-area-inset-bottom));
+  opacity:0;pointer-events:none;transition:opacity .3s var(--ease)}
+.tour-full.on{opacity:1;pointer-events:auto}
+.tour-full .in{max-width:440px;margin:0 auto}
+.tour-full h2{font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:26px;
+  line-height:1.15;color:var(--navy);margin:0 0 12px}
+.tour-full h3{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:16px;
+  color:var(--navy);margin:22px 0 7px}
+.tour-full p{font-size:14px;line-height:1.62;color:var(--ink-2);margin:0 0 14px}
+.tour-note{background:var(--white);border:1px solid var(--line);border-left:3px solid var(--gold);
+  border-radius:var(--r);padding:14px 16px;margin:0 0 18px}
+.tour-note p{margin:0;font-size:13px;line-height:1.6}
+.tour-list{margin:0 0 18px;padding:0;list-style:none}
+.tour-list li{display:flex;gap:11px;align-items:flex-start;margin:0 0 11px;
+  font-size:13.5px;line-height:1.55;color:var(--ink-2)}
+.tour-list b{display:block;color:var(--navy);font-size:14px;font-weight:700}
+.tour-dot{flex:0 0 22px;width:22px;height:22px;border-radius:50%;background:var(--teal);
+  color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;
+  justify-content:center;margin-top:1px}
+.tour-mins{display:inline-block;background:rgba(58,158,143,.13);color:#1f6b5f;
+  font-size:12px;font-weight:700;border-radius:100px;padding:6px 14px;margin:0 0 16px}
+.fb-q{margin:0 0 18px}
+.fb-q label{display:block;font-size:13.5px;font-weight:700;color:var(--navy);margin:0 0 8px}
+.fb-scale{display:flex;gap:7px}
+.fb-scale button{flex:1 1 0;border:1.5px solid var(--line);background:var(--white);
+  border-radius:var(--r);padding:11px 0;font-size:14px;font-weight:700;color:var(--navy)}
+.fb-scale button[aria-pressed="true"]{border-color:var(--teal);background:rgba(58,158,143,.12)}
+.fb-q textarea{width:100%;border:1.5px solid var(--line);border-radius:var(--r);
+  padding:12px 14px;font-size:16px;font-family:inherit;color:var(--ink);
+  min-height:88px;resize:none;overflow:hidden;line-height:1.5}
+.fb-q textarea:focus{outline:0;border-color:var(--teal)}
+
 /* ---------------------------------------------------------- photo crop */
 .pc-wrap{position:relative;width:100%;aspect-ratio:1/1;max-height:60vh;
   background:#0d2d4e;overflow:hidden;touch-action:none;border-radius:var(--r);
@@ -1080,6 +1162,25 @@ a{color:var(--teal)}
     <button class="cta" id="next">Add a perfect spot</button>
   </div>
 
+  <!-- ============================================================ TOUR
+       Present in the DOM for everyone and shown to nobody but a tour
+       session. Cheaper and far less fragile than building three panels at
+       runtime, and a live member never sees a pixel of it. -->
+  <div class="tour-full" id="tWelcome"><div class="in"></div></div>
+  <div class="tour-full" id="tFeedback"><div class="in"></div></div>
+  <div class="tour-full" id="tBiz"><div class="in"></div></div>
+
+  <div class="tour" id="tourBar">
+    <div class="tour-bar"><i id="tourFill"></i></div>
+    <p class="tour-step" id="tourStep"></p>
+    <h4 id="tourTitle"></h4>
+    <p id="tourBody"></p>
+    <div class="tour-act">
+      <button class="cta" id="tourNext">Next</button>
+      <button type="button" class="tour-skip" id="tourSkip">Skip</button>
+    </div>
+  </div>
+
   <nav class="nav" id="nav">
     <button data-tab="spots" aria-current="true">
       <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
@@ -1118,7 +1219,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v53';
+  var V = 'shell-v54';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -1333,7 +1434,19 @@ a{color:var(--teal)}
      It also WRITES NOTHING. Every action toasts and returns; the save
      paths are short-circuited, so a demo cannot touch a real record. */
   var DEMO = (function () {
-    try { return new URLSearchParams(location.search).get('demo') === '1'; }
+    try {
+      var q = new URLSearchParams(location.search);
+      return q.get('demo') === '1' || q.get('tour') === '1';
+    } catch (e) { return false; }
+  })();
+
+  /* ?tour=1 is the link handed to a renter: demo data AND the walkthrough.
+     ?demo=1 stays what it was - demo data, no narration - because showing
+     somebody the app over your shoulder wants no wizard in the way.
+     ?tour=1&reset=1 wipes a previous run, which the second person to be
+     handed the same phone needs. */
+  var TOUR_ON = (function () {
+    try { return new URLSearchParams(location.search).get('tour') === '1'; }
     catch (e) { return false; }
   })();
 
@@ -1443,9 +1556,16 @@ a{color:var(--teal)}
            dismissal flag - the whole point is to show the first run, and a
            demo that skips it because this device saw it once is useless for
            the thing it exists to do. */
+        /* The tour replaces the first-run intro in a tour session. Two
+           things asking for attention on the first screen is one too many,
+           and the tour's welcome says everything the intro said and more. */
         go('spots');
-        $('intro').classList.add('on');
-        $('introAct').classList.add('on');
+        if (TOUR_ON) {
+          tourStart();
+        } else {
+          $('intro').classList.add('on');
+          $('introAct').classList.add('on');
+        }
         return;
       }
 
@@ -4338,6 +4458,293 @@ a{color:var(--teal)}
       if ($('sheetA')) $('sheetA').innerHTML = '';
     }, 380);
   }
+
+  /* ============================================================ THE TOUR
+
+     ⚠️ ALL COPY IN THIS BLOCK IS A FIRST DRAFT AND EXPECTED TO BE
+     REWRITTEN. It is here so the structure can be seen working with real
+     sentences in it rather than lorem, and so the wording can be argued
+     with rather than invented from a blank page.
+
+     🔑 EVERY STRING A RENTER READS IS IN TOUR_COPY. One object, top of the
+     block, nothing buried in a render function. Changing the voice should
+     never mean hunting through logic. */
+
+  var TOUR_COPY = {
+    minutes: 'About 5 minutes',
+
+    welcomeTitle: 'Would you give this five minutes?',
+    welcomeBody: [
+      'You are house hunting right now, which makes you the person whose ' +
+      'opinion is worth more to us than anybody else\u2019s.',
+      'This is the app we are building. It is real and it works. What it ' +
+      'does not have yet is listings, so nothing you see in Matches is a ' +
+      'real place. Everything else is the actual product.',
+      'By the end you will have made an account, described somewhere you ' +
+      'would genuinely live, and booked a showing. Then we ask what you think.'
+    ],
+    welcomeNote: 'Nothing you do here is saved to our systems or shared ' +
+      'with anybody. It lives on this phone and you can wipe it whenever.',
+    welcomeGo: 'Start the walkthrough',
+    welcomeSkip: 'Just let me look around',
+
+    /* The narrated steps. Each one moves the app to a screen and says what
+       that screen is for. `view` drives the app; the renter is never asked
+       to find anything themselves. */
+    steps: [
+      { view: 'spots', label: 'Spots',
+        title: 'Tell us where, and what would work',
+        body: 'A perfect spot is two things: the area you would live in, ' +
+              'and what would have to be true about the place. You can ' +
+              'speak it out loud or fill it in.' },
+      { view: 'matches', label: 'Matches',
+        title: 'We bring you places, you swipe',
+        body: 'Left to pass, right to look closer. No photographs on the ' +
+              'front, on purpose - photos are how people lose evenings on ' +
+              'places they were never getting. The card shows what the ' +
+              'landlord requires, checked against you.' },
+      { view: 'showings', label: 'Showings',
+        title: 'Book it without the phone tag',
+        body: 'Set the hours you are free once. Booking happens against ' +
+              'that, so nobody is trading messages about Tuesday.' },
+      { view: 'me', label: 'You',
+        title: 'Verified, on both sides',
+        body: 'Your identity is confirmed once and it travels with you. ' +
+              'Landlords here are verified too. That is the whole reason ' +
+              'this is not another listings site.' }
+    ],
+
+    playTitle: 'Now have a go',
+    playBody: 'Nothing here can break and nothing leaves this phone. Add a ' +
+              'spot, swipe a few, book a showing, change your photo. Come ' +
+              'back to this bar when you are done.',
+    playNext: 'I have had a look',
+
+    fbTitle: 'What did you make of it?',
+    fbIntro: 'Say what you actually think. The unflattering version is the ' +
+             'useful one.',
+    fbQ1: 'Would you use this to find your next place?',
+    fbQ2: 'What would make a match worth swiping right on?',
+    fbQ3: 'What felt confusing, missing or annoying?',
+    fbSend: 'Send it',
+    fbThanksTitle: 'Thank you \u2014 that is genuinely useful',
+    fbThanksBody: 'This shapes what gets built next. If you want to talk it ' +
+                  'through properly, reply to the message that sent you here.',
+
+    bizOffer: 'Curious what we are building toward?',
+    bizOfferGo: 'Show me',
+    bizOfferSkip: 'No thanks, I am done',
+    bizTitle: 'What we are building toward',
+    bizBody: [
+      'Renters.com is a marketplace where both sides are verified people. ' +
+      'Not an aggregator, not a broker. We never list a place we have not ' +
+      'been given directly.',
+      'Somebody moving is also deciding about a loan, about insurance, and ' +
+      'often about buying within a couple of years. We are a marketing ' +
+      'channel to partners in those three areas and collect a marketing ' +
+      'fee. We do not underwrite anything, we do not advise, and we do not ' +
+      'sell a product of our own.',
+      'What makes that worth anything is the verification and the timing: ' +
+      'real people, confirmed identity, caught at the moment the decision ' +
+      'is being made.'
+    ],
+    bizDone: 'Close'
+  };
+
+  var K_TOUR = 'rdc_tour_state';
+  var tour = { on: false, i: -1, done: false };
+
+  function tourSave() {
+    try { localStorage.setItem(K_TOUR, JSON.stringify(tour)); } catch (e) {}
+  }
+
+  /* Resumable on purpose. Somebody sent a link opens it in a spare moment
+     and gets interrupted; a walkthrough that restarts from the top is one
+     they do not come back to. */
+  function tourLoad() {
+    try {
+      var r = JSON.parse(localStorage.getItem(K_TOUR) || 'null');
+      if (r && typeof r.i === 'number') tour = r;
+    } catch (e) {}
+  }
+
+  function tourReset() {
+    tour = { on: false, i: -1, done: false };
+    try { localStorage.removeItem(K_TOUR); } catch (e) {}
+  }
+
+  function esc2(x) { return esc(String(x == null ? '' : x)); }
+
+  function tourStart() {
+    if (!DEMO) return;
+    /* ?reset=1 wipes the run. Without it the second person handed the same
+       phone inherits the first person's answers and half-finished tour. */
+    try {
+      if (new URLSearchParams(location.search).get('reset') === '1') tourReset();
+    } catch (e) {}
+    tourLoad();
+    tourPaintWelcome();
+    if (tour.done || tour.i >= 0) { tourResume(); return; }
+    $('tWelcome').classList.add('on');
+  }
+
+  function tourPaintWelcome() {
+    var c = TOUR_COPY;
+    $('tWelcome').firstChild.innerHTML =
+      '<span class="tour-mins">' + esc2(c.minutes) + '</span>' +
+      '<h2>' + esc2(c.welcomeTitle) + '</h2>' +
+      c.welcomeBody.map(function (t) { return '<p>' + esc2(t) + '</p>'; }).join('') +
+      '<div class="tour-note"><p>' + esc2(c.welcomeNote) + '</p></div>' +
+      '<button class="cta" id="twGo">' + esc2(c.welcomeGo) + '</button>' +
+      '<button class="cta ghost" id="twSkip">' + esc2(c.welcomeSkip) + '</button>';
+
+    $('twGo').addEventListener('click', function () {
+      $('tWelcome').classList.remove('on');
+      tour.on = true; tour.i = 0; tourSave();
+      tourShow();
+      vibrate(8);
+    });
+    $('twSkip').addEventListener('click', function () {
+      $('tWelcome').classList.remove('on');
+      tour.on = false; tour.i = -1; tourSave();
+    });
+  }
+
+  function tourResume() {
+    if (tour.done) return;
+    if (tour.i >= 0) { tour.on = true; tourShow(); }
+  }
+
+  /* The bar narrates and the app moves underneath it. The renter is never
+     asked to go and find a tab - a walkthrough that says "now tap Showings"
+     is a manual, and half the people reading it tap the wrong thing. */
+  function tourShow() {
+    var steps = TOUR_COPY.steps;
+    var total = steps.length + 1;              /* + the free-play step */
+    var i = tour.i;
+
+    if (i >= total) { tourFeedback(); return; }
+
+    var isPlay = (i === steps.length);
+    var st = isPlay ? null : steps[i];
+
+    $('tourFill').style.width = Math.round(((i + 1) / (total + 1)) * 100) + '%';
+    $('tourStep').textContent = isPlay
+      ? 'Your turn'
+      : 'Step ' + (i + 1) + ' of ' + total + '  \u00b7  ' + st.label;
+    $('tourTitle').textContent = isPlay ? TOUR_COPY.playTitle : st.title;
+    $('tourBody').textContent = isPlay ? TOUR_COPY.playBody : st.body;
+    $('tourNext').textContent = isPlay ? TOUR_COPY.playNext : 'Next';
+
+    if (!isPlay) { try { go(st.view); } catch (e) { keep(e, 'tour go'); } }
+
+    $('tourBar').classList.add('on');
+  }
+
+  function tourNext() {
+    tour.i += 1;
+    tourSave();
+    tourShow();
+    vibrate(5);
+  }
+
+  function tourFeedback() {
+    $('tourBar').classList.remove('on');
+    var c = TOUR_COPY;
+    var answers = { use: null, worth: '', friction: '' };
+
+    $('tFeedback').firstChild.innerHTML =
+      '<h2>' + esc2(c.fbTitle) + '</h2>' +
+      '<p>' + esc2(c.fbIntro) + '</p>' +
+      '<div class="fb-q"><label>' + esc2(c.fbQ1) + '</label>' +
+        '<div class="fb-scale" id="fbUse">' +
+          ['No', 'Maybe', 'Yes'].map(function (x) {
+            return '<button type="button" data-v="' + x + '" aria-pressed="false">' +
+                   x + '</button>';
+          }).join('') +
+        '</div></div>' +
+      '<div class="fb-q"><label>' + esc2(c.fbQ2) + '</label>' +
+        '<textarea id="fbWorth" rows="3"></textarea></div>' +
+      '<div class="fb-q"><label>' + esc2(c.fbQ3) + '</label>' +
+        '<textarea id="fbFriction" rows="3"></textarea></div>' +
+      '<button class="cta" id="fbSend">' + esc2(c.fbSend) + '</button>';
+
+    $('fbUse').querySelectorAll('button').forEach(function (b) {
+      b.addEventListener('click', function () {
+        answers.use = this.getAttribute('data-v');
+        $('fbUse').querySelectorAll('button').forEach(function (x) {
+          x.setAttribute('aria-pressed', String(x === b));
+        });
+        vibrate(4);
+      });
+    });
+
+    ['fbWorth', 'fbFriction'].forEach(function (id) {
+      $(id).addEventListener('input', function () { grow(this); });
+    });
+
+    $('fbSend').addEventListener('click', function () {
+      answers.worth = $('fbWorth').value || '';
+      answers.friction = $('fbFriction').value || '';
+      tourSendFeedback(answers);
+    });
+
+    $('tFeedback').classList.add('on');
+  }
+
+  /* 🔴 NOTHING IS SENT ANYWHERE YET, AND THE SCREEN DOES NOT PRETEND
+     OTHERWISE BEYOND SAYING THANK YOU. There is no feedback endpoint built.
+     The answers are kept on the device so nothing anybody typed is lost,
+     and wiring this to a real function is a deliberate next step rather
+     than something to fake now. A form that swallows a considered answer
+     is worse than no form. */
+  function tourSendFeedback(a) {
+    try {
+      localStorage.setItem('rdc_tour_feedback', JSON.stringify({
+        at: new Date().toISOString(), answers: a
+      }));
+    } catch (e) {}
+    trail('tour feedback captured locally');
+
+    tour.done = true; tourSave();
+
+    var c = TOUR_COPY;
+    $('tFeedback').firstChild.innerHTML =
+      '<h2>' + esc2(c.fbThanksTitle) + '</h2>' +
+      '<p>' + esc2(c.fbThanksBody) + '</p>' +
+      '<div class="tour-note"><p>' + esc2(c.bizOffer) + '</p></div>' +
+      '<button class="cta" id="fbBiz">' + esc2(c.bizOfferGo) + '</button>' +
+      '<button class="cta ghost" id="fbDone">' + esc2(c.bizOfferSkip) + '</button>';
+
+    $('fbBiz').addEventListener('click', function () {
+      $('tFeedback').classList.remove('on');
+      tourBiz();
+    });
+    $('fbDone').addEventListener('click', function () {
+      $('tFeedback').classList.remove('on');
+    });
+  }
+
+  /* Offered once, at the end, easy to refuse, and never in the tab bar.
+     A renter mid-search who is told how we make money starts wondering
+     whether they are being sold something, and that cost is real. */
+  function tourBiz() {
+    var c = TOUR_COPY;
+    $('tBiz').firstChild.innerHTML =
+      '<h2>' + esc2(c.bizTitle) + '</h2>' +
+      c.bizBody.map(function (t) { return '<p>' + esc2(t) + '</p>'; }).join('') +
+      '<button class="cta ghost" id="bizDone">' + esc2(c.bizDone) + '</button>';
+    $('bizDone').addEventListener('click', function () {
+      $('tBiz').classList.remove('on');
+    });
+    $('tBiz').classList.add('on');
+  }
+
+  $('tourNext').addEventListener('click', tourNext);
+  $('tourSkip').addEventListener('click', function () {
+    $('tourBar').classList.remove('on');
+    tour.on = false; tourSave();
+  });
 
   var K_INTRO = 'rdc_app_intro_seen';
 
