@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v46                                       -->
+<!--  VERSION: shell-v48                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,46 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v46">
+<meta name="rdc-version" content="shell-v48">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v46
+/* ============================================================ shell-v48
+
+   v48: ABOUT ME USES THE RESPONSE HANDLING THAT DEMONSTRABLY WORKS.
+
+   Your details and About Me post to the SAME url, the same method, the
+   same headers and the same secret. One saves and one fails with Safari's
+   "Load failed". Since the request is identical, the difference has to be
+   in what surrounds it - so the bespoke chain v44 introduced is gone and
+   About Me now uses the status-based shape saveProfile has been using
+   successfully all along. One proven pattern, not two.
+
+   AND IT RECORDS WHAT IT SENT. The trail already survives a bounce and
+   reads out on the version stamp; a save that fails now leaves the url,
+   the keys and the error in it. Guessing at this has cost two versions.
+
+   v47: 🔴 v45 COULD TRAP A RENTER BEHIND THE SECURITY CHALLENGE.
+
+   v45 hid the frame on submit, on the assumption that a submit is always
+   followed by a navigation. IT IS NOT. When the security check escalates,
+   it INTERCEPTS the submit and renders an image challenge instead of
+   posting - so no navigation happens, no load event fires, and nothing
+   ever revealed the frame again. The renter was left looking at "One
+   moment…" with a challenge underneath it they could neither see nor
+   reach, and sign-in was impossible.
+
+   Every test before this got the checkbox rather than the grid, which is
+   why an untested path shipped: the challenge is exactly the case the
+   cover was never exercised against.
+
+   ⏱️ A COVER THAT CANNOT BE UNDONE IS A TRAP, so the submit cover now
+   arms a timer that uncovers itself. A real navigation cancels it,
+   because beforeunload fires first and the load event that follows
+   reveals the frame properly. Only an intercepted submit reaches the
+   timeout, and that is precisely the case that must recover.
 
    v46: ⚠️ "COULD NOT REACH US" WAS NOT NECESSARILY TRUE.
 
@@ -964,7 +997,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v46';
+  var V = 'shell-v48';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2705,30 +2738,41 @@ a{color:var(--teal)}
     });
     if (!sent) { closeEdit(); return; }
 
+    /* Recorded before the request goes, so a failure leaves evidence
+       rather than a symptom. Read it back by tapping the version stamp. */
+    trailClear();
+    trail('about save -> ' + PROFILE);
+    trail('fields: ' + Object.keys(body).filter(function (x) {
+      return x !== 'secret' && x !== 'memberId';
+    }).join(', '));
+
     btn.disabled = true; btn.textContent = 'Saving…';
     fetch(PROFILE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     })
-      /* ⚠️ THE STATUS IS CARRIED THROUGH. A 400 body has no `ok` field, so
-         checking ok === false alone let every rejection through as a
-         success - which is exactly how this sheet reported "Saved" while
-         saving nothing. */
+      /* The same shape saveProfile uses. The status is what says whether
+         BD accepted it; ok:true is what says the value actually CHANGED,
+         because mp-v6 reads the record back after writing. */
       .then(function (r) {
-        return r.json()
-          .catch(function () { return {}; })
-          .then(function (j) { j = j || {}; j._httpOk = r.ok; return j; });
+        return r.json().catch(function () { return {}; })
+          .then(function (j) { return { status: r.status, j: j || {} }; });
       })
-      .then(function (j) {
+      .then(function (res) {
+        var j = res.j;
         btn.disabled = false; btn.textContent = 'Save';
-        /* mp-v6 reads the record back, so ok:true means the value actually
-           CHANGED in BD, not that the call returned cleanly. Anything else
-           - a non-2xx, a missing ok, an explicit false - is a failure. */
-        if (!j._httpOk || j.ok !== true) {
-          err.textContent = (j && j.error === 'nothing to update')
+        trail('about save status=' + res.status + ' ok=' + j.ok);
+
+        if (res.status === 400 && j.errors) {
+          err.textContent = j.errors.map(function (x) { return x.error; }).join('. ');
+          err.hidden = false;
+          return;
+        }
+        if (res.status !== 200 || j.ok !== true) {
+          err.textContent = (j.error === 'nothing to update')
             ? 'Nothing changed.'
-            : 'That did not save. Try once more.';
+            : 'That did not save (' + res.status + '). Try once more.';
           err.hidden = false;
           return;
         }
@@ -2752,6 +2796,7 @@ a{color:var(--teal)}
         /* Says what actually went wrong. "Check your connection" over a
            TypeError sends somebody to restart their router about a bug in
            this file. */
+        trail('about save THREW: ' + ((e && e.message) ? e.message : String(e)));
         keep(e, 'saveAbout');
         btn.disabled = false; btn.textContent = 'Save';
         err.textContent = 'Could not save: ' + ((e && e.message) ? e.message : String(e));
@@ -3486,7 +3531,7 @@ a{color:var(--teal)}
       lede: 'Your spot is held. Make an account and we start looking.' }
   };
 
-  var webPoll = null, webFirst = true, webOpen = false;
+  var webPoll = null, webFirst = true, webOpen = false, webUncover = null;
 
   /* 🔴 THE ONE RELIABLE SIGNAL THAT SOMEBODY IS NOW SIGNED IN.
      input[name=logged_user] is rendered ONLY on the real dashboard, so
@@ -3609,25 +3654,42 @@ a{color:var(--teal)}
        a form behind a security check does - and the miss is visible as a
        flash of the real website inside the app. beforeunload fires
        whatever started it. pagehide is the iOS half of the same thing. */
-    function cover() {
+    function cover(armTimer) {
       var fr = $('lgFrame');
       if (fr) fr.classList.remove('ready');
       var l = $('lgLoad');
       if (l) { l.textContent = 'One moment…'; l.classList.remove('off'); }
+
+      clearTimeout(webUncover);
+      /* 🔴 ONLY A SUBMIT ARMS THIS, AND IT HAS TO. A submit is not always
+         followed by a navigation: the security check intercepts it and
+         draws a challenge instead. With no navigation there is no load
+         event, and without this the cover is permanent and the renter is
+         locked out of their own sign-in. A real navigation cancels the
+         timer on beforeunload. */
+      if (armTimer) {
+        webUncover = setTimeout(function () {
+          var f2 = $('lgFrame'), l2 = $('lgLoad');
+          if (f2) f2.classList.add('ready');
+          if (l2) l2.classList.add('off');
+          trail('submit did not navigate - frame uncovered');
+        }, 2500);
+      }
     }
+
     try {
       var w = doc.defaultView;
       if (w) {
-        w.addEventListener('beforeunload', cover);
-        w.addEventListener('pagehide', cover);
+        /* A genuine navigation. No timer: the load event that follows is
+           what reveals the frame, once it has been stripped. */
+        w.addEventListener('beforeunload', function () { cover(false); });
+        w.addEventListener('pagehide', function () { cover(false); });
       }
     } catch (e) { keep(e, 'frame unload hook'); }
 
-    /* Kept as well as, not instead of. A submit that fires gives the
-       renter feedback a fraction earlier than the navigation does. */
     var forms = doc.querySelectorAll('form'), k;
     for (k = 0; k < forms.length; k++) {
-      forms[k].addEventListener('submit', cover);
+      forms[k].addEventListener('submit', function () { cover(true); });
     }
   }
 
@@ -3711,7 +3773,9 @@ a{color:var(--teal)}
 
     try { strip(doc); trail('stripped ok'); } catch (e) { keep(e, 'web strip'); trail('strip THREW'); }
 
-    /* Revealed only now, with BD's chrome already off it. */
+    /* Revealed only now, with BD's chrome already off it. Any pending
+       uncover timer is redundant once a real load has landed. */
+    clearTimeout(webUncover); webUncover = null;
     f.classList.add('ready');
     var l = $('lgLoad');
     if (l) { l.textContent = 'Opening…'; l.classList.add('off'); }
@@ -3781,6 +3845,7 @@ a{color:var(--teal)}
     if (!webOpen) return;
     webOpen = false;
     if (webPoll) { clearInterval(webPoll); webPoll = null; }
+    clearTimeout(webUncover); webUncover = null;
     document.removeEventListener('visibilitychange', onWebVisible);
     $('scrim').classList.remove('on');
     $('sheet').classList.remove('on');
