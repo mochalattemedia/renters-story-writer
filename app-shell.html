@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v51                                       -->
+<!--  VERSION: shell-v52                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,33 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v51">
+<meta name="rdc-version" content="shell-v52">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v51
+/* ============================================================ shell-v52
+
+   v52: CHANGE PASSWORD, IN THE SHEET RATHER THAN NATIVELY.
+
+   BD owns the password rules, the current-password check, the hashing and
+   the security check on that form. A native version in this file would
+   handle a plaintext password it has no reason to touch AND duplicate
+   validation that drifts from BD's the first time BD changes it. So it
+   goes where login goes: /account/password, framed, chrome stripped,
+   nothing leaves the app.
+
+   ⚠️ IT REUSES strip(), WHICH ANCHORS ON A PASSWORD FIELD - and this page
+   is nothing but password fields, so the anchor is good. What is untested
+   is where it STOPS climbing: BD's account pages are laid out differently
+   from /login, and the stop condition looks for a node holding two forms
+   or a register tab. Worth looking at the first render rather than
+   assuming.
+
+   🔑 AND THERE IS NOTHING TO SYNC. The app has no password of its own; it
+   runs on BD's session. Changing it here changes it everywhere, because
+   there is only one account.
 
    v51: THE APP CAN SEE THE PHOTO IT JUST WROTE.
 
@@ -1082,7 +1102,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v51';
+  var V = 'shell-v52';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2561,7 +2581,7 @@ a{color:var(--teal)}
         'Nothing sends you out to the website.</p>' +
 
       '<div class="card"><h2>Account</h2>' +
-        '<button type="button" class="row" data-soon="password">' +
+        '<button type="button" class="row" id="mePassword">' +
           '<span class="lbl">Change password</span>' +
           '<span class="chev">&rsaquo;</span></button>' +
         '<button type="button" class="row" id="meOut">' +
@@ -2584,6 +2604,9 @@ a{color:var(--teal)}
 
     var pr = $('mePhotoRow');
     if (pr) pr.addEventListener('click', openPhoto);
+
+    var pw = $('mePassword');
+    if (pw) pw.addEventListener('click', function () { openWeb('password'); });
 
     var ib = $('meIdentity');
     if (ib) ib.addEventListener('click', openIdentity);
@@ -2609,21 +2632,12 @@ a{color:var(--teal)}
        still BD chrome, and the rule is that a renter never lands on a
        renters.com page from inside the app.
 
-       So these four say what they are: built next, natively. A row that
-       admits it is coming beats one that quietly throws somebody out of the
-       app, and beats one that is silently missing - these are the things a
-       renter goes looking for. */
-    var soon = {
-      photo: 'Taking your photo',
-      password: 'Changing your password'
-    };
-    box.querySelectorAll('[data-soon]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var k = soon[this.getAttribute('data-soon')];
-        if (k) toast(k + ' — coming to the app shortly');
-        vibrate(5);
-      });
-    });
+       ⭐ v52: THE "COMING SHORTLY" HANDLER IS GONE. It covered exactly two
+       rows, photo and password, and both now work - the photo natively in
+       v50, the password in the web sheet here. A row promising a feature
+       that shipped is worse than no promise at all, and dead code that
+       still reads as live is how somebody later "fixes" a thing that is
+       already done. */
 
     box.querySelectorAll('[data-out]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -3963,7 +3977,10 @@ a{color:var(--teal)}
     register: { url: '/login#register-tab-1', title: 'Create your account',
       lede: 'One account. Everything you set up here follows you.' },
     signup: { url: '/checkout/renters?src=app', title: 'Create your account',
-      lede: 'Your spot is held. Make an account and we start looking.' }
+      lede: 'Your spot is held. Make an account and we start looking.' },
+    password: { url: '/account/password', title: 'Change password',
+      lede: 'One password for the app and the website. There is only one ' +
+            'account behind both.' }
   };
 
   var webPoll = null, webFirst = true, webOpen = false, webUncover = null;
