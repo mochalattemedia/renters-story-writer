@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v50                                       -->
+<!--  VERSION: shell-v51                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,37 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v50">
+<meta name="rdc-version" content="shell-v51">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v50
+/* ============================================================ shell-v51
+
+   v51: THE APP CAN SEE THE PHOTO IT JUST WROTE.
+
+   v50 wrote the photo to BD correctly and then could not display it, which
+   read as a broken feature to anybody testing it.
+
+   🔑 THE PATH IS THE SIGNAL, NOT THE CLASS. BD renders it as
+
+     <img src="/pictures/profile/pimage-4621-466-photo.webp"
+          class="img-thumbnail center-block bmargin" ...>
+
+   and those classes are Bootstrap generics that appear all over the page -
+   matching on them would find a thumbnail of something else on the first
+   layout change. /pictures/profile/pimage-<memberId>- is specific, tied to
+   the member, and has to keep working for BD's own page to keep working.
+
+   ⚠️ AND THE PLACEHOLDER IS STILL REJECTED. BD serves
+   profile-profile-holder.png to every member without a photo, which is why
+   hasProfilePhoto reads true for everybody (#134). A URL is not evidence.
+
+   ⭐ PLUS: THE PHOTO PAINTS THE INSTANT IT IS SAVED, from the canvas that
+   is already in memory. Waiting on a re-read to show a renter the picture
+   they just cropped is a round trip for something already known - and BD
+   does not always serve the new file immediately anyway.
 
    v50: ⭐ THE PROFILE PHOTO, IN THE APP.
 
@@ -1058,7 +1082,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v50';
+  var V = 'shell-v51';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -1190,8 +1214,24 @@ a{color:var(--teal)}
         }
         if (!out.id) return out;
 
-        var img = doc.querySelector('.member-photo img, .profile-photo img, img.avatar');
-        if (img && img.getAttribute('src')) out.photo = img.getAttribute('src');
+        /* 🔑 MATCHED ON THE PATH. BD's own markup is
+           /pictures/profile/pimage-<memberId>-<n>-photo.webp, and the class
+           list is Bootstrap boilerplate that would happily match an
+           unrelated thumbnail. The member id in the path also means a photo
+           belonging to somebody else cannot be picked up by accident.
+
+           The older selectors stay as a fallback for markup this has not
+           seen, and everything is filtered through pcReal() so BD's stock
+           silhouette never counts as a photo. */
+        var cands = [].slice.call(doc.querySelectorAll(
+          'img[src*="/pictures/profile/"], .member-photo img, .profile-photo img, img.avatar'
+        ));
+        for (var ci = 0; ci < cands.length; ci++) {
+          var src = cands[ci].getAttribute('src') || '';
+          if (!pcReal(src)) continue;
+          out.photo = src;
+          break;
+        }
 
         var nm = doc.querySelector('.member-name, .profile-name');
         if (nm) out.name = (nm.textContent || '').trim();
@@ -2497,7 +2537,7 @@ a{color:var(--teal)}
              hasProfilePhoto reads true for everybody (#134, live since
              July). "Added" over a placeholder is the same wrong answer that
              once put a green bar over a silhouette in the review panel. */
-          '<span class="val">' + (p.photo ? 'On file' : 'Take a selfie') + '</span>' +
+          '<span class="val">' + (pcReal(p.photo) ? 'On file' : 'Take a selfie') + '</span>' +
           '<span class="chev">&rsaquo;</span></button>' +
       '</div>' +
 
@@ -2536,7 +2576,7 @@ a{color:var(--teal)}
         'Renters.com &middot; ' + V + '</button>';
 
     var img = $('mePhoto');
-    if (p.photo) img.src = p.photo;
+    if (pcReal(p.photo)) img.src = p.photo;
     else img.style.background = '#e3e9ec';
 
     var eb = $('meEdit');
@@ -3533,6 +3573,21 @@ a{color:var(--teal)}
      mask is drawn tight enough that an off-centre face is obvious rather
      than politely accepted. */
 
+  /* ⚠️ A URL IS NOT EVIDENCE OF A PHOTO. BD serves profile-profile-holder
+     to every member without one, so anything that tests for presence rather
+     than for a REAL file reports true for everybody (#134, live since July,
+     and it is what once put a green bar over a silhouette in the review
+     panel). One place decides, and everything asks it. */
+  function pcReal(src) {
+    if (!src) return false;
+    var s = String(src).toLowerCase();
+    if (s.indexOf('profile-holder') !== -1) return false;
+    if (s.indexOf('placeholder') !== -1) return false;
+    if (s.indexOf('no-image') !== -1) return false;
+    if (s.indexOf('silhouette') !== -1) return false;
+    return true;
+  }
+
   var PC_OUT = 512;          /* square export, comfortably over BD's 250 */
   var pc = null;             /* { img, scale, x, y, min } */
 
@@ -3784,17 +3839,29 @@ a{color:var(--teal)}
       .then(function (b) {
         if (!b.ok) throw new Error('social ' + b.status);
         btn.disabled = false; btn.textContent = 'Save photo';
+        /* ⭐ PAINTED FROM WHAT IS ALREADY IN MEMORY. The renter cropped it
+           seconds ago; making them wait on a round trip to see it - and BD
+           does not always serve the new file straight away - is how a
+           working save reads as a broken one. */
+        S.profile = S.profile || {};
+        S.profile.photo = 'data:image/' + (img.ext === 'jpg' ? 'jpeg' : 'webp') +
+                          ';base64,' + img.b64;
         pc = null;
         closeEdit();
+        try { drawMe(); paintAvatar(); } catch (e) {}
         toast('Photo saved');
         vibrate([8, 24, 8]);
         /* ⚠️ THE WRITE LANDING AND THE PHOTO RENDERING ARE DIFFERENT
            CLAIMS. Re-read rather than assume, and let the Me tab repaint
            from whatever BD now serves. */
-        readBD().then(function (p) {
-          if (p && p.photo) { S.profile.photo = p.photo; }
-          try { if (S.view === 'me') drawMe(); paintAvatar(); } catch (e) {}
-        });
+        /* Then swap to BD's own copy once it is serving it, so later boots
+           and other devices agree with this one. Only if it is real. */
+        setTimeout(function () {
+          readBD().then(function (p) {
+            if (p && p.photo && pcReal(p.photo)) { S.profile.photo = p.photo; }
+            try { if (S.view === 'me') drawMe(); paintAvatar(); } catch (e) {}
+          });
+        }, 1200);
       })
       .catch(function (e) {
         trail('photo save THREW: ' + ((e && e.message) ? e.message : String(e)));
