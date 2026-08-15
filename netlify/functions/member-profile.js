@@ -1,5 +1,45 @@
 // ============================================================
-//  member-profile.js   ·   VERSION: mp-v1  (2026-08-14)
+//  member-profile.js   ·   VERSION: mp-v4  (2026-08-14)
+//  mp-v4: ABOUT ME. Seven more fields, so the app can edit the profile
+//    natively instead of sending a renter out to a BD page.
+//
+//    🔑 EVERY NAME CAME OFF BD'S FORM MANAGER, NOT FROM A PATTERN. They
+//    are truncated at inconsistent points - `number_of_peop`,
+//    `how_are_you_searchi` - because BD cuts the label at a fixed length
+//    and the labels differ. There is no rule to infer them from, and mp-v2
+//    exists because `phone` was guessed when the column was `phone_number`.
+//
+//    ⚠️ `how_are_you_searchi[]` IS DELIBERATELY NOT HERE. It is a
+//    multi-select, arrays post to BD differently, and a wrong array shape
+//    stores nothing while returning 200 - the same silent failure that cost
+//    us the phone field. It stays read-only until a write can be proven.
+//
+//    ⚠️ `ideal_rental` IS READ ONLY for the same reason it is not asked
+//    twice: the spot's notes field asks it at the moment it is useful, and
+//    alerts-voice fills it in from speech. Two editors for one answer is
+//    how they end up disagreeing.
+//  mp-v3: VALIDATE ON THE DIGITS, STORE WHAT THEY TYPED.
+//    mp-v2 stripped every number to bare digits, so Charlye's stored
+//    "253-686-7582" would have been rewritten as "2536867582" the first
+//    time anything else on that form was saved. Three problems, none of
+//    them loud:
+//      · a write that changes a field the renter did not touch
+//      · a "saved" message over a value that is not what they typed
+//      · and the client comparing "253-686-7582" against "2536867582",
+//        seeing a difference, and sending a write on every single save
+//    The digits are what makes a phone number valid. The punctuation is
+//    what makes it THEIRS. Check the first, keep the second.
+//  mp-v2: THE PHONE COLUMN IS phone_number, NOT phone.
+//    mp-v1 guessed `phone` from the shape of the other fields and it read
+//    back EMPTY on a member who plainly had a number on file. The read was
+//    merely wrong; the WRITE would have been worse - it would have created
+//    a `phone` field nobody displays, the read-back would have compared
+//    that new field against itself and reported ok:true, and the number on
+//    her dashboard would never have changed. A write that verifies itself
+//    against the wrong column verifies nothing.
+//    Field names come from BD's Form Manager, where the system variable IS
+//    the column name. Guessing one because it matches the pattern of its
+//    neighbours is how this happened.
 //
 //  ONE RECORD, TWO VIEWS. The app edits name, email and phone natively;
 //  BD's own forms edit the same fields on the web. Both write the same BD
@@ -36,7 +76,7 @@
 
 const https = require("https");
 
-const FN_VERSION = "mp-v1";
+const FN_VERSION = "mp-v4";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 
 // The same light gate the rest of the member-facing functions check. It
@@ -45,7 +85,20 @@ const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 const SECRET = "renters2026";
 
 // Exactly what the app may read back and write. Nothing else crosses.
-const FIELDS = ["first_name", "last_name", "email", "phone"];
+const FIELDS = [
+  "first_name", "last_name", "email", "phone_number",
+  // About me. Editable.
+  "number_of_peop", "monthly_budget", "gross_monthly_combined",
+  "do_you_have_pets", "co_signer", "i_want_to_relocate", "seeking"
+];
+
+// Read back, never written from the app. See the header.
+const READ_ONLY = ["ideal_rental", "how_are_you_searchi"];
+
+// Free-text-ish fields get a length cap and nothing else - BD owns its own
+// option lists, and a client-side allowlist of values here would go stale
+// the day somebody edits the form.
+const ABOUT_MAX = 120;
 
 const cors = {
   "Content-Type": "application/json",
@@ -143,20 +196,39 @@ function cleanEmail(v) {
   return s;
 }
 
-function cleanPhone(v) {
+function digitsOf(v) {
   const s = String(v == null ? "" : v);
   let d = "";
   for (let i = 0; i < s.length; i++) {
     const c = s.charAt(i);
     if (c >= "0" && c <= "9") d += c;
   }
-  if (!d) return "";
+  return d;
+}
+
+// Returns the string to STORE, or null if it is not a usable number.
+// The value returned is the renter's own text, trimmed - not a normalised
+// rewrite of it.
+function cleanPhone(v) {
+  const raw = String(v == null ? "" : v).trim().slice(0, 30);
+  if (!raw) return "";
+  let d = digitsOf(raw);
   // 10 digits, or 11 starting with a US country code. Anything else is a
   // typo far more often than it is an international number, and this is a
   // US-only product today.
   if (d.length === 11 && d.charAt(0) === "1") d = d.slice(1);
   if (d.length !== 10) return null;
-  return d;
+  return raw;
+}
+
+// Two numbers are the same number if the same ten digits are in them.
+// Used so a re-save does not write a field nobody edited just because the
+// punctuation moved.
+function samePhone(a, b) {
+  let x = digitsOf(a), y = digitsOf(b);
+  if (x.length === 11 && x.charAt(0) === "1") x = x.slice(1);
+  if (y.length === 11 && y.charAt(0) === "1") y = y.slice(1);
+  return x === y;
 }
 
 function pick(member) {
@@ -164,10 +236,29 @@ function pick(member) {
     first_name: member.first_name || "",
     last_name: member.last_name || "",
     email: member.email || "",
-    phone: member.phone || "",
+    // Returned as `phone` for the client, read from phone_number in BD.
+    phone: member.phone_number || "",
+
+    // About me, editable.
+    household: member.number_of_peop || "",
+    budget: member.monthly_budget || "",
+    income: member.gross_monthly_combined || "",
+    pets: member.do_you_have_pets || "",
+    cosigner: member.co_signer || "",
+    timing: member.i_want_to_relocate || "",
+    term: member.seeking || "",
+
+    // Read only. Shown so the app can display the whole picture without
+    // becoming a second place to edit it.
+    idealRental: member.ideal_rental || "",
+    searchingOn: member.how_are_you_searchi || "",
     // Read-only context the app displays but cannot change. Included so the
     // Me tab does not need a second call for it.
     verified: String(member.verified || "0") === "1",
+    // Still a guess, and it reads blank on live data. Left in rather than
+    // removed because it costs nothing and is a label, not a decision - but
+    // it should be corrected from the Form Manager rather than guessed at
+    // a third time.
     memberType: member.plan_name || member.membership_plan || ""
   };
 }
@@ -231,10 +322,24 @@ exports.handler = async (event) => {
     else fields.email = e;
   }
 
-  if ("phone" in body) {
-    const p = cleanPhone(body.phone);
+  // Accepts either name from the client and always writes phone_number.
+  // About me. Only fields actually PRESENT in the request are touched, so a
+  // sheet that edits three of them cannot blank the other four.
+  ["number_of_peop", "monthly_budget", "gross_monthly_combined",
+   "do_you_have_pets", "co_signer", "i_want_to_relocate", "seeking"].forEach((k) => {
+    if (k in body) fields[k] = str(body[k], ABOUT_MAX);
+  });
+
+  if ("phone" in body || "phone_number" in body) {
+    const raw = "phone_number" in body ? body.phone_number : body.phone;
+    const p = cleanPhone(raw);
     if (p === null) errors.push({ field: "phone", error: "a US phone number is 10 digits" });
-    else fields.phone = p;
+    else if (samePhone(p, before.phone_number)) {
+      // Same digits, different punctuation. Nothing to do, and writing it
+      // anyway would touch a record the renter did not change.
+    } else {
+      fields.phone_number = p;
+    }
   }
 
   if (errors.length) return json(400, { version: FN_VERSION, error: "check these", errors });
@@ -256,7 +361,10 @@ exports.handler = async (event) => {
     if (k === "user_id") return;
     const got = String(after[k] == null ? "" : after[k]);
     const want = String(fields[k]);
-    landed[k] = got === want;
+    // BD may normalise a phone on its way in. Same digits is a landed write;
+    // comparing the exact string would report a false failure and send the
+    // renter back to re-save something that already saved.
+    landed[k] = (k === "phone_number") ? samePhone(got, want) : (got === want);
     if (!landed[k]) allLanded = false;
   });
 
