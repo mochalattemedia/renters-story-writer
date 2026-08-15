@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v35                                       -->
+<!--  VERSION: shell-v37                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,15 +9,43 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v35">
+<meta name="rdc-version" content="shell-v37">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v35
+/* ============================================================ shell-v37
 
    THE APP. Four tabs over engines that already exist.
+
+   v37: 🔴 THE APP WAS SHOWING A STRANGER AS YOU. readBD() fetched
+   /account/home, and when a signed-out visitor got bounced to a PUBLIC
+   page it parsed that page anyway - taking the first .member-name and
+   the first avatar it found. Public pages carry member widgets, so the
+   app rendered a REAL member, by name and photo, as the person holding
+   the phone. Reported live: a genuine old member appeared in the Me tab
+   in a private window with no session at all.
+
+   Nothing was cached and nothing leaked - the data was already public -
+   but the app asserted it was YOU, which is its own kind of wrong.
+
+   A POSITIVE SESSION SIGNAL IS NOW REQUIRED BEFORE ANYTHING IS READ.
+
+   And verification no longer comes from a text search for the word
+   "verified", which every public page on this site says repeatedly. That
+   is why an UNVERIFIED member showed as identity confirmed.
+
+   v36: 🔴 A BREADCRUMB TRAIL THAT SURVIVES THE BOUNCE. Sign in still
+   leaves the app on v35, and the evidence vanishes the moment it does -
+   the console clears, the DOM is gone, and all that is left is a report
+   that it "went to the website". Every step of the web sheet is now
+   written to localStorage as it happens, INCLUDING the last thing seen
+   before the page unloads, so the trail can be read after the fact.
+
+   Tap the version stamp to see it. localStorage rather than
+   sessionStorage deliberately: sessionStorage is per-tab and does not
+   survive a top-level navigation away and back.
 
    v35: THE VERSION IS VISIBLE WHEN LOGGED OUT. It was already printed at
    the foot of the Me tab - which cannot be reached without a session,
@@ -754,7 +782,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v35';
+  var V = 'shell-v37';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -852,15 +880,30 @@ a{color:var(--teal)}
       .then(function (r) { return r.ok ? r.text() : ''; })
       .then(function (html) {
         var out = { id: cookieId(), name: '', photo: '', verified: false, pct: null };
-        if (!out.id) {
-          var m = html.match(/logged_user[^0-9]{0,12}([0-9]{2,7})/);
-          if (m) out.id = m[1];
-        }
 
         var doc;
         try {
           doc = new DOMParser().parseFromString(html, 'text/html');
         } catch (e) { return out; }
+
+        /* 🔴 A POSITIVE SESSION SIGNAL, OR NOTHING IS READ AT ALL.
+
+           This is the fix for the whole bug. A signed-out visitor asking
+           for /account/home does not get an error - BD bounces them to a
+           PUBLIC page and returns 200. The old code parsed that happily
+           and took the first member name and avatar on it, which on a
+           public page belongs to somebody else entirely.
+
+           input[name=logged_user] exists ONLY on the real dashboard. If it
+           is absent and there is no userid cookie, the answer is SIGNED
+           OUT, and the correct thing to return is an empty profile rather
+           than whoever happened to be rendered on whatever came back. */
+        if (!out.id) {
+          var f = doc.querySelector('input[name=logged_user]');
+          var fv = f ? String(f.value || '').replace(/[^0-9]/g, '') : '';
+          if (fv) out.id = fv;
+        }
+        if (!out.id) return out;
 
         var img = doc.querySelector('.member-photo img, .profile-photo img, img.avatar');
         if (img && img.getAttribute('src')) out.photo = img.getAttribute('src');
@@ -868,12 +911,21 @@ a{color:var(--teal)}
         var nm = doc.querySelector('.member-name, .profile-name');
         if (nm) out.name = (nm.textContent || '').trim();
 
-        /* Verified state and profile percent are read as TEXT, not as a
-           structural promise. BD's markup for both has changed before, and
-           a missing badge must read as "not sure" rather than as "no". */
+        /* ⚠️ VERIFICATION IS NOT A WORD SEARCH. This used to set verified
+           on ANY page containing the string "verified" - and this site
+           says "verified" in its nav, its footer and half its copy, so it
+           was true essentially always. An unverified member read as
+           identity confirmed because of it.
+
+           Only the exact phrase, or an explicit badge element, counts. A
+           false negative costs a member one extra prompt to confirm; a
+           false positive tells somebody they are verified when a landlord
+           will be told otherwise, which is the more expensive mistake and
+           the one worth defaulting against. */
         var t = (doc.body ? doc.body.textContent : '') || '';
         var low = t.toLowerCase();
-        if (low.indexOf('identity confirmed') !== -1 || low.indexOf('verified') !== -1) {
+        if (low.indexOf('identity confirmed') !== -1 ||
+            doc.querySelector('.verified-badge, .badge-verified, .member-verified')) {
           out.verified = true;
         }
         var pi = low.indexOf('profile is ');
@@ -2996,6 +3048,47 @@ a{color:var(--teal)}
      `userid` to appear, which is true regardless of where BD decides to send
      somebody afterwards. */
 
+  /* ============================================ WEB SHEET BREADCRUMBS
+
+     🔴 THE FAILURE ERASES ITS OWN EVIDENCE. When the frame navigates the
+     top window, the console clears and the DOM goes with it, so the only
+     report available is that it "ended up on the website" - which is the
+     symptom, not the step that produced it.
+
+     Each step is written as it happens. K_TRAIL is read back by the
+     version stamp, so a phone with no console can still say what
+     happened and in what order. */
+  var K_TRAIL = 'rdc_web_trail';
+
+  function trail(step) {
+    try {
+      var t = JSON.parse(localStorage.getItem(K_TRAIL) || '[]');
+      if (!Array.isArray(t)) t = [];
+      t.push(String(step).slice(0, 90));
+      localStorage.setItem(K_TRAIL, JSON.stringify(t.slice(-14)));
+    } catch (e) {}
+    try { console.log('[RDC web] ' + step); } catch (e) {}
+  }
+
+  function trailClear() { try { localStorage.removeItem(K_TRAIL); } catch (e) {} }
+
+  function trailRead() {
+    try {
+      var t = JSON.parse(localStorage.getItem(K_TRAIL) || '[]');
+      return Array.isArray(t) ? t : [];
+    } catch (e) { return []; }
+  }
+
+  /* ⚠️ THE LAST THING RECORDED BEFORE THE PAGE GOES. If the sheet is open
+     and the top window unloads, that IS the bug, and this is the only
+     place it can be caught from. */
+  window.addEventListener('beforeunload', function () {
+    if (webOpen) trail('TOP WINDOW LEFT while sheet open');
+  });
+  window.addEventListener('pagehide', function () {
+    if (webOpen) trail('pagehide while sheet open');
+  });
+
   var WEB = {
     login: { url: '/login', title: 'Sign in',
       lede: 'Your spots, your matches and your showings are on your account, ' +
@@ -3091,9 +3184,23 @@ a{color:var(--teal)}
        where the poll is watching for the cookie. _blank is left alone -
        terms and password reset are fine in their own window. */
     var esc_t = doc.querySelectorAll('[target="_top"],[target="_parent"]'), z;
+    if (esc_t.length) trail('rewrote ' + esc_t.length + ' _top/_parent targets');
     for (z = 0; z < esc_t.length; z++) {
       try { esc_t[z].setAttribute('target', '_self'); } catch (e) {}
     }
+
+    /* ⚠️ A SCRIPT THAT BUSTS THE FRAME RUNS BEFORE ANY OF THIS. Same-origin
+       lets us at least SEE whether the page carries one, which turns "it
+       went to the website" into a specific finding. */
+    try {
+      var scr = doc.querySelectorAll('script'), q, hit = 0;
+      for (q = 0; q < scr.length; q++) {
+        var body = scr[q].textContent || '';
+        if (body.indexOf('top.location') !== -1 || body.indexOf('top!=self') !== -1 ||
+            body.indexOf('top !== self') !== -1 || body.indexOf('parent.location') !== -1) hit++;
+      }
+      if (hit) trail('page carries ' + hit + ' frame-busting script(s)');
+    } catch (e) {}
 
     /* The moment they submit, say something. BD's round trip is not fast and
        a sheet that sits still reads as a sheet that broke. */
@@ -3109,6 +3216,9 @@ a{color:var(--teal)}
   function openWeb(kind) {
     var cfg = WEB[kind] || WEB.login;
     if (DEMO) { toast('Demo — sign in is switched off'); return; }
+
+    trailClear();
+    trail('openWeb ' + kind + ' -> ' + cfg.url);
 
     webFirst = true;
     webOpen = true;
@@ -3143,20 +3253,28 @@ a{color:var(--teal)}
     webPoll = setInterval(checkSignedIn, 1500);
     $('scrim').classList.add('on');
     $('sheet').classList.add('on');
+    trail('sheet shown');
   }
 
   function onWebFrame(f) {
     var doc = null;
     try { doc = f.contentDocument; } catch (e) { doc = null; }
 
+    trail('frame load' + (doc ? '' : ' (doc UNREADABLE)') +
+          (doc && doc.location ? ' ' + String(doc.location.pathname) : ''));
+
     if (webFirst) {
       webFirst = false;
-      if (!doc || !doc.body || !anchorEl(doc)) { webBlocked(); return; }
+      if (!doc || !doc.body || !anchorEl(doc)) {
+        trail('no form found -> blocked path');
+        webBlocked();
+        return;
+      }
     }
     if (!doc || !doc.body) return;
-    if (cookieId()) { webWon(); return; }
+    if (cookieId()) { trail('cookie present on load -> won'); webWon(); return; }
 
-    try { strip(doc); } catch (e) { keep(e, 'web strip'); }
+    try { strip(doc); trail('stripped ok'); } catch (e) { keep(e, 'web strip'); trail('strip THREW'); }
     var l = $('lgLoad');
     if (l) { l.textContent = 'Opening…'; l.classList.add('off'); }
   }
@@ -3165,6 +3283,7 @@ a{color:var(--teal)}
      is still not a navigation - the app stays exactly where it is behind it,
      and picks the session up when they come back. */
   function webBlocked() {
+    trail('webBlocked shown');
     var w = $('lgLoad');
     if (!w) return;
     w.classList.remove('off');
@@ -3192,6 +3311,7 @@ a{color:var(--teal)}
   function checkSignedIn() { if (webOpen && cookieId()) webWon(); }
 
   function webWon() {
+    trail('signed in -> rebooting');
     closeWeb();
     hideIntro();
     markIntroSeen();
@@ -3258,6 +3378,11 @@ a{color:var(--teal)}
     if (!v) return;
     v.textContent = V;
     v.addEventListener('click', function () {
+      var t = trailRead();
+      if (t.length) {
+        window.alert(V + '\n\nLast sign-in attempt:\n\n' + t.join('\n'));
+        return;
+      }
       toast(V + (lastErr ? ' · ' + lastErr : ' · no errors'));
     });
   })();
