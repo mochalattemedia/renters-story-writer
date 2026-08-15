@@ -1,5 +1,21 @@
 // ============================================================
-//  net-recorder.js   ·   VERSION: nr-v1  (2026-08-15)
+//  net-recorder.js   ·   VERSION: nr-v2  (2026-08-15)
+//
+//  nr-v2: 🔴 THE LOG SURVIVES THE NAVIGATION. BD's photo upload POSTS AND
+//  RELOADS THE PAGE, which destroyed the panel and everything in it at
+//  precisely the moment the capture became useful. nr-v1 held the log in
+//  a variable, so the one call this file exists to record was the one
+//  call it could never show.
+//
+//  Written to localStorage on every entry and restored on load, so the
+//  panel comes back after the reload carrying what happened before it.
+//
+//  ⚠️ THIS IS THE SECOND TIME TONIGHT. The sign-in trail learned the same
+//  thing: WHEN THE EVENT YOU ARE RECORDING ENDS THE PAGE, MEMORY IS NOT
+//  A RECORD. sessionStorage is not enough either - BD drops query params
+//  through redirects and a new document can land in a different tab
+//  context, which is why the app already uses localStorage with a
+//  timestamp for cross-page handoffs.
 //
 //  A READ-ONLY REQUEST RECORDER, SERVED AS JAVASCRIPT.
 //
@@ -43,7 +59,7 @@
 //    GET ?version=1  -> deploy confirmation as JSON
 // ============================================================
 
-const FN_VERSION = "nr-v1";
+const FN_VERSION = "nr-v2";
 
 const JS = `(function () {
   'use strict';
@@ -59,6 +75,26 @@ const JS = `(function () {
 
   var LOG = [];
   var MAXV = 300;
+  var K = 'rdc_rec_log';
+  var MAXSTORE = 60000;
+
+  /* 🔴 PERSISTED ON EVERY ENTRY, because the call worth capturing is the
+     one that navigates away. Capped so a chatty page cannot fill the
+     quota and start throwing. */
+  function save() {
+    try {
+      var t = LOG.join('\\n\\n');
+      if (t.length > MAXSTORE) t = t.slice(t.length - MAXSTORE);
+      localStorage.setItem(K, t);
+    } catch (e) {}
+  }
+
+  function restore() {
+    try {
+      var t = localStorage.getItem(K);
+      if (t) LOG.push('══ RESTORED from before the last page load ══\\n' + t);
+    } catch (e) {}
+  }
 
   /* Masked rather than dropped, so the shape of the request still reads
      correctly while the value never leaves the page. */
@@ -136,6 +172,7 @@ const JS = `(function () {
         (headers && headers.length ? 'Headers:\\n' + headers.join('\\n') + '\\n' : '') +
         'Body: ' + describeBody(body)
       );
+      save();
       paint();
     } catch (e) {}
   }
@@ -208,7 +245,11 @@ const JS = `(function () {
           function () { fallbackCopy(t); });
       } catch (e) { fallbackCopy(t); }
     }));
-    bar.appendChild(btn('Clear', function () { LOG.length = 0; if (pre) pre.textContent = ''; }));
+    bar.appendChild(btn('Clear', function () {
+      LOG.length = 0;
+      try { localStorage.removeItem(K); } catch (e) {}
+      if (pre) pre.textContent = '';
+    }));
     bar.appendChild(btn('Hide', function () { box.style.display = 'none'; }));
 
     pre = document.createElement('pre');
@@ -258,6 +299,17 @@ const JS = `(function () {
         'font:700 13px sans-serif');
       document.documentElement.appendChild(f);
       setTimeout(function () { if (f.parentNode) f.parentNode.removeChild(f); }, 1600);
+    } catch (e) {}
+  }
+
+  /* Restored and painted BEFORE any request fires, so a reload shows what
+     the previous page captured even if this page is quiet. */
+  restore();
+  if (LOG.length) {
+    try {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', paint);
+      } else { paint(); }
     } catch (e) {}
   }
 
