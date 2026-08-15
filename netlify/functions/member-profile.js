@@ -1,5 +1,21 @@
 // ============================================================
-//  member-profile.js   ·   VERSION: mp-v4  (2026-08-14)
+//  member-profile.js   ·   VERSION: mp-v5  (2026-08-14)
+//  mp-v5: A RAW READ, ADMIN ONLY, BECAUSE GUESSING KEEPS COSTING US.
+//    ?admin=KEY&raw=1&memberId=ID returns BD's unmodified user object, and
+//    ?admin=KEY&values=1 samples several members to show which VALUES are
+//    actually stored in each option field.
+//
+//    🔴 WHY IT EXISTS. mp-v2 was needed because `phone` was guessed when
+//    the column is `phone_number`. Then the About Me sheet was built with
+//    option LABELS - "Next month", "$2,000-$3,000" - when BD stores
+//    `next_month` and `20003000`. Both are the same failure: a write that
+//    succeeds, reads back exactly what it wrote, and means nothing to the
+//    form that owns the field. Reading the record is the only way to know.
+//
+//    ⚠️ ADMIN ONLY, FAILS CLOSED. The raw object carries email, phone and
+//    everything else BD holds. Without RDC_ADMIN_KEY set, the path does not
+//    exist - an admin door that opens when a variable is missing is worse
+//    than no door.
 //  mp-v4: ABOUT ME. Seven more fields, so the app can edit the profile
 //    natively instead of sending a renter out to a BD page.
 //
@@ -76,13 +92,14 @@
 
 const https = require("https");
 
-const FN_VERSION = "mp-v4";
+const FN_VERSION = "mp-v5";
 const BD_BASE = process.env.BD_API_BASE || "https://www.renters.com/api/v2";
 
 // The same light gate the rest of the member-facing functions check. It
 // ships to the client, and it belongs in an env var with a server-side
 // check. Recorded rather than quietly worked around.
 const SECRET = "renters2026";
+const ADMIN_KEY = process.env.RDC_ADMIN_KEY || "";
 
 // Exactly what the app may read back and write. Nothing else crosses.
 const FIELDS = [
@@ -276,6 +293,55 @@ exports.handler = async (event) => {
       bdApiKeyConfigured: !!process.env.BD_API_KEY,
       editable: FIELDS
     });
+  }
+
+  // ---- ADMIN: raw record, and an option-value sample --------------------
+  if (q.admin) {
+    if (!ADMIN_KEY || q.admin !== ADMIN_KEY) return json(404, { error: "not found" });
+
+    if (q.raw) {
+      const id = String(q.memberId || "").replace(/[^0-9]/g, "");
+      if (!id) return json(400, { version: FN_VERSION, error: "memberId required" });
+      const m = await getMember(id);
+      if (!m) return json(502, { version: FN_VERSION, error: "member read failed" });
+      return json(200, { version: FN_VERSION, memberId: id, raw: m });
+    }
+
+    if (q.values) {
+      // Walks a handful of members and collects every DISTINCT value seen in
+      // each option field. It cannot show an option nobody has ever picked -
+      // that is the honest limit of reading data rather than reading a form.
+      const ids = String(q.ids || "").split(",").map((x) => x.trim()).filter(Boolean);
+      if (!ids.length) {
+        return json(400, { version: FN_VERSION,
+          error: "pass ids=4534,4110,... (members who have filled this in)" });
+      }
+      const watch = ["gross_monthly_combined", "number_of_peop", "monthly_budget",
+                     "co_signer", "i_want_to_relocate", "seeking", "do_you_have_pets",
+                     "how_are_you_searchi", "ideal_rental"];
+      const seen = {};
+      watch.forEach((k) => { seen[k] = {}; });
+      const missed = [];
+
+      for (const id of ids.slice(0, 25)) {
+        const m = await getMember(id);
+        if (!m) { missed.push(id); continue; }
+        watch.forEach((k) => {
+          const v = m[k];
+          if (v === undefined || v === null || v === "") return;
+          const key = String(v);
+          seen[k][key] = (seen[k][key] || 0) + 1;
+        });
+      }
+
+      const out = {};
+      watch.forEach((k) => {
+        out[k] = Object.keys(seen[k]).map((v) => ({ value: v, count: seen[k][v] }))
+                       .sort((a, b) => b.count - a.count);
+      });
+      return json(200, { version: FN_VERSION, sampled: ids.length, unreadable: missed,
+                         values: out });
+    }
   }
 
   if (!process.env.BD_API_KEY) {
