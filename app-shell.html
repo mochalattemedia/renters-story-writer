@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v42                                       -->
+<!--  VERSION: shell-v43                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,33 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v42">
+<meta name="rdc-version" content="shell-v43">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v42
+/* ============================================================ shell-v43
+
+   v43: 🔴 VERIFIED COMES FROM THE BD COLUMN, NOT FROM READING A PAGE.
+
+   member-profile mp-v6 has always returned `verified`, read straight off
+   BD's own column through the API. loadProfile() fetched it into
+   S.editable and NOTHING EVER PROMOTED IT to the flag the identity row
+   reads - so the authoritative answer was arriving on every boot and
+   being dropped on the floor, while the app went and guessed at the same
+   fact by searching /account/home for a phrase.
+
+   A verified member read as "Confirm now" because of it.
+
+   ⚠️ AND THE SCRAPE IS NOW A FALLBACK, hardened rather than trusted.
+   Whitespace is normalised before the phrase is matched, because a
+   non-breaking space between "Identity" and "Confirmed" is invisible in
+   the rendering and fatal to indexOf. It also accepts the badge image by
+   src, which is a far more specific signal than any wording.
+
+   The order that matters: API column, then verify-log, then the scrape.
+   Two of those are records. The third is a guess and is treated as one.
 
    v42: IDENTITY READS verify-log, WHICH IS WHERE THE TRUTH ALREADY WAS.
 
@@ -884,7 +904,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v42';
+  var V = 'shell-v43';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -1033,9 +1053,16 @@ a{color:var(--teal)}
            false positive tells somebody they are verified when a landlord
            will be told otherwise, which is the more expensive mistake and
            the one worth defaulting against. */
+        /* ⚠️ NORMALISE THE WHITESPACE BEFORE MATCHING. A non-breaking
+           space between "Identity" and "Confirmed" renders identically
+           and breaks indexOf completely, which is the kind of failure
+           that looks like the feature simply not working. \s covers
+           \u00a0 in JavaScript, so one replace handles it along with
+           newlines and tabs from the markup. */
         var t = (doc.body ? doc.body.textContent : '') || '';
-        var low = t.toLowerCase();
+        var low = t.toLowerCase().replace(/\s+/g, ' ');
         if (low.indexOf('identity confirmed') !== -1 ||
+            doc.querySelector('img[src*="identity-confirmed"]') ||
             doc.querySelector('.verified-badge, .badge-verified, .member-verified')) {
           out.verified = true;
         }
@@ -2088,7 +2115,21 @@ a{color:var(--teal)}
     if (!S.member) return Promise.resolve();
     return fetch(PROFILE + '?memberId=' + encodeURIComponent(S.member))
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d && d.profile) S.editable = d.profile; })
+      .then(function (d) {
+        if (!d || !d.profile) return;
+        S.editable = d.profile;
+        /* 🔴 THE ONE LINE THAT WAS MISSING. mp-v6 reads BD's verified
+           column through the API, which beats anything this file can
+           infer from HTML. Promoted here so every consumer of
+           S.profile.verified gets the authoritative answer. Only ever
+           promoted TRUE: a profile call that fails or races must not be
+           able to un-verify somebody the dashboard already confirmed. */
+        if (S.editable.verified === true) {
+          if (!S.profile) S.profile = {};
+          S.profile.verified = true;
+          idPendClear();
+        }
+      })
       .catch(function () {});
   }
 
@@ -2695,6 +2736,9 @@ a{color:var(--teal)}
      BD's verified flag is final, then verify-log, then this device. */
   function idState() {
     if (S.profile && S.profile.verified) return 'confirmed';
+    /* The API answer, in case the row paints before loadProfile has
+       promoted it. Same source, read directly. */
+    if (S.editable && S.editable.verified === true) return 'confirmed';
     var st = String(S.idLog || '').toLowerCase();
     /* Didit approved; an admin has not flipped BD yet. The splash page
        calls this final review and so does the app. */
