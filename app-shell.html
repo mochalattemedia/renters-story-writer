@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v33                                       -->
+<!--  VERSION: shell-v35                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,15 +9,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v33">
+<meta name="rdc-version" content="shell-v35">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v33
+/* ============================================================ shell-v35
 
    THE APP. Four tabs over engines that already exist.
+
+   v35: THE VERSION IS VISIBLE WHEN LOGGED OUT. It was already printed at
+   the foot of the Me tab - which cannot be reached without a session,
+   which is precisely the state you are in while testing sign in. Several
+   rounds of "is this the new build or the old one" came out of that gap.
+   It now sits under the intro actions, and tapping it reports the last
+   boot error, because a phone has no console.
+
+   v34: deal breakers go GOLD. v32 gave must have navy and left deal
+   breakers slate, and at a 10% tint navy and slate are the same grey -
+   two greys and a green, not three colours. Gold is already in the
+   palette, carries caution, and does not borrow the red this product
+   keeps for real alarm.
+
+   ⏳ AND MUST HAVE IS UNCAPPED FROM THIS SIDE, TEMPORARILY. The cap is a
+   schema value owned by alerts-prefs and the decision to uncap is locked,
+   but the schema has not caught up. CAP_OVERRIDE sits inside mustCap(),
+   which is the ONE place this file reads the cap, so it is an override in
+   one location rather than a second copy of the rule. DELETE IT the day
+   alerts-prefs ships mustHaveCap: 0.
 
    v33: 🔴 THE LOGIN FRAME WAS BREAKING OUT OF THE APP. It carried no
    sandbox, so BD's page could navigate the TOP window - which is exactly
@@ -311,7 +331,12 @@ a{color:var(--teal)}
    this" without borrowing the red this product reserves for real alarm. */
 .chip.must[aria-pressed="true"]{border-color:var(--navy);background:rgba(13,45,78,.09);
                                 color:var(--navy)}
-.chip.bad[aria-pressed="true"]{border-color:var(--slate);background:rgba(107,127,147,.12)}
+/* ⚠️ GOLD, NOT SLATE. Slate against navy at a 10% tint is two greys - the
+   three buckets have to be told apart at a glance or the colour is
+   decoration. Gold reads as caution without the alarm of red, which this
+   product spends elsewhere. */
+.chip.bad[aria-pressed="true"]{border-color:var(--gold);background:rgba(224,169,46,.18);
+                               color:#7a5a0c}
 .cap{font-size:11.5px;color:var(--slate);margin:7px 0 0;line-height:1.5}
 .cap.hit{color:var(--gold);font-weight:700}
 
@@ -509,6 +534,12 @@ a{color:var(--teal)}
 .introAct .signin{display:block;width:100%;text-align:center;font-size:13px;color:var(--slate);
                   padding:11px 0 0;font-weight:600}
 .introAct .signin a{font-weight:700}
+/* 🔴 A BUILD YOU CANNOT IDENTIFY COSTS MORE THAN AN UGLY LINE OF TEXT.
+   The Me tab already prints this, but the Me tab needs a session, and the
+   thing most often tested WITHOUT a session is signing in. Quiet enough
+   to ignore, present enough to read out loud. */
+.vstamp{display:block;width:100%;text-align:center;margin-top:10px;
+  font-size:10.5px;letter-spacing:.06em;color:#9aa9b6;font-weight:600}
 
 .boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
       background:var(--paper);z-index:800;font-size:13px;color:var(--slate);text-align:center;
@@ -594,6 +625,7 @@ a{color:var(--teal)}
   <button class="cta" id="introGo">Dream up your perfect spot</button>
   <button class="cta ghost" id="introSkip">Got it, do not show this again</button>
   <span class="signin">Already a member? <button type="button" class="lnk" id="introSignin">Sign in</button></span>
+  <button type="button" class="vstamp" id="vstamp"></button>
 </div>
 
 <div class="app">
@@ -722,7 +754,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v33';
+  var V = 'shell-v35';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -1188,7 +1220,19 @@ a{color:var(--teal)}
      means uncapped and must survive; anything missing or nonsense falls
      back to 3. Written once because this value was previously read in
      three places, two of which defaulted on their own. */
+  /* ⏳ TEMPORARY, AND IT HAS AN EXIT CONDITION. Uncapping must have is a
+     locked decision; the schema that carries the number lives in
+     alerts-prefs and has not shipped it yet. Rather than wait, this
+     overrides the value at the single point the file reads it.
+
+     🔴 DELETE THIS CONSTANT the day alerts-prefs ships mustHaveCap: 0, or
+     the app will be ignoring the schema on a value the schema owns - which
+     is the two-copies-of-one-rule failure this codebase keeps paying for,
+     just with a comment on it. */
+  var CAP_OVERRIDE = 0;
+
   function mustCap() {
+    if (CAP_OVERRIDE === 0) return 0;
     var c = S.schema ? S.schema.mustHaveCap : undefined;
     if (c === 0) return 0;
     return (typeof c === 'number' && c > 0) ? c : 3;
@@ -3205,6 +3249,18 @@ a{color:var(--teal)}
     openWeb('login');
     vibrate(5);
   });
+
+  /* Tapping it reports what the boot actually did. "Which build is this
+     and did anything throw" is the question this project asks more than
+     any other, and on a phone there is no console to ask it in. */
+  (function () {
+    var v = $('vstamp');
+    if (!v) return;
+    v.textContent = V;
+    v.addEventListener('click', function () {
+      toast(V + (lastErr ? ' · ' + lastErr : ' · no errors'));
+    });
+  })();
 
   $('introGo').addEventListener('click', function () {
     if (DEMO) {
