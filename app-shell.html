@@ -1,17 +1,33 @@
 <!doctype html>
+<!-- ========================================================= -->
+<!--  app-shell.html                                           -->
+<!--  VERSION: shell-v29                                       -->
+<!--  renters.com/app - the app shell. Four tabs.              -->
+<!-- ========================================================= -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v27">
+<meta name="rdc-version" content="shell-v29">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v27
+/* ============================================================ shell-v29
+
    THE APP. Four tabs over engines that already exist.
+
+   v29: the version is stated at the top of the file, above the doctype
+   comment block, so a fragment of this file can be identified without
+   reading to line 657. No behaviour change from v28.
+
+   v28: SIGN IN, REGISTER AND SIGNUP NO LONGER LEAVE THE APP. Three
+   location.href exits are gone. Each now opens the renters.com page
+   inside the existing sheet, same-origin, with BD's chrome walked off
+   it. See THE WEB SHEET below for why it is a frame and not a native
+   form.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
    backend that was built elsewhere, and this file owns none of them:
@@ -315,6 +331,22 @@ a{color:var(--teal)}
          border-top:1px solid var(--line);background:var(--white)}
 .err{font-size:12px;color:#b23b3b;font-weight:600;margin:6px 0 0}
 
+/* ------------------------------------------------------------- web sheet */
+.sheet.tall{height:96%;max-height:96%}
+.sheet.tall .sheet-b{padding:0;overflow:hidden;flex:1 1 auto;display:flex;
+  flex-direction:column;min-height:0}
+.lg-head{flex:0 0 auto;padding:2px 22px 12px}
+.lg-head h3{margin:0 0 4px}
+.lg-wrap{flex:1 1 auto;position:relative;min-height:0;
+  border-top:1px solid var(--line)}
+.lg-frame{width:100%;height:100%;border:0;display:block;background:var(--white)}
+.lg-load{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;background:var(--white);font-size:12.5px;
+  color:var(--slate);transition:opacity .32s var(--ease)}
+.lg-load.off{opacity:0;pointer-events:none}
+.lnk{background:none;border:0;padding:0;font:inherit;font-weight:700;
+  color:inherit;text-decoration:underline;cursor:pointer}
+
 /* -------------------------------------------------------------- actions */
 .act{flex:0 0 auto;padding:11px 20px 12px;
      background:linear-gradient(180deg,rgba(244,246,247,0),var(--paper) 26%)}
@@ -505,7 +537,7 @@ a{color:var(--teal)}
 <div class="introAct" id="introAct">
   <button class="cta" id="introGo">Dream up your perfect spot</button>
   <button class="cta ghost" id="introSkip">Got it, do not show this again</button>
-  <span class="signin">Already a member? <a href="/login">Sign in</a></span>
+  <span class="signin">Already a member? <button type="button" class="lnk" id="introSignin">Sign in</button></span>
 </div>
 
 <div class="app">
@@ -634,7 +666,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v27';
+  var V = 'shell-v29';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -1584,7 +1616,8 @@ a{color:var(--teal)}
       '<button type="button" class="cta" style="max-width:280px;margin:0 auto" ' +
         'id="so-go">Dream up your perfect spot</button>' +
       '<p class="cap" style="text-align:center;margin-top:12px">' +
-        'Already a member? <a href="/login">Sign in</a></p></div>';
+        'Already a member? <button type="button" class="lnk" id="so-signin">'
+        + 'Sign in</button></p></div>';
 
     var g = document.getElementById('so-go');
     if (g) g.addEventListener('click', function () {
@@ -1592,6 +1625,9 @@ a{color:var(--teal)}
       S.draft = blankDraft(); S.editIdx = -1;
       go('zone'); vibrate(6);
     });
+
+    var si = document.getElementById('so-signin');
+    if (si) si.addEventListener('click', function () { openWeb('login'); });
   }
 
   /* THE DECK IS THE TAB. md-v12 reads matches.js, books through
@@ -2390,6 +2426,7 @@ a{color:var(--teal)}
      any polling the identity flow left running. */
   $('scrim').addEventListener('click', function () {
     stopWatching();
+    closeWeb();
     closeEdit();
   });
 
@@ -2650,7 +2687,10 @@ a{color:var(--teal)}
          way back in, by the same code path any other save uses. */
       if (!S.member) {
         if (parkDraft()) {
-          location.href = '/checkout/renters?src=app';
+          /* v28: was location.href, which threw the renter out of the app at
+             the exact moment they had just done the most work in it. The
+             draft is already parked, so boot() writes it on the way back. */
+          openWeb('signup');
         } else {
           toast('Could not hold that. Try again.');
         }
@@ -2723,6 +2763,246 @@ a{color:var(--teal)}
     return rec.draft;
   }
 
+  /* ========================================================= THE WEB SHEET
+
+     🔴 SIGN IN IS A SHEET, NOT A PAGE, AND NOT A NATIVE FORM EITHER.
+
+     Two things forced this shape. BD's login and register forms both run a
+     security check - the page carries "The security check was not completed
+     successfully" on every form - so a hand-built form in this file posting
+     credentials to BD gets refused, every time, and working around a bot
+     check is not something this app does. And the session BD sets is a
+     cookie on the renters.com origin, which is what /account/home, the Me
+     tab and the availability frame all read. A login that authenticated the
+     app but not the browser would leave half of this file blind.
+
+     So the page loads in a frame, same-origin, and the app reaches into it
+     and takes BD's chrome off. The renter sees a sheet that moves like every
+     other sheet here. Nothing navigates.
+
+     ⚠️ THE CHROME IS REMOVED WITHOUT NAMING A SINGLE BD CLASS. strip() walks
+     up from the form and hides what is beside it at each level. Selectors
+     were the obvious way to write this and the wrong one: BD's markup has
+     changed under this project before, and a stale selector fails by showing
+     a full website inside a sheet rather than by throwing.
+
+     It stops climbing at the node holding both tabs, so Register stays
+     reachable - one sheet, both jobs.
+
+     ⚠️ SUCCESS IS THE COOKIE, NOT THE RESPONSE. BD redirects on success
+     rather than answering, so there is nothing to read. The poll watches for
+     `userid` to appear, which is true regardless of where BD decides to send
+     somebody afterwards. */
+
+  var WEB = {
+    login: { url: '/login', title: 'Sign in',
+      lede: 'Your spots, your matches and your showings are on your account, ' +
+            'not on this phone.' },
+    register: { url: '/login#register-tab-1', title: 'Create your account',
+      lede: 'One account. Everything you set up here follows you.' },
+    signup: { url: '/checkout/renters?src=app', title: 'Create your account',
+      lede: 'Your spot is held. Make an account and we start looking.' }
+  };
+
+  var webPoll = null, webFirst = true, webOpen = false;
+
+  function visiblePw(doc) {
+    var all = doc.querySelectorAll('input[type=password]'), i;
+    for (i = 0; i < all.length; i++) {
+      if (all[i].offsetParent !== null || all[i].getClientRects().length) return all[i];
+    }
+    return all.length ? all[0] : null;
+  }
+
+  /* The password field where there is one, otherwise the first visible form.
+     Checkout has no password on its first step. */
+  function anchorEl(doc) {
+    var pw = visiblePw(doc);
+    if (pw) return pw;
+    var fs = doc.querySelectorAll('form'), i;
+    for (i = 0; i < fs.length; i++) {
+      if (fs[i].offsetParent !== null || fs[i].getClientRects().length) return fs[i];
+    }
+    return fs.length ? fs[0] : null;
+  }
+
+  /* Never hidden: anything the page needs to keep working, and anything the
+     security check owns. Its overlay is appended at challenge time, after
+     this has run, so it survives on timing too - but not on timing alone. */
+  function keepNode(el) {
+    var t = el.tagName;
+    if (t === 'SCRIPT' || t === 'STYLE' || t === 'LINK' || t === 'NOSCRIPT') return true;
+    var s = (String(el.id || '') + ' ' + String(el.className || '')).toLowerCase();
+    return s.indexOf('captcha') !== -1;
+  }
+
+  function strip(doc) {
+    var a = anchorEl(doc);
+    if (!a) return;
+
+    while (a && a !== doc.body && a.parentNode && a.parentNode !== doc.body) {
+      if (a.querySelectorAll &&
+         (a.querySelectorAll('form').length >= 2 ||
+          a.querySelector('[href*="register-tab"]'))) break;
+      a = a.parentNode;
+    }
+
+    var node = a, i, sibs, sib;
+    while (node && node !== doc.body && node.parentNode) {
+      sibs = node.parentNode.children;
+      for (i = 0; i < sibs.length; i++) {
+        sib = sibs[i];
+        if (sib === node || keepNode(sib)) continue;
+        try { sib.style.display = 'none'; } catch (e) {}
+      }
+      node = node.parentNode;
+    }
+
+    var st = doc.createElement('style');
+    st.textContent =
+      'html,body{background:#fff !important;overflow-x:hidden !important}' +
+      'body{font-family:"Open Sans",-apple-system,sans-serif !important;' +
+        'color:#0d2d4e !important;padding:16px 18px 26px !important;margin:0 !important}' +
+      'h1,h2{display:none !important}' +
+      'h3,h4{font-family:"Red Hat Display",sans-serif !important;font-weight:700 !important;' +
+        'font-size:16px !important;color:#0d2d4e !important;margin:0 0 10px !important}' +
+      'hr{display:none !important}' +
+      'label{font-size:11px !important;font-weight:700 !important;letter-spacing:.09em !important;' +
+        'text-transform:uppercase !important;color:#6b7f93 !important}' +
+      'input[type=text],input[type=email],input[type=password]{width:100% !important;' +
+        'border:1.5px solid #e3e9ec !important;border-radius:9px !important;background:#fff !important;' +
+        'padding:12px 14px !important;font-size:16px !important;color:#0d2d4e !important;' +
+        'height:auto !important;box-shadow:none !important}' +
+      'input:focus{outline:0 !important;border-color:#3a9e8f !important}' +
+      'input[type=submit],button[type=submit],.btn,.button{width:100% !important;' +
+        'background:#8dc63f !important;color:#0d2d4e !important;border:0 !important;' +
+        'border-radius:100px !important;padding:15px !important;font-size:15.5px !important;' +
+        'font-family:"Red Hat Display",sans-serif !important;font-weight:700 !important;' +
+        'text-shadow:none !important;box-shadow:none !important;text-transform:none !important}' +
+      'a{color:#3a9e8f !important}';
+    if (doc.head) doc.head.appendChild(st);
+
+    /* The moment they submit, say something. BD's round trip is not fast and
+       a sheet that sits still reads as a sheet that broke. */
+    var forms = doc.querySelectorAll('form'), k;
+    for (k = 0; k < forms.length; k++) {
+      forms[k].addEventListener('submit', function () {
+        var l = $('lgLoad');
+        if (l) { l.textContent = 'One moment…'; l.classList.remove('off'); }
+      });
+    }
+  }
+
+  function openWeb(kind) {
+    var cfg = WEB[kind] || WEB.login;
+    if (DEMO) { toast('Demo — sign in is switched off'); return; }
+
+    webFirst = true;
+    webOpen = true;
+    $('sheet').classList.add('tall');
+    $('sheetB').innerHTML =
+      '<div class="lg-head"><h3>' + esc(cfg.title) + '</h3>' +
+        '<p class="lede">' + esc(cfg.lede) + '</p></div>' +
+      '<div class="lg-wrap">' +
+        '<iframe class="lg-frame" id="lgFrame" title="' + esc(cfg.title) + '" ' +
+          'src="' + cfg.url + '"></iframe>' +
+        '<div class="lg-load" id="lgLoad">Opening…</div>' +
+      '</div>';
+    $('sheetA').innerHTML = '<button class="cta ghost" id="lgClose">Cancel</button>';
+    $('lgClose').addEventListener('click', function () { closeWeb(); });
+
+    $('lgFrame').addEventListener('load', function () { onWebFrame(this); });
+
+    /* A frame refused by X-Frame-Options can load nothing and fire nothing.
+       The app must not sit on "Opening…" forever waiting to find that out. */
+    setTimeout(function () {
+      if (webOpen && webFirst) webBlocked();
+    }, 8000);
+
+    webPoll = setInterval(checkSignedIn, 1500);
+    $('scrim').classList.add('on');
+    $('sheet').classList.add('on');
+  }
+
+  function onWebFrame(f) {
+    var doc = null;
+    try { doc = f.contentDocument; } catch (e) { doc = null; }
+
+    if (webFirst) {
+      webFirst = false;
+      if (!doc || !doc.body || !anchorEl(doc)) { webBlocked(); return; }
+    }
+    if (!doc || !doc.body) return;
+    if (cookieId()) { webWon(); return; }
+
+    try { strip(doc); } catch (e) { keep(e, 'web strip'); }
+    var l = $('lgLoad');
+    if (l) { l.textContent = 'Opening…'; l.classList.add('off'); }
+  }
+
+  /* The frame is refused. This is the ONE case that opens a window, and it
+     is still not a navigation - the app stays exactly where it is behind it,
+     and picks the session up when they come back. */
+  function webBlocked() {
+    var w = $('lgLoad');
+    if (!w) return;
+    w.classList.remove('off');
+    w.innerHTML =
+      '<div style="padding:24px;text-align:center">' +
+        '<b style="display:block;font-family:Red Hat Display,sans-serif;' +
+          'font-size:15px;color:var(--navy);margin-bottom:6px">This one opens in a window</b>' +
+        '<p style="font-size:12.5px;color:var(--slate);line-height:1.55;margin:0 0 16px">' +
+          'The app stays open behind it. Come back and you will be signed in.</p>' +
+        '<button type="button" class="cta" id="lgWin" ' +
+          'style="max-width:230px;margin:0 auto">Continue</button>' +
+      '</div>';
+    var b = document.getElementById('lgWin');
+    if (b) b.addEventListener('click', function () {
+      var f = $('lgFrame');
+      var url = f ? f.getAttribute('src') : '/login';
+      try { window.open(url, '_blank'); } catch (e) {}
+    });
+    document.addEventListener('visibilitychange', onWebVisible);
+  }
+
+  /* Coming back to the app is the useful moment, and it beats any interval. */
+  function onWebVisible() { if (!document.hidden) checkSignedIn(); }
+
+  function checkSignedIn() { if (webOpen && cookieId()) webWon(); }
+
+  function webWon() {
+    closeWeb();
+    hideIntro();
+    markIntroSeen();
+    vibrate([10, 30, 10]);
+    $('boot').textContent = 'Signing you in…';
+    $('boot').classList.remove('off');
+    /* A full boot, not a patch. It re-reads the session, the spots and the
+       parked draft in one pass, which is the same path a cold open takes -
+       so there is no second code path here to drift out of step with it. */
+    try {
+      boot().catch(function (e) { keep(e, 'boot after sign in'); fail(); });
+    } catch (e) { keep(e, 'boot after sign in'); fail(); }
+  }
+
+  function closeWeb() {
+    if (!webOpen) return;
+    webOpen = false;
+    if (webPoll) { clearInterval(webPoll); webPoll = null; }
+    document.removeEventListener('visibilitychange', onWebVisible);
+    $('scrim').classList.remove('on');
+    $('sheet').classList.remove('on');
+    /* Emptied only after it has slid away, so the frame does not vanish
+       mid-transition. Emptying it at all matters: a live BD page left in the
+       DOM keeps its timers and its session polling running underneath. */
+    setTimeout(function () {
+      if (webOpen) return;
+      $('sheet').classList.remove('tall');
+      if ($('sheetB')) $('sheetB').innerHTML = '';
+      if ($('sheetA')) $('sheetA').innerHTML = '';
+    }, 380);
+  }
+
   var K_INTRO = 'rdc_app_intro_seen';
 
   function introSeen() {
@@ -2741,6 +3021,11 @@ a{color:var(--teal)}
     if (!DEMO) markIntroSeen();
     hideIntro();
     go('spots');
+    vibrate(5);
+  });
+
+  $('introSignin').addEventListener('click', function () {
+    openWeb('login');
     vibrate(5);
   });
 
