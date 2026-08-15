@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v23">
+<meta name="rdc-version" content="shell-v27">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v23
+/* ============================================================ shell-v27
    THE APP. Four tabs over engines that already exist.
 
    WHAT THIS FILE IS: chrome and routing. Every tab talks to a live
@@ -634,7 +634,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v23';
+  var V = 'shell-v27';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2014,37 +2014,73 @@ a{color:var(--teal)}
      these go stale - which is a real cost, and the reason the notes below
      say where the truth lives. */
 
+  /* 🔴 THESE ARE BD'S STORED VALUES, NOT LABELS, AND THE DISTINCTION COST
+     A ROUND TRIP. The first version of this sheet wrote "Next month" and
+     "$2,000-$3,000" - readable, and meaningless to the form that owns the
+     field, which stores `next_month` and `20003000`. The write would have
+     succeeded, read back exactly what it wrote, and left the web form
+     showing nothing selected. Same shape as the phone bug: a value that is
+     wrong in a way nothing reports.
+
+     Every value below was read off a live record or off the Form Manager.
+     Anything not confirmed is simply absent - an option missing from the
+     app is a gap; an invented one is corruption.
+
+     WHERE THE TRUTH LIVES: BD's Form Manager, form
+     member_contact_details_renters. If these drift, that is the source. */
+
   var ABOUT = [
-    { k: 'income', label: 'Approximate gross monthly income',
+    { k: 'income', v: 'gross_monthly_combined',
+      label: 'Approximate gross monthly income',
       help: 'Everyone contributing to rent, before tax. Most landlords want 2.5 to 3 ' +
             'times the rent, so this is what lets us stop sending you places you would ' +
             'be turned down for.',
-      opts: ['Under $3,000', '$3,000-$5,000', '$5,000-$8,000', '$8,000-$12,000',
-             'Over $12,000', 'Rather not say'] },
-    { k: 'household', label: 'How many people',
+      opts: [
+        ['Under $1,000','under_1000'], ['$1,000-$2,000','10002000'],
+        ['$2,000-$3,000','20003000'], ['$3,000-$4,000','30004000'],
+        ['$4,000-$5,000','40005000'], ['$5,000-$6,000','50006000'],
+        ['$6,000-$7,000','60007000'], ['$7,000-$8,000','70008000'],
+        ['$8,000-$9,000','80009000'], ['$9,000-$10,000','900010000'],
+        ['Over $10,000','over_10000']
+      ] },
+
+    { k: 'household', v: 'number_of_peop', label: 'How many people',
       help: 'Occupancy limits are set per unit, and we can check them before you spend ' +
             'an application fee.',
-      opts: ['1','2','3','4','5','6','7','8','9','10','more than 10'] },
-    { k: 'pets', label: 'Pets',
-      help: 'Weight and breed limits are the most common reason a good application gets ' +
-            'turned down.',
-      opts: ['No pets', 'Cat', 'Dog', 'Dog and cat', 'Other'] },
-    { k: 'cosigner', label: 'Could you add a co-signer',
+      opts: [['1','1'],['2','2'],['3','3'],['4','4'],['5','5'],
+             ['6','6'],['7','7'],['8','8'],['9','9'],['10','10']] },
+
+    { k: 'cosigner', v: 'co_signer', label: 'Could you add a co-signer',
       help: 'A co-signer usually clears a 3x income requirement, which puts a whole tier ' +
             'of places back within reach.',
-      opts: ['Yes', 'No', 'Not sure'] },
-    { k: 'timing', label: 'When do you need to move',
+      /* TWO OPTIONS, BECAUSE THE FIELD HAS TWO. `no` was added on a
+         misread and taken straight back out - BD's form offers only `yes`
+         and `not_sure`, so a third value would have been rejected by the
+         form that owns the field while saving cleanly here. The same
+         mistake as writing labels instead of values, one step smaller.
+         A renter who means no leaves it blank. */
+      opts: [['Yes','yes'], ['Not sure','not_sure']] },
+
+    { k: 'timing', v: 'i_want_to_relocate', label: 'When do you need to move',
       help: '',
-      opts: ['Immediately', 'Next month', '3-6 months', '6-12 months', 'More than a year',
-             'Not sure yet'] },
-    { k: 'term', label: 'What kind of let',
-      help: '',
-      opts: ['Long term rental', 'Mid term rental', 'Short-term rental', 'Furnished'] },
-    { k: 'budget', label: 'Housing budget per month',
-      help: 'Roughly what you would pay for rent. Your perfect spots hold the exact ' +
-            'number - this is the general picture.',
-      opts: ['Under $1,000', '$1,000-$2,000', '$2,000-$3,000', '$3,000-$4,000',
-             '$4,000-$6,000', '$6,000-$8,000', '$8,000-$10,000', 'Over $10,000'] }
+      /* All six, every value read off the form. Note `not_sure_yet_` keeps
+         its trailing underscore, exactly like `long_term_rental_` - BD
+         leaves them on and trimming one would write a value the form does
+         not recognise. */
+      opts: [['Immediately','immediately'], ['Next month','next_month'],
+             ['3-6 months','36_months'], ['6-12 months','612_months'],
+             ['More than a year','more_than_a_year'],
+             ['Not sure yet','not_sure_yet_']] }
+  ];
+
+  /* Free text, not a select. Charlye's record reads "Yes, a 7 year old
+     boxer" - chips would force that into a shape it does not have, and the
+     breed and the age are exactly what a landlord's pet policy turns on. */
+  var ABOUT_TEXT = [
+    { k: 'pets', v: 'do_you_have_pets', label: 'Pets',
+      help: 'Species, size and age if you have them. Weight and breed limits are the ' +
+            'most common reason a good application gets turned down.',
+      placeholder: 'One dog, 42lb boxer, 7 years old' }
   ];
 
   function openAbout() {
@@ -2059,10 +2095,18 @@ a{color:var(--teal)}
         return '<div class="f"><label>' + f.label + '</label>' +
           '<div class="chips" data-about="' + f.k + '">' +
             f.opts.map(function (o) {
-              return '<button type="button" class="chip" data-v="' + esc(o) + '" ' +
-                'aria-pressed="' + (String(e[f.k] || '') === o) + '">' + esc(o) + '</button>';
+              return '<button type="button" class="chip" data-v="' + esc(o[1]) + '" ' +
+                'aria-pressed="' + (String(e[f.k] || '') === o[1]) + '">' +
+                esc(o[0]) + '</button>';
             }).join('') +
           '</div>' +
+          (f.help ? '<p class="cap">' + f.help + '</p>' : '') +
+        '</div>';
+      }).join('') +
+      ABOUT_TEXT.map(function (f) {
+        return '<div class="f"><label for="ab-' + f.k + '">' + f.label + '</label>' +
+          '<input id="ab-' + f.k + '" type="text" maxlength="120" ' +
+            'placeholder="' + esc(f.placeholder) + '" value="' + esc(e[f.k] || '') + '">' +
           (f.help ? '<p class="cap">' + f.help + '</p>' : '') +
         '</div>';
       }).join('') +
@@ -2083,6 +2127,7 @@ a{color:var(--teal)}
        an accidental deselect. */
     var draft = {};
     ABOUT.forEach(function (f) { draft[f.k] = String(e[f.k] || ''); });
+    ABOUT_TEXT.forEach(function (f) { draft[f.k] = String(e[f.k] || ''); });
 
     $('sheetB').querySelectorAll('[data-about]').forEach(function (row) {
       var key = row.getAttribute('data-about');
@@ -2096,6 +2141,11 @@ a{color:var(--teal)}
           vibrate(4);
         });
       });
+    });
+
+    ABOUT_TEXT.forEach(function (f) {
+      var el = $('ab-' + f.k);
+      if (el) el.addEventListener('input', function () { draft[f.k] = this.value; });
     });
 
     $('aCancel').addEventListener('click', closeEdit);
