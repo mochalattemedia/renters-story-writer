@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v49                                       -->
+<!--  VERSION: shell-v50                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,45 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v49">
+<meta name="rdc-version" content="shell-v50">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v49
+/* ============================================================ shell-v50
+
+   v50: ⭐ THE PROFILE PHOTO, IN THE APP.
+
+   BD's upload call was captured with net-recorder nr-v2 rather than
+   guessed. What it showed decided the whole architecture:
+
+     POST /wapi/widget/print        (urlencoded, TWICE)
+       request_type    = POST
+       widget_name     = Bootstrap Theme - Account - Profile Image Upload
+       header_type     = json
+       image_info      = base64 WEBP, NO data: prefix
+       image_extension = webp
+       module_action   = upload_image_main, then upload_image_social
+
+   🔑 THERE IS NO user_id ON THE WRITE. BD takes the member from the
+   SESSION. That is why this cannot be done server-side with BD_API_KEY,
+   and why it CAN be done from here: /app is proxied onto the renters.com
+   origin, so a same-origin post carries the session. The same property
+   login rests on.
+
+   🔴 AND THE URL IS RELATIVE, DELIBERATELY. The recorder captured
+   https://www.renters.com/wapi/widget/print, and hardcoding that host
+   would break the app the moment it is served from bare renters.com -
+   cross-origin, no session, silent failure (#160, both hosts serve /app
+   today). A relative path always posts to whatever origin the app is on,
+   which is the one holding the cookie.
+
+   ⚠️ BD CROPS IN THE BROWSER AND POSTS AN IMAGE, NOT A FILE. A jpeg goes
+   in and base64 webp comes out of a canvas, so none of BD's cropper is
+   needed. This does its own: a fixed circular window with the photo
+   moving behind it, because the output is always a circle and handles
+   would let somebody build a rectangle the app then throws away.
 
    v49: THE TRAIL IS READABLE WHILE SIGNED IN.
 
@@ -792,6 +824,24 @@ a{color:var(--teal)}
    The Me tab already prints this, but the Me tab needs a session, and the
    thing most often tested WITHOUT a session is signing in. Quiet enough
    to ignore, present enough to read out loud. */
+/* ---------------------------------------------------------- photo crop */
+.pc-wrap{position:relative;width:100%;aspect-ratio:1/1;max-height:60vh;
+  background:#0d2d4e;overflow:hidden;touch-action:none;border-radius:var(--r);
+  margin:0 0 14px}
+.pc-wrap canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+/* The mask is the promise: what is inside the circle is exactly what gets
+   saved, at every moment, with no preview step to disagree with it. */
+.pc-mask{position:absolute;inset:0;pointer-events:none;
+  background:rgba(8,31,56,.62);
+  -webkit-mask:radial-gradient(circle at 50% 50%, transparent 0 41%, #000 41.5%);
+  mask:radial-gradient(circle at 50% 50%, transparent 0 41%, #000 41.5%)}
+.pc-ring{position:absolute;left:9%;top:9%;width:82%;height:82%;border-radius:50%;
+  border:2px solid rgba(255,255,255,.85);pointer-events:none}
+.pc-hint{font-size:12.5px;color:var(--slate);line-height:1.55;margin:0 0 14px}
+.pc-pick{display:block;width:100%;border:1.5px dashed var(--line);border-radius:var(--r);
+  padding:26px 16px;text-align:center;color:var(--navy);font-weight:700;
+  font-size:14px;background:var(--paper)}
+.pc-file{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .vstamp{display:block;width:100%;text-align:center;margin-top:10px;
   font-size:10.5px;letter-spacing:.06em;color:#9aa9b6;font-weight:600}
 
@@ -1008,7 +1058,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v49';
+  var V = 'shell-v50';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2440,7 +2490,7 @@ a{color:var(--teal)}
                pending: 'Pending', denied: 'Try again' }[idState()] || 'Confirm now') +
           '</span>' +
           '<span class="chev">&rsaquo;</span></button>' +
-        '<button type="button" class="row" data-soon="photo">' +
+        '<button type="button" class="row" id="mePhotoRow">' +
           '<span class="lbl">Photo</span>' +
           /* ⚠️ p.photo IS NOT A RELIABLE "HAS A PHOTO". BD serves a stock
              silhouette to every member without one, which is why
@@ -2491,6 +2541,9 @@ a{color:var(--teal)}
 
     var eb = $('meEdit');
     if (eb) eb.addEventListener('click', openEdit);
+
+    var pr = $('mePhotoRow');
+    if (pr) pr.addEventListener('click', openPhoto);
 
     var ib = $('meIdentity');
     if (ib) ib.addEventListener('click', openIdentity);
@@ -3465,6 +3518,291 @@ a{color:var(--teal)}
     /* A month-old draft is not what they meant any more. */
     if (Date.now() - (rec.at || 0) > 30 * 24 * 3600 * 1000) return null;
     return rec.draft;
+  }
+
+  /* ========================================================= THE PHOTO
+
+     A fixed circular window with the photo moving behind it. Drag to
+     position, pinch to zoom. NOT resize handles: the output is always a
+     circle at a fixed size, so handles would let somebody carefully build
+     a rectangle that gets thrown away. What is inside the ring is what
+     gets saved, the whole time, with no preview step to disagree with it.
+
+     ⚠️ THE PHOTO'S JOB IS MATCHING A DIDIT SELFIE. Not decoration. So the
+     guidance asks for a face filling the circle and front-facing, and the
+     mask is drawn tight enough that an off-centre face is obvious rather
+     than politely accepted. */
+
+  var PC_OUT = 512;          /* square export, comfortably over BD's 250 */
+  var pc = null;             /* { img, scale, x, y, min } */
+
+  function openPhoto() {
+    if (DEMO) { toast('Demo - the photo is switched off'); return; }
+    if (!S.member) { toast('Sign in first'); return; }
+
+    $('sheetB').innerHTML =
+      '<h3>Your photo</h3>' +
+      '<p class="lede">A clear, front-facing photo of your face. This is what a ' +
+        'landlord sees beside your verified badge, so it should look like the ' +
+        'person who turns up to the showing.</p>' +
+      '<div id="pcStage"></div>' +
+      '<p class="err" id="pcErr" hidden></p>' +
+      '<input type="file" accept="image/*" class="pc-file" id="pcFile">';
+
+    $('sheetA').innerHTML =
+      '<button class="cta" id="pcSave" disabled>Save photo</button>' +
+      '<button class="cta ghost" id="pcCancel">Cancel</button>';
+
+    pcIdle();
+
+    $('pcFile').addEventListener('change', function () {
+      var f = this.files && this.files[0];
+      if (f) pcLoad(f);
+    });
+    $('pcCancel').addEventListener('click', function () { pc = null; closeEdit(); });
+    $('pcSave').addEventListener('click', savePhoto);
+
+    $('scrim').classList.add('on');
+    $('sheet').classList.add('on');
+  }
+
+  function pcIdle() {
+    $('pcStage').innerHTML =
+      '<button type="button" class="pc-pick" id="pcPick">Choose a photo</button>' +
+      '<p class="pc-hint">Face filling the frame, looking at the camera, ' +
+        'nothing covering it. Hats and sunglasses make a match harder.</p>';
+    $('pcPick').addEventListener('click', function () { $('pcFile').click(); });
+  }
+
+  /* ⚠️ BD STATES ITS OWN LIMIT AND IT IS WORTH HONOURING BEFORE THE CANVAS
+     TOUCHES ANYTHING: 10,000,000 bytes, png jpg jpeg gif svg webp. A phone
+     photo can exceed that, and failing here with a sentence beats failing
+     inside BD with a json blob. */
+  function pcLoad(file) {
+    var err = $('pcErr');
+    err.hidden = true;
+
+    if (file.size > 10000000) {
+      err.textContent = 'That photo is over 10MB. Try a smaller one.';
+      err.hidden = false;
+      return;
+    }
+
+    var rd = new FileReader();
+    rd.onerror = function () {
+      err.textContent = 'Could not read that file.';
+      err.hidden = false;
+    };
+    rd.onload = function () {
+      var im = new Image();
+      im.onerror = function () {
+        err.textContent = 'That did not look like an image.';
+        err.hidden = false;
+      };
+      im.onload = function () { pcStage(im); };
+      im.src = rd.result;
+    };
+    rd.readAsDataURL(file);
+  }
+
+  function pcStage(img) {
+    $('pcStage').innerHTML =
+      '<div class="pc-wrap" id="pcWrap">' +
+        '<canvas id="pcCanvas"></canvas>' +
+        '<div class="pc-mask"></div><div class="pc-ring"></div>' +
+      '</div>' +
+      '<p class="pc-hint">Drag to move, pinch to zoom. What is inside the ' +
+        'circle is what gets saved.</p>' +
+      '<button type="button" class="mini" id="pcAgain">Choose a different photo</button>';
+
+    $('pcAgain').addEventListener('click', function () { $('pcFile').click(); });
+
+    var cv = $('pcCanvas');
+    var box = $('pcWrap').getBoundingClientRect();
+    var side = Math.max(1, Math.round(Math.min(box.width, box.height || box.width)));
+    cv.width = side; cv.height = side;
+
+    /* Start filling the frame: the smallest scale that leaves no gap, then
+       centred. A photo that opens with letterboxing invites somebody to
+       save the letterboxing. */
+    var min = Math.max(side / img.width, side / img.height);
+    pc = { img: img, side: side, min: min, scale: min, x: side / 2, y: side / 2 };
+    pcDraw();
+    pcGestures();
+    $('pcSave').disabled = false;
+  }
+
+  function pcDraw() {
+    if (!pc) return;
+    var cv = $('pcCanvas');
+    if (!cv) return;
+    var g = cv.getContext('2d');
+    g.clearRect(0, 0, pc.side, pc.side);
+    g.fillStyle = '#081f38';
+    g.fillRect(0, 0, pc.side, pc.side);
+    var w = pc.img.width * pc.scale, h = pc.img.height * pc.scale;
+    g.drawImage(pc.img, pc.x - w / 2, pc.y - h / 2, w, h);
+  }
+
+  /* Kept covering the frame at all times. Letting a photo be dragged off the
+     edge produces a saved circle with a corner of background in it, which
+     nobody does on purpose and everybody does by accident. */
+  function pcClamp() {
+    if (!pc) return;
+    if (pc.scale < pc.min) pc.scale = pc.min;
+    if (pc.scale > pc.min * 6) pc.scale = pc.min * 6;
+    var w = pc.img.width * pc.scale, h = pc.img.height * pc.scale;
+    var maxX = Math.max(0, (w - pc.side) / 2), maxY = Math.max(0, (h - pc.side) / 2);
+    pc.x = Math.min(pc.side / 2 + maxX, Math.max(pc.side / 2 - maxX, pc.x));
+    pc.y = Math.min(pc.side / 2 + maxY, Math.max(pc.side / 2 - maxY, pc.y));
+  }
+
+  function pcGestures() {
+    var el = $('pcWrap');
+    if (!el) return;
+    var pts = {}, last = null, lastDist = 0;
+
+    function mid() {
+      var k = Object.keys(pts);
+      if (k.length < 2) return null;
+      var a = pts[k[0]], b = pts[k[1]];
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2,
+               d: Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2)) };
+    }
+
+    el.addEventListener('pointerdown', function (e) {
+      el.setPointerCapture(e.pointerId);
+      pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var m = mid();
+      if (m) { lastDist = m.d; last = null; }
+      else { last = { x: e.clientX, y: e.clientY }; }
+    });
+
+    el.addEventListener('pointermove', function (e) {
+      if (!pts[e.pointerId] || !pc) return;
+      pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var m = mid();
+      if (m) {
+        if (lastDist > 0) { pc.scale = pc.scale * (m.d / lastDist); }
+        lastDist = m.d;
+      } else if (last) {
+        pc.x += e.clientX - last.x;
+        pc.y += e.clientY - last.y;
+        last = { x: e.clientX, y: e.clientY };
+      }
+      pcClamp();
+      pcDraw();
+    });
+
+    function up(e) {
+      delete pts[e.pointerId];
+      if (Object.keys(pts).length < 2) lastDist = 0;
+      if (!Object.keys(pts).length) last = null;
+    }
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  }
+
+  /* 🔑 WEBP IF THE BROWSER CAN, AND CHECKED RATHER THAN ASSUMED. A canvas
+     asked for a format it does not support returns PNG WITHOUT SAYING SO,
+     so image_extension would claim webp over png bytes. The prefix is the
+     only reliable tell. */
+  function pcExport() {
+    var out = document.createElement('canvas');
+    out.width = PC_OUT; out.height = PC_OUT;
+    var g = out.getContext('2d');
+    var k = PC_OUT / pc.side;
+    var w = pc.img.width * pc.scale * k, h = pc.img.height * pc.scale * k;
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, PC_OUT, PC_OUT);
+    g.drawImage(pc.img, pc.x * k - w / 2, pc.y * k - h / 2, w, h);
+
+    var url = out.toDataURL('image/webp', 0.9);
+    var ext = 'webp';
+    if (url.indexOf('data:image/webp') !== 0) {
+      url = out.toDataURL('image/jpeg', 0.9);
+      ext = 'jpg';
+    }
+    return { b64: url.slice(url.indexOf(',') + 1), ext: ext };
+  }
+
+  function savePhoto() {
+    if (!pc) return;
+    var btn = $('pcSave'), err = $('pcErr');
+    err.hidden = true;
+    btn.disabled = true; btn.textContent = 'Saving…';
+
+    var img;
+    try { img = pcExport(); }
+    catch (e) {
+      keep(e, 'photo export');
+      btn.disabled = false; btn.textContent = 'Save photo';
+      err.textContent = 'Could not process that photo.';
+      err.hidden = false;
+      return;
+    }
+
+    trailClear();
+    trail('photo save ext=' + img.ext + ' bytes=' + img.b64.length);
+
+    /* 🔴 RELATIVE, AND CREDENTIALS INCLUDED. BD identifies the member from
+       the session cookie and there is no id in the body to fall back on,
+       so a request that loses the cookie does not fail loudly - it writes
+       somebody else's photo or nothing at all. */
+    function post(action) {
+      var body =
+        'request_type=POST' +
+        '&widget_name=' + encodeURIComponent('Bootstrap Theme - Account - Profile Image Upload') +
+        '&header_type=json' +
+        '&image_info=' + encodeURIComponent(img.b64) +
+        '&image_extension=' + encodeURIComponent(img.ext) +
+        '&module_action=' + encodeURIComponent(action);
+
+      return fetch('/wapi/widget/print', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: body
+      }).then(function (r) {
+        trail(action + ' -> ' + r.status);
+        return r.text().then(function (t) { return { ok: r.ok, status: r.status, text: t }; });
+      });
+    }
+
+    /* Both calls BD makes, in BD's order. main is the profile photo; social
+       is a second copy BD keeps for its own use. Sending only one leaves the
+       two out of step, and which one BD reads where is not knowledge this
+       file has - so it does what BD does. */
+    post('upload_image_main')
+      .then(function (a) {
+        if (!a.ok) throw new Error('main ' + a.status);
+        return post('upload_image_social');
+      })
+      .then(function (b) {
+        if (!b.ok) throw new Error('social ' + b.status);
+        btn.disabled = false; btn.textContent = 'Save photo';
+        pc = null;
+        closeEdit();
+        toast('Photo saved');
+        vibrate([8, 24, 8]);
+        /* ⚠️ THE WRITE LANDING AND THE PHOTO RENDERING ARE DIFFERENT
+           CLAIMS. Re-read rather than assume, and let the Me tab repaint
+           from whatever BD now serves. */
+        readBD().then(function (p) {
+          if (p && p.photo) { S.profile.photo = p.photo; }
+          try { if (S.view === 'me') drawMe(); paintAvatar(); } catch (e) {}
+        });
+      })
+      .catch(function (e) {
+        trail('photo save THREW: ' + ((e && e.message) ? e.message : String(e)));
+        keep(e, 'savePhoto');
+        btn.disabled = false; btn.textContent = 'Save photo';
+        err.textContent = 'Could not save: ' + ((e && e.message) ? e.message : String(e));
+        err.hidden = false;
+      });
   }
 
   /* ========================================================= THE WEB SHEET
