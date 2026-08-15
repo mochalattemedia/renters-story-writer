@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v52                                       -->
+<!--  VERSION: shell-v53                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,29 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v52">
+<meta name="rdc-version" content="shell-v53">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v52
+/* ============================================================ shell-v53
+
+   v53: 🔴 THE PASSWORD SHEET CLOSED ITSELF THE INSTANT IT OPENED.
+
+   frameSignedIn() answers "has BD just signed this person in", and one of
+   its two signals is the frame sitting on a path under /account/. That is
+   right for login, where arriving at /account/home IS the success. It is
+   badly wrong for /account/password, which lives under /account/ from the
+   very first frame - so the sheet opened, decided a sign-in had just
+   happened, closed and rebooted the app. Seen as a flash and nothing else.
+
+   ⚠️ THE REAL MISTAKE WAS REUSING A SUCCESS TEST WITHOUT ASKING WHAT
+   SUCCESS MEANT. Sign-in succeeds by NAVIGATING somewhere. Changing a
+   password succeeds by BD saying so on the page; there is no destination
+   to watch for, and nothing this file can honestly detect. So the watch is
+   now per-entry: login, register and signup watch for a session; password
+   does not, and is closed by the renter when they are done.
 
    v52: CHANGE PASSWORD, IN THE SHEET RATHER THAN NATIVELY.
 
@@ -1102,7 +1118,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v52';
+  var V = 'shell-v53';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -3978,12 +3994,19 @@ a{color:var(--teal)}
       lede: 'One account. Everything you set up here follows you.' },
     signup: { url: '/checkout/renters?src=app', title: 'Create your account',
       lede: 'Your spot is held. Make an account and we start looking.' },
-    password: { url: '/account/password', title: 'Change password',
+    /* 🔑 watch:false. There is no navigation that means "the password
+       changed" - BD says so on the page and stays put. A sheet watching for
+       a session here closes on arrival, because the page it opens is
+       already under /account/. */
+    password: { url: '/account/password', title: 'Change password', watch: false,
       lede: 'One password for the app and the website. There is only one ' +
             'account behind both.' }
   };
 
   var webPoll = null, webFirst = true, webOpen = false, webUncover = null;
+  /* Whether THIS sheet is waiting for a sign-in. Set per entry, because the
+     answer differs by what the sheet is for. */
+  var webWatch = true;
 
   /* 🔴 THE ONE RELIABLE SIGNAL THAT SOMEBODY IS NOW SIGNED IN.
      input[name=logged_user] is rendered ONLY on the real dashboard, so
@@ -4154,6 +4177,7 @@ a{color:var(--teal)}
 
     webFirst = true;
     webOpen = true;
+    webWatch = cfg.watch !== false;
     $('sheet').classList.add('tall');
     /* The lede is gone from this sheet. It cost two lines of height the
        security challenge needs more than the renter needs reassuring, and
@@ -4185,7 +4209,10 @@ a{color:var(--teal)}
       if (webOpen && webFirst) webBlocked();
     }, 8000);
 
-    webPoll = setInterval(checkSignedIn, 1500);
+    /* Only started when there is something to watch for. A poll on a sheet
+       that has no success condition is a sheet that eventually closes on
+       somebody mid-typing. */
+    if (webWatch) webPoll = setInterval(checkSignedIn, 1500);
     $('scrim').classList.add('on');
     $('sheet').classList.add('on');
     trail('sheet shown');
@@ -4212,7 +4239,7 @@ a{color:var(--teal)}
        first and asked about the cookie only - so when the frame landed on
        /account/home it dressed the dashboard up and sat there. That is
        what a tester sees as a flash of the website inside the app. */
-    if (cookieId() || frameSignedIn(doc)) {
+    if (webWatch && (cookieId() || frameSignedIn(doc))) {
       trail('signed in -> rebooting');
       /* Stays hidden. There is no version of this where the renter should
          see their own BD dashboard inside the app, however briefly. */
@@ -4267,7 +4294,7 @@ a{color:var(--teal)}
      sees, and a sheet that stays open on a signed-in dashboard is the
      failure this whole version exists to remove. */
   function checkSignedIn() {
-    if (!webOpen) return;
+    if (!webOpen || !webWatch) return;
     if (cookieId()) { trail('poll: cookie -> won'); webWon(); return; }
     var f = $('lgFrame');
     if (!f) return;
