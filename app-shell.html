@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v29                                       -->
+<!--  VERSION: shell-v31                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,15 +9,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v29">
+<meta name="rdc-version" content="shell-v31">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v29
+/* ============================================================ shell-v31
 
    THE APP. Four tabs over engines that already exist.
+
+   v31: text boxes grow with what is typed instead of scrolling inside
+   themselves, and the vestigial "or just type" link says what it does.
+
+   ⭐ CHIP CAPS ARE CORRECT AS THEY STAND AND ARE NOT A BUG. Must have is
+   capped (schema mustHaveCap, 3) because a requirement list of twelve
+   items is not a requirement list - it is a wish, and it makes every
+   listing fail. Nice to have and deal breakers are UNCAPPED and each
+   carries its own colour. Confirmed as liked in testing, Aug 14, and
+   recorded here so nobody "fixes" the asymmetry later.
+
+   v30: VOICE ADDS, IT NO LONGER WIPES. Tapping the mic a second time to
+   say more used to delete everything said the first time. And parsing a
+   transcript now opens the form itself instead of relabelling a button
+   and waiting for another tap. Both from a live session, Aug 14.
 
    v29: the version is stated at the top of the file, above the doctype
    comment block, so a fragment of this file can be identified without
@@ -179,6 +194,8 @@ a{color:var(--teal)}
 .mini{border:1.5px solid var(--line);border-radius:100px;padding:7px 15px;font-size:12.5px;
       font-weight:700;color:var(--navy)}
 .mini.del{border:0;color:var(--slate);text-decoration:underline;font-weight:600;padding:7px 4px}
+.mini[disabled]{color:var(--slate);border-color:var(--line);opacity:.7}
+.mic[disabled]{opacity:.75}
 
 .empty{text-align:center;padding:26px 12px 20px}
 .empty b{display:block;font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:17px;
@@ -222,7 +239,8 @@ a{color:var(--teal)}
 .heard.on{display:block}
 .heard b{display:block;font-size:10.5px;font-weight:700;letter-spacing:.11em;
          text-transform:uppercase;color:var(--slate);margin:0 0 7px}
-.heard textarea{width:100%;border:1.5px solid var(--line);border-radius:var(--r);
+.heard textarea{resize:none;overflow:hidden;
+  width:100%;border:1.5px solid var(--line);border-radius:var(--r);
   background:var(--paper);padding:11px 13px;font-size:14px;line-height:1.55;color:var(--ink);
   resize:vertical;min-height:74px}
 .heard textarea:focus{outline:0;border-color:var(--teal);background:var(--white)}
@@ -246,7 +264,7 @@ a{color:var(--teal)}
 .f input,.f select,.f textarea{width:100%;border:1.5px solid var(--line);border-radius:var(--r);
   background:var(--white);padding:12px 14px;color:var(--ink);transition:border-color .16s}
 .f input:focus,.f select:focus,.f textarea:focus{outline:0;border-color:var(--teal)}
-.f textarea{resize:vertical;min-height:70px;line-height:1.5}
+.f textarea{resize:none;min-height:70px;line-height:1.5;overflow:hidden}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 
 .chips{display:flex;flex-wrap:wrap;gap:7px}
@@ -582,7 +600,7 @@ a{color:var(--teal)}
       </div>
 
       <p class="or">Speaking fills this in for you &middot;
-        <button id="typeIt">or just type</button></p>
+        <button id="typeIt">or fill it in yourself &darr;</button></p>
 
       <div class="fields on" id="fields">
         <div id="opts"></div>
@@ -666,7 +684,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v29';
+  var V = 'shell-v31';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -1359,32 +1377,62 @@ a{color:var(--teal)}
 
   /* ------------------------------------------------------------ voice */
 
-  var rec = null, listening = false, transcript = '', readyToOpen = false;
+  var rec = null, listening = false, transcript = '', voiceBase = '';
   function speechOK() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
 
   $('mic').addEventListener('click', function () {
-    if (!speechOK()) { toast('This browser will not listen. Fill it in instead.'); showFields(); return; }
+    if (!speechOK()) { toast('This browser will not listen. Fill it in instead.'); openFields(); return; }
     listening ? stopListening() : startListening();
   });
+
+  /* The mic's own label carries the state, because it is the only control
+     on screen that is ever live and it is the one people look at. */
+  function micIdle() {
+    var has = ($('heardT').value || '').trim().length > 0;
+    $('micB').textContent = has ? 'Say something else' : 'Describe it out loud';
+    $('micS').textContent = has
+      ? 'It gets added to what you already said.'
+      : 'Say what would work there, the way you would tell a friend.';
+  }
 
   function startListening() {
     var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     rec = new SR();
     rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US';
+
+    /* 🔴 WHAT IS ALREADY IN THE BOX IS KEPT. Up to v29 this line reset the
+       textarea on every start, and onresult wrote only the NEW utterance
+       into it - so tapping the mic a second time to add something silently
+       deleted the first thing said. Reported from a live session in those
+       words: wanting to add more, not delete what was already there.
+
+       This is the same MERGE, NEVER REPLACE rule the criteria below have,
+       applied one level up at the transcript, and it is the fourth
+       instance of that bug in this codebase. */
+    voiceBase = ($('heardT').value || '').trim();
     transcript = '';
+
     rec.onresult = function (e) {
-      var t = '';
-      for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      var t = '', i;
+      for (i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
       transcript = t;
-      $('heard').classList.add('on'); $('heardT').value = t;
+      $('heard').classList.add('on');
+      $('heardT').value = voiceBase ? (voiceBase + ' ' + t) : t;
+      grow($('heardT'));
     };
     rec.onerror = function () { stopListening(); toast('Could not hear that. Try again.'); };
     rec.onend = function () { if (listening) stopListening(); };
     try { rec.start(); } catch (e) { return; }
+
     listening = true;
     $('mic').classList.add('live');
-    $('micB').textContent = 'Listening. Tap when done.';
-    $('micS').textContent = 'Rent, bedrooms, when you need to move, the dog.';
+    /* THE STOP IS ON THE THING THAT IS RUNNING. "Tap when done" was true
+       and got missed, because it did not say tap WHAT while a second
+       button sat underneath also asking to be tapped. */
+    $('micB').textContent = 'Listening. Tap here when you finish.';
+    $('micS').textContent = voiceBase
+      ? 'Keep going. What you already said is kept.'
+      : 'Rent, bedrooms, when you need to move, the dog.';
     vibrate(10);
   }
 
@@ -1392,46 +1440,70 @@ a{color:var(--teal)}
     listening = false;
     try { if (rec) rec.stop(); } catch (e) {}
     $('mic').classList.remove('live');
-    $('micB').textContent = 'Describe it out loud';
-    $('micS').textContent = 'Say what would work there, the way you would tell a friend.';
+    micIdle();
     var typed = ($('heardT').value || '').trim();
     if (typed.length > 12) extract(typed);
   }
 
-  $('heardT').addEventListener('input', function () {
-    readyToOpen = false; $('redo').textContent = 'Use this →';
-  });
+  $('heardT').addEventListener('input', function () { micIdle(); grow(this); });
+
   $('redo').addEventListener('click', function () {
-    if (readyToOpen) { showFields(); vibrate(8); return; }
     var t = ($('heardT').value || '').trim();
     if (t.length < 13) { toast('Say a little more'); return; }
     extract(t);
   });
 
+  /* ⭐ ONE TAP, NOT THREE. v29 parsed the transcript, relabelled this
+     button "Looks right" and then waited for a SECOND tap to open the
+     form - while the mic sat above it offering a third. Reported as too
+     many buttons for one goal, and the criticism is right: the form is
+     open by default since v15, so the second tap bought nothing at all.
+     Parsing now takes you to the form.
+
+     ⏱️ AND THE TAP IS ACKNOWLEDGED BEFORE THE ANSWER ARRIVES. alerts-voice
+     is slow enough that a button which does not change reads as a button
+     that did not register, so it gets pressed again. The label changes on
+     the tap, not on the response. */
   function extract(t) {
+    var btn = $('redo');
+    var mic = $('mic');
+
+    btn.disabled = true;
+    btn.textContent = 'Working on it…';
+    mic.disabled = true;
     $('micB').textContent = 'Working out what you said';
+    $('micS').textContent = 'One moment.';
+
+    function settled() {
+      btn.disabled = false;
+      btn.textContent = 'Use this →';
+      mic.disabled = false;
+      micIdle();
+    }
+
     fetch(VOICE, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transcript: t, memberId: S.member }) })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        $('micB').textContent = 'Describe it out loud';
-        if (!d || !d.criteria) { showFields(); toast('Have a look and fill in the gaps'); return; }
+        settled();
+        if (!d || !d.criteria) { openFields(); toast('Have a look and fill in the gaps'); return; }
         merge(d.criteria);
-        readyToOpen = true; $('redo').textContent = 'Looks right →';
+        openFields();
+        vibrate(8);
         toast(d.unclear && d.unclear.length
           ? 'Add ' + d.unclear.slice(0, 2).map(pretty).join(' and ').toLowerCase()
           : 'Check it over, then keep going');
       })
       .catch(function () {
-        $('micB').textContent = 'Describe it out loud';
-        showFields(); toast('Could not process that. Fill it in instead.');
+        settled();
+        openFields();
+        toast('Could not process that. Fill it in instead.');
       });
   }
 
   /* 🔴 MERGE, NEVER REPLACE. alerts-voice deliberately ignores place names,
      so a transcript has NOTHING to say about a zone and must never be able
-     to erase one. Only keys the renter actually mentioned are taken. Three
-     separate instances of this exact bug in two days. */
+     to erase one. Only keys the renter actually mentioned are taken. */
   function merge(c) {
     var o = S.draft.options[0], cr = S.draft.criteria;
     if (c.rent_max) o.rent_max = c.rent_max;
@@ -1464,16 +1536,38 @@ a{color:var(--teal)}
     paintDraft();
   }
 
+  /* The form is already open, so this scrolls to it rather than revealing
+     it - anything that promises somewhere to type should take you there. */
+  function openFields() {
+    showFields();
+    var f = $('fields');
+    if (f && f.scrollIntoView) f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   function showFields() { $('fields').classList.add('on'); }
+
+  /* 🔴 A TEXT BOX THAT SCROLLS INSIDE ITSELF LOSES THE TOP OF WHAT YOU
+     WROTE. On a phone the fourth line pushes the first out of view with no
+     way to see both, and the renter is left writing into a slot instead of
+     reading back what they said. These grow instead, up to a ceiling that
+     keeps the box from swallowing the screen, and only then scroll.
+
+     Called on input AND after every programmatic write, because a value
+     set from a draft or from speech does not fire input. */
+  var GROW_MAX = 420;
+  function grow(el) {
+    if (!el) return;
+    el.style.height = 'auto';
+    var h = el.scrollHeight;
+    if (h > GROW_MAX) { el.style.height = GROW_MAX + 'px'; el.style.overflowY = 'auto'; }
+    else { el.style.height = h + 'px'; el.style.overflowY = 'hidden'; }
+  }
+  $('notes').addEventListener('input', function () { grow(this); });
 
   /* The form is already open, so this scrolls to it rather than revealing
      it - the label promises somewhere to type, and the screen should take
      them there. */
-  $('typeIt').addEventListener('click', function () {
-    showFields();
-    var f = $('fields');
-    if (f && f.scrollIntoView) f.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
+  $('typeIt').addEventListener('click', openFields);
 
   /* ---------------------------------------------------------- options */
 
@@ -1559,6 +1653,7 @@ a{color:var(--teal)}
     $('moveE').value = cr.move_in_earliest || '';
     $('moveL').value = cr.move_in_latest || '';
     $('notes').value = cr.notes || '';
+    grow($('notes'));
   }
 
   function readDraft() {
