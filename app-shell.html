@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v43                                       -->
+<!--  VERSION: shell-v44                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v43">
+<meta name="rdc-version" content="shell-v44">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v43
+/* ============================================================ shell-v44
+
+   v44: 🔴 ABOUT ME NEVER SAVED, AND SAID IT DID.
+
+   Every row in ABOUT carries two names: k, the app's key, and v, BD's
+   actual column. The sheet keyed its draft by k - correct, because that
+   is what S.editable reads back - and then POSTED k as well. So the app
+   sent `income`, `household`, `cosigner`, `timing`, `pets`, and
+   member-profile was looking for `gross_monthly_combined`,
+   `number_of_peop`, `co_signer`, `i_want_to_relocate`,
+   `do_you_have_pets`. Nothing matched. mp-v6 built a fields object with
+   only user_id in it and returned 400 "nothing to update".
+
+   ⚠️ AND THE SHEET READ THAT 400 AS SUCCESS. It checked j.ok === false,
+   and a 400 body carries no ok at all, so undefined !== false and the
+   sheet closed saying "Saved". THE HTTP STATUS IS NOW CHECKED FIRST.
+   Every silent failure in this file has had that shape: a response that
+   is not an explicit failure being treated as a pass.
+
+   ⭐ co_signer NOW OFFERS "No". A live record came back carrying `no`,
+   which the option list said did not exist - it was removed on the belief
+   that BD's form had only yes and not_sure. The record beats the form
+   reading: a renter whose answer is no could neither say it nor see it.
 
    v43: 🔴 VERIFIED COMES FROM THE BD COLUMN, NOT FROM READING A PAGE.
 
@@ -904,7 +926,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v43';
+  var V = 'shell-v44';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2511,7 +2533,12 @@ a{color:var(--teal)}
          form that owns the field while saving cleanly here. The same
          mistake as writing labels instead of values, one step smaller.
          A renter who means no leaves it blank. */
-      opts: [['Yes','yes'], ['Not sure','not_sure']] },
+      /* ⭐ THREE, AND `no` IS THE ONE THAT WAS WRONGLY REMOVED. It came
+         out on a reading of BD's form; a LIVE RECORD then came back
+         holding `no`, which settles it. A renter whose answer is no could
+         neither give it nor see their own stored value reflected. When
+         the form and the record disagree, the record is what exists. */
+      opts: [['Yes','yes'], ['No','no'], ['Not sure','not_sure']] },
 
     { k: 'timing', v: 'i_want_to_relocate', label: 'When do you need to move',
       help: '',
@@ -2616,11 +2643,27 @@ a{color:var(--teal)}
        request, so an untouched answer is never rewritten - and a form that
        posts everything every time is how a stale value overwrites one saved
        on another device an hour ago. */
+    /* 🔴 SEND BD'S COLUMN NAME, NOT THE APP'S KEY. The draft is keyed by
+       f.k because that is what S.editable reads back, but member-profile
+       accepts f.v - the name off BD's Form Manager. Posting k meant not
+       one field matched and the whole sheet was a no-op.
+
+       Built from ABOUT and ABOUT_TEXT so the mapping cannot drift: there
+       is exactly one list of these fields and it already holds both
+       names. */
+    var COLS = {};
+    ABOUT.forEach(function (f) { COLS[f.k] = f.v; });
+    ABOUT_TEXT.forEach(function (f) { COLS[f.k] = f.v; });
+
     var e = S.editable || {};
     var body = { memberId: S.member, secret: SH_SECRET };
     var sent = 0;
     Object.keys(draft).forEach(function (k) {
-      if (draft[k] !== String(e[k] || '')) { body[k] = draft[k]; sent++; }
+      if (draft[k] === String(e[k] || '')) return;
+      var col = COLS[k];
+      if (!col) return;          /* no column, no write - never guess one */
+      body[col] = draft[k];
+      sent++;
     });
     if (!sent) { closeEdit(); return; }
 
@@ -2630,13 +2673,24 @@ a{color:var(--teal)}
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     })
-      .then(function (r) { return r.json().catch(function () { return {}; }); })
+      /* ⚠️ THE STATUS IS CARRIED THROUGH. A 400 body has no `ok` field, so
+         checking ok === false alone let every rejection through as a
+         success - which is exactly how this sheet reported "Saved" while
+         saving nothing. */
+      .then(function (r) {
+        return r.json()
+          .catch(function () { return {}; })
+          .then(function (j) { j = j || {}; j._httpOk = r.ok; return j; });
+      })
       .then(function (j) {
         btn.disabled = false; btn.textContent = 'Save';
-        /* mp-v4 reads the record back. ok:false means BD accepted the call
-           and did not apply it, which it has done before and answers 200 to. */
-        if (!j || j.ok === false) {
-          err.textContent = 'That did not save. Try once more.';
+        /* mp-v6 reads the record back, so ok:true means the value actually
+           CHANGED in BD, not that the call returned cleanly. Anything else
+           - a non-2xx, a missing ok, an explicit false - is a failure. */
+        if (!j._httpOk || j.ok !== true) {
+          err.textContent = (j && j.error === 'nothing to update')
+            ? 'Nothing changed.'
+            : 'That did not save. Try once more.';
           err.hidden = false;
           return;
         }
