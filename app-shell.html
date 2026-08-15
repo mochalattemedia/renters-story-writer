@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v44                                       -->
+<!--  VERSION: shell-v46                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,45 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v44">
+<meta name="rdc-version" content="shell-v46">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v44
+/* ============================================================ shell-v46
+
+   v46: ⚠️ "COULD NOT REACH US" WAS NOT NECESSARILY TRUE.
+
+   saveAbout ended in a single .catch, and a .catch on a promise chain
+   catches EXCEPTIONS THROWN IN THE SUCCESS HANDLER exactly as readily as
+   it catches a failed request. So a bug in the code that runs AFTER a
+   perfectly good response reported itself to the renter as a connection
+   problem, and sent them to check their wifi over a TypeError.
+
+   The two are now separated. Work that happens after a good response is
+   wrapped on its own, and the network catch reports what actually threw
+   instead of assuming. It is the same lesson as the sign-in trail: when
+   the message is a guess, the next hour is spent debugging the guess.
+
+   v45: 🔴 THE FRAME IS HIDDEN UNTIL IT HAS BEEN STRIPPED.
+
+   v38 stopped the sheet DRESSING UP the dashboard, and the flash of
+   website survived it anyway, because the two are different problems. The
+   frame was visible the whole time, so every navigation inside it painted
+   BD's real page - header, nav, footer - for however long it took the
+   load event to fire and strip() to run. Stripping faster was never going
+   to fix that. Not showing it until it is ready does.
+
+   The frame now starts hidden and is revealed only once strip() has
+   returned. Anything else - loading, navigating, signing in - shows the
+   overlay instead.
+
+   ⚠️ AND THE HOOK IS beforeunload INSIDE THE FRAME, NOT submit. The old
+   code re-covered the frame on a form submit event, which never fires
+   when the page posts itself from script - which is exactly what a page
+   carrying a security check does. beforeunload fires on EVERY navigation
+   however it was started, and same-origin is what makes it reachable.
 
    v44: 🔴 ABOUT ME NEVER SAVED, AND SAID IT DID.
 
@@ -592,7 +624,13 @@ a{color:var(--teal)}
 .lg-x{flex:0 0 auto;font-size:13px;font-weight:700;color:var(--slate);padding:6px 4px}
 .lg-wrap{flex:1 1 auto;position:relative;min-height:0;
   border-top:1px solid var(--line)}
-.lg-frame{width:100%;height:100%;border:0;display:block;background:var(--white)}
+/* 🔴 HIDDEN UNTIL STRIPPED. visibility rather than display so the frame
+   still lays out and loads at full size - a display:none frame reports
+   zero height, and a security challenge sized against zero is the bug
+   v39 just finished fixing. */
+.lg-frame{width:100%;height:100%;border:0;display:block;background:var(--white);
+  visibility:hidden}
+.lg-frame.ready{visibility:visible}
 .lg-load{position:absolute;inset:0;display:flex;align-items:center;
   justify-content:center;background:var(--white);font-size:12.5px;
   color:var(--slate);transition:opacity .32s var(--ease)}
@@ -926,7 +964,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v44';
+  var V = 'shell-v46';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2694,15 +2732,29 @@ a{color:var(--teal)}
           err.hidden = false;
           return;
         }
-        S.editable = j.profile || S.editable;
-        closeEdit();
-        drawMe();
-        toast('Saved');
-        vibrate([8, 24, 8]);
+        /* 🔴 SEPARATED FROM THE REQUEST. Anything in here that throws is a
+           bug in this file, not a connection problem, and it must not be
+           reported to the renter as one - the save has already landed by
+           this point. */
+        try {
+          S.editable = j.profile || S.editable;
+          closeEdit();
+          drawMe();
+          toast('Saved');
+          vibrate([8, 24, 8]);
+        } catch (e2) {
+          keep(e2, 'saveAbout after-save');
+          closeEdit();
+          toast('Saved');
+        }
       })
-      .catch(function () {
+      .catch(function (e) {
+        /* Says what actually went wrong. "Check your connection" over a
+           TypeError sends somebody to restart their router about a bug in
+           this file. */
+        keep(e, 'saveAbout');
         btn.disabled = false; btn.textContent = 'Save';
-        err.textContent = 'Could not reach us. Check your connection.';
+        err.textContent = 'Could not save: ' + ((e && e.message) ? e.message : String(e));
         err.hidden = false;
       });
   }
@@ -3552,14 +3604,30 @@ a{color:var(--teal)}
       if (hit) trail('page carries ' + hit + ' frame-busting script(s)');
     } catch (e) {}
 
-    /* The moment they submit, say something. BD's round trip is not fast and
-       a sheet that sits still reads as a sheet that broke. */
+    /* 🔴 COVER THE FRAME ON ANY NAVIGATION, NOT ON SUBMIT. A submit
+       listener misses a page that posts itself from script, which is what
+       a form behind a security check does - and the miss is visible as a
+       flash of the real website inside the app. beforeunload fires
+       whatever started it. pagehide is the iOS half of the same thing. */
+    function cover() {
+      var fr = $('lgFrame');
+      if (fr) fr.classList.remove('ready');
+      var l = $('lgLoad');
+      if (l) { l.textContent = 'One moment…'; l.classList.remove('off'); }
+    }
+    try {
+      var w = doc.defaultView;
+      if (w) {
+        w.addEventListener('beforeunload', cover);
+        w.addEventListener('pagehide', cover);
+      }
+    } catch (e) { keep(e, 'frame unload hook'); }
+
+    /* Kept as well as, not instead of. A submit that fires gives the
+       renter feedback a fraction earlier than the navigation does. */
     var forms = doc.querySelectorAll('form'), k;
     for (k = 0; k < forms.length; k++) {
-      forms[k].addEventListener('submit', function () {
-        var l = $('lgLoad');
-        if (l) { l.textContent = 'One moment…'; l.classList.remove('off'); }
-      });
+      forms[k].addEventListener('submit', cover);
     }
   }
 
@@ -3632,6 +3700,9 @@ a{color:var(--teal)}
        what a tester sees as a flash of the website inside the app. */
     if (cookieId() || frameSignedIn(doc)) {
       trail('signed in -> rebooting');
+      /* Stays hidden. There is no version of this where the renter should
+         see their own BD dashboard inside the app, however briefly. */
+      f.classList.remove('ready');
       var ok = $('lgLoad');
       if (ok) { ok.textContent = 'Signing you in…'; ok.classList.remove('off'); }
       webWon();
@@ -3639,6 +3710,9 @@ a{color:var(--teal)}
     }
 
     try { strip(doc); trail('stripped ok'); } catch (e) { keep(e, 'web strip'); trail('strip THREW'); }
+
+    /* Revealed only now, with BD's chrome already off it. */
+    f.classList.add('ready');
     var l = $('lgLoad');
     if (l) { l.textContent = 'Opening…'; l.classList.add('off'); }
   }
