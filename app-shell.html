@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v60                                       -->
+<!--  VERSION: shell-v61                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v60">
+<meta name="rdc-version" content="shell-v61">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v60
+/* ============================================================ shell-v61
+
+   v61: EACH STEP LANDS ON THE SCREEN IT IS TALKING ABOUT.
+
+   Steps 1, 2 and 3 all sat on the spots LIST. Three taps, three different
+   paragraphs, the same picture behind all of them - so the narration read
+   as captions on one screenshot rather than a walk through a product. The
+   two screens nobody has seen anywhere else, the zone map and the criteria
+   editor, were being described instead of shown.
+
+   Step 1 now opens the zone picker, step 2 the criteria editor, step 3
+   comes back to the list where Edit and Pause actually live.
+
+   🔑 THE DRAFT HAS TO EXIST FIRST. paintDraft() reads S.draft.zone with no
+   null guard, so walking into 'edit' with no draft throws and the tour
+   dies mid-step. tourSeedDraft() clones the first demo spot before either
+   deep view is entered. It only ever runs in demo.
+
+   ============================================================ shell-v60
 
    v60: "SEND IT" NOW SENDS IT.  (pairs with tour-feedback tf-v1)
 
@@ -1308,7 +1326,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v60';
+  var V = 'shell-v61';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -4605,11 +4623,11 @@ a{color:var(--teal)}
        that screen is for. `view` drives the app; the renter is never asked
        to find anything themselves. */
     steps: [
-      { view: 'spots', label: 'Zones',
+      { view: 'zone', label: 'Zones',
         title: 'Draw where you would actually live',
         body: 'Not a city, not a radius around a pin. Stretch a shape over ' +
               'the area you would actually take, then add another.' },
-      { view: 'spots', label: 'Perfect spot',
+      { view: 'edit', label: 'Perfect spot',
         title: 'Now describe the place itself',
         body: 'Rent, beds, a washer, dogs allowed. Speak it or tap it, then ' +
               'sort it into must-have, nice-to-have and deal breaker.' },
@@ -4733,12 +4751,12 @@ a{color:var(--teal)}
     /* Same screens, same order. An investor needs to know why each one is
        built the way it is, not what to tap. */
     steps: [
-      { view: 'spots', label: 'Zones',
+      { view: 'zone', label: 'Zones',
         title: 'Demand starts with a real area',
         body: 'A radius around a pin crosses a river and a school ' +
               'catchment. A drawn zone does not, and it is far better ' +
               'signal on where somebody would actually sign.' },
-      { view: 'spots', label: 'Perfect spot',
+      { view: 'edit', label: 'Perfect spot',
         title: 'Requirements, ranked by how hard they are',
         body: 'Must-have, nice-to-have, deal breaker. That ranking is what ' +
               'a filter throws away and what makes matching possible.' },
@@ -4842,6 +4860,25 @@ a{color:var(--teal)}
     });
   }
 
+  /* ⭐ The zone picker and the criteria editor both paint from S.draft, and
+     paintDraft() dereferences it without checking. A renter arriving at
+     step 1 has never started a spot, so there is nothing there. Clone the
+     first demo spot so both screens have something real to show. Demo only,
+     and it never touches a spot that already exists. */
+  function tourSeedDraft() {
+    if (!DEMO) return;
+    if (S.draft && S.draft.zone) return;
+    var src = (S.spots && S.spots[0]) || null;
+    if (!src) return;
+    S.draft = JSON.parse(JSON.stringify({
+      zone: src.zone || {},
+      options: src.options || [],
+      criteria: src.criteria || { must_have: [], nice_to_have: [],
+                                  deal_breakers: [], notes: '' }
+    }));
+    trail('tour: seeded a draft for the deep views');
+  }
+
   function tourResume() {
     if (tour.done) { trail('tour: already finished'); return; }
     if (tour.i >= 0) { tour.on = true; tourShow(); }
@@ -4870,6 +4907,10 @@ a{color:var(--teal)}
     var i = tour.i;
 
     if (i >= total) { tourAccount(); return; }
+
+    /* Before go(), not after. Entering the view is what paints it. */
+    var st = TOUR_COPY.steps[i];
+    if (st && (st.view === 'zone' || st.view === 'edit')) tourSeedDraft();
 
     var isPlay = (i === steps.length);
     var st = isPlay ? null : steps[i];
