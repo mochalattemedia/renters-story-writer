@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v56                                       -->
+<!--  VERSION: shell-v58                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,40 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v56">
+<meta name="rdc-version" content="shell-v58">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v56
+/* ============================================================ shell-v58
+
+   v58: THE NARRATION STOPS LOOKING LIKE THE APP.
+
+   The bar was a white card with navy text sitting under a screen full of
+   white cards with navy text, so it read as one more row of content rather
+   than as somebody talking. It is now navy on the app instead of in it.
+
+   Copy cut to roughly a sentence a step. Four lines of body text under a
+   demo the renter is trying to look at is a paragraph nobody finishes, and
+   every word past the first sentence was decoration.
+
+   ============================================================ shell-v57
+
+   v57: THE BUSINESS PANEL SAYS WHAT THE INVESTOR PAGE SAYS.
+
+   v56 described the model as marketing to loan, insurance and purchase
+   partners. The live investor page leads with per-lead and on-move-in
+   pricing and files partner products under in development. Two versions of
+   the same company, and anybody who read both would notice. Rewritten to
+   match the page, and it now links out rather than restating figures.
+
+   NO NUMBERS ARE COPIED IN. A member count baked into the app is stale the
+   week after it ships and has to be re-anchored by hand forever, which is
+   the mistake the members map counter already made. The page is the source
+   of truth; the app points at it.
+
+   ============================================================ shell-v56
 
    v56: THE WALKTHROUGH TEACHES THE PRODUCT, NOT THE TABS.
 
@@ -942,23 +969,23 @@ a{color:var(--teal)}
    to ignore, present enough to read out loud. */
 /* --------------------------------------------------------------- tour */
 .tour{position:fixed;left:0;right:0;bottom:0;z-index:900;max-width:480px;margin:0 auto;
-  background:var(--white);border-top:1px solid var(--line);
-  box-shadow:0 -10px 30px rgba(13,45,78,.12);
+  background:var(--navy);border-top:0;
+  box-shadow:0 -14px 38px rgba(8,31,56,.34);
   padding:14px 20px calc(14px + env(safe-area-inset-bottom));
   transform:translateY(105%);transition:transform .38s var(--ease)}
 .tour.on{transform:translateY(0)}
-.tour-bar{height:3px;border-radius:3px;background:var(--line);overflow:hidden;margin:0 0 12px}
-.tour-bar i{display:block;height:100%;background:var(--teal);width:0;
+.tour-bar{height:3px;border-radius:3px;background:rgba(255,255,255,.2);overflow:hidden;margin:0 0 12px}
+.tour-bar i{display:block;height:100%;background:var(--lime);width:0;
   transition:width .45s var(--ease)}
 .tour-step{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-  color:var(--slate);margin:0 0 5px}
-.tour h4{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:16.5px;
-  color:var(--navy);margin:0 0 6px;line-height:1.3}
-.tour p{font-size:13px;line-height:1.6;color:var(--ink-2);margin:0 0 13px}
+  color:var(--lime);margin:0 0 6px}
+.tour h4{font-family:'Red Hat Display',sans-serif;font-weight:800;font-size:19px;
+  color:#fff;margin:0 0 6px;line-height:1.25}
+.tour p{font-size:14px;line-height:1.5;color:rgba(255,255,255,.82);margin:0 0 14px}
 .tour-act{display:flex;gap:10px;align-items:center}
 .tour-act .cta{flex:1 1 auto;margin:0}
 .tour-skip{flex:0 0 auto;background:none;border:0;font-size:12.5px;font-weight:700;
-  color:var(--slate);text-decoration:underline;padding:8px 2px}
+  color:rgba(255,255,255,.7);text-decoration:underline;padding:8px 2px}
 /* The full-screen panels: welcome, feedback, and the optional last leg. */
 .tour-full{position:fixed;inset:0;z-index:940;background:var(--paper);
   overflow-y:auto;-webkit-overflow-scrolling:touch;
@@ -1247,7 +1274,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v56';
+  var V = 'shell-v58';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -4536,45 +4563,33 @@ a{color:var(--teal)}
     steps: [
       { view: 'spots', label: 'Zones',
         title: 'Draw where you would actually live',
-        body: 'Not a city, not a radius around a pin. Drop a point and ' +
-              'stretch it until it covers the area you would genuinely ' +
-              'take, then add another somewhere else. Most people have ' +
-              'two or three, and they are rarely next to each other.' },
+        body: 'Not a city, not a radius around a pin. Stretch a shape over ' +
+              'the area you would actually take, then add another.' },
       { view: 'spots', label: 'Perfect spot',
         title: 'Now describe the place itself',
-        body: 'Say it out loud if it is easier. Rent, beds, a washer, dogs ' +
-              'allowed, no ground floor. Sort them into must-have, ' +
-              'nice-to-have and deal breaker, because the difference ' +
-              'between those three is the whole of matching.' },
+        body: 'Rent, beds, a washer, dogs allowed. Speak it or tap it, then ' +
+              'sort it into must-have, nice-to-have and deal breaker.' },
       { view: 'spots', label: 'Editing',
         title: 'It changes when you change',
-        body: 'Everything here is editable, and it should be. Budgets ' +
-              'move, a job moves, a nice-to-have quietly turns into a ' +
-              'must-have. Open a spot and change it and the next matches ' +
-              'come back different.' },
+        body: 'Budgets move and jobs move. Change a spot and the next ' +
+              'matches come back different.' },
       { view: 'me', label: 'Verify',
         title: 'Confirm once, carry it everywhere',
-        body: 'A photo of your ID and a quick selfie. That is the blue ' +
-              'check, and landlords here go through the same thing. It is ' +
-              'the reason nothing on this app is a fake listing or a ' +
-              'stranger fishing for your details.' },
+        body: 'ID and a quick selfie, once. Landlords do the same, which ' +
+              'is why there are no fake listings here.' },
       { view: 'matches', label: 'Swiping',
         title: 'Left to pass, right to look closer',
-        body: 'No photographs on the front of the card, on purpose. Photos ' +
-              'are how people lose evenings on places they were never ' +
-              'getting. What you get instead is what the landlord requires ' +
-              'and whether you already meet it.' },
+        body: 'No photos on the front, on purpose. You see what the ' +
+              'landlord requires and whether you already meet it.' },
       { view: 'showings', label: 'Showings',
         title: 'Book it without the phone tag',
-        body: 'Set the hours you are free once. Booking happens against ' +
-              'that, so nobody is trading messages about Tuesday. Both ' +
-              'sides already know who they are meeting.' }
+        body: 'Set the hours you are free once. No messages about ' +
+              'Tuesday, and both sides know who they are meeting.' }
     ],
 
     playTitle: 'Now have a go',
-    playBody: 'Nothing here can break and nothing leaves this phone. Draw a ' +
-              'zone, describe a spot, swipe a few, book a showing. Come ' +
-              'back to this bar when you are done.',
+    playBody: 'Nothing can break and nothing leaves this phone. Come back ' +
+              'to this bar when you are done.',
     playNext: 'I have had a look',
 
     /* Offered after the play step. Everything up to here has been invented
@@ -4607,15 +4622,20 @@ a{color:var(--teal)}
       'Renters.com is a marketplace where both sides are verified people. ' +
       'Not an aggregator, not a broker. We never list a place we have not ' +
       'been given directly.',
-      'Somebody moving is also deciding about a loan, about insurance, and ' +
-      'often about buying within a couple of years. We are a marketing ' +
-      'channel to partners in those three areas and collect a marketing ' +
-      'fee. We do not underwrite anything, we do not advise, and we do not ' +
-      'sell a product of our own.',
-      'What makes that worth anything is the verification and the timing: ' +
-      'real people, confirmed identity, caught at the moment the decision ' +
-      'is being made.'
+      'Searching is free for you and it stays that way. You are never ' +
+      'charged to look, to tour, or to apply. Listing is free too. ' +
+      'Landlords pay either for a verified renter we introduce, or a ' +
+      'single flat fee once somebody actually moves in, and part of that ' +
+      'one goes back to the renter.',
+      'Both are flat fees that do not move with the rent, which is what ' +
+      'keeps us a marketing channel and not a brokerage. Later there will ' +
+      'be things like co-signing and lease guarantees through licensed ' +
+      'partners. We do not underwrite anything and we do not advise.',
+      'What makes any of it work is the verification and the timing: real ' +
+      'people, confirmed identity, at the moment the decision is being made.'
     ],
+    bizMore: 'The full picture, with the numbers, is on our investor page.',
+    bizLink: 'Open the investor page',
     bizDone: 'Close'
   };
 
@@ -4851,7 +4871,15 @@ a{color:var(--teal)}
     $('tBiz').firstChild.innerHTML =
       '<h2>' + esc2(c.bizTitle) + '</h2>' +
       c.bizBody.map(function (t) { return '<p>' + esc2(t) + '</p>'; }).join('') +
+      /* 🔑 Linked, never copied. Figures live on one page that gets kept
+         current; a snapshot pasted in here would quietly turn into fiction. */
+      '<div class="tour-note"><p>' + esc2(c.bizMore) + '</p></div>' +
+      '<button class="cta" id="bizLink">' + esc2(c.bizLink) + '</button>' +
       '<button class="cta ghost" id="bizDone">' + esc2(c.bizDone) + '</button>';
+    $('bizLink').addEventListener('click', function () {
+      trail('tour: opened the investor page');
+      window.open('https://www.renters.com/investors', '_blank');
+    });
     $('bizDone').addEventListener('click', function () {
       $('tBiz').classList.remove('on');
     });
