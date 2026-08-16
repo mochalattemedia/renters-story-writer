@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v61                                       -->
+<!--  VERSION: shell-v62                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,29 +9,52 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v61">
+<meta name="rdc-version" content="shell-v62">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v61
+/* ============================================================ shell-v62
 
-   v61: EACH STEP LANDS ON THE SCREEN IT IS TALKING ABOUT.
+   v62: AN INVESTOR DOES NOT ANSWER A SURVEY TO REACH THE DECK.
 
-   Steps 1, 2 and 3 all sat on the spots LIST. Three taps, three different
-   paragraphs, the same picture behind all of them - so the narration read
-   as captions on one screenshot rather than a walk through a product. The
-   two screens nobody has seen anywhere else, the zone map and the criteria
-   editor, were being described instead of shown.
+   The business panel and its link to /investors sat behind the feedback
+   form: play, account, survey, thank you, offer, panel. For a renter that
+   order is right - somebody looking for a flat should not be told how we
+   make money until they have said what they think. For somebody sent the
+   investor link it is backwards. They came for the model.
 
-   Step 1 now opens the zone picker, step 2 the criteria editor, step 3
-   comes back to the list where Edit and Pause actually live.
+   On ?who=investor the walkthrough now ends on the business panel, with
+   the survey offered from it rather than gating it. On the renter script
+   nothing moves.
 
-   🔑 THE DRAFT HAS TO EXIST FIRST. paintDraft() reads S.draft.zone with no
-   null guard, so walking into 'edit' with no draft throws and the tour
-   dies mid-step. tourSeedDraft() clones the first demo spot before either
-   deep view is entered. It only ever runs in demo.
+   THE PANEL ALSO STOPS SPEAKING TO THE WRONG PERSON. v59 gave investors a
+   different welcome, different steps and different questions, and then
+   handed them the renter's business panel - the one written to reassure
+   somebody worried they are being sold to.
+
+   ============================================================ shell-v61
+
+   v61: NARRATION, THEN THEIR OWN GO, THEN ONE ASK ON THE WAY OUT.
+
+   Three problems, all on the same screen.
+
+   SKIP AND THE GREEN BUTTON LOOKED LIKE THE SAME THING. For six steps Skip
+   meant "skip this step". On the free-play step the green button also moves
+   forward, so the two read as alternatives when one of them quietly
+   abandoned the walkthrough. Skip is gone from that step. They have
+   already seen everything; the only thing left is the ask, and an exit
+   placed immediately before the ask costs the answer that the whole
+   walkthrough exists to collect.
+
+   THE BAR SAT ON TOP OF THE CARDS IT WAS POINTING AT. A step that says go
+   and touch things cannot cover the things. The scroll area now reserves
+   room for the bar while the tour is running.
+
+   THE PROGRESS LINE READ FULL WITH SCREENS STILL TO COME. It counted the
+   narrated steps and ignored the ask that follows, so "I am done looking"
+   looked like the end and was not.
 
    ============================================================ shell-v60
 
@@ -642,6 +665,9 @@ a{color:var(--teal)}
 .body{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 20px 0;
       min-height:0}
 .body.tight{overflow:hidden;padding-bottom:12px}
+/* While the walkthrough is running the bar is a fixed slab across the
+   bottom. Without this the last card on every screen sits underneath it. */
+body.tour-running .body{padding-bottom:230px}
 .view{display:none}
 .view.on{display:block}
 
@@ -1326,7 +1352,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v61';
+  var V = 'shell-v62';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -4623,11 +4649,11 @@ a{color:var(--teal)}
        that screen is for. `view` drives the app; the renter is never asked
        to find anything themselves. */
     steps: [
-      { view: 'zone', label: 'Zones',
+      { view: 'spots', label: 'Zones',
         title: 'Draw where you would actually live',
         body: 'Not a city, not a radius around a pin. Stretch a shape over ' +
               'the area you would actually take, then add another.' },
-      { view: 'edit', label: 'Perfect spot',
+      { view: 'spots', label: 'Perfect spot',
         title: 'Now describe the place itself',
         body: 'Rent, beds, a washer, dogs allowed. Speak it or tap it, then ' +
               'sort it into must-have, nice-to-have and deal breaker.' },
@@ -4649,10 +4675,10 @@ a{color:var(--teal)}
               'Tuesday, and both sides know who they are meeting.' }
     ],
 
-    playTitle: 'Now have a go',
+    playTitle: 'Now try it yourself',
     playBody: 'Nothing can break and nothing leaves this phone. Come back ' +
               'to this bar when you are done.',
-    playNext: 'I have had a look',
+    playNext: 'I am done looking',
 
     /* Offered after the play step. Everything up to here has been invented
        data on a demo account; this is the point where it can become theirs. */
@@ -4751,12 +4777,12 @@ a{color:var(--teal)}
     /* Same screens, same order. An investor needs to know why each one is
        built the way it is, not what to tap. */
     steps: [
-      { view: 'zone', label: 'Zones',
+      { view: 'spots', label: 'Zones',
         title: 'Demand starts with a real area',
         body: 'A radius around a pin crosses a river and a school ' +
               'catchment. A drawn zone does not, and it is far better ' +
               'signal on where somebody would actually sign.' },
-      { view: 'edit', label: 'Perfect spot',
+      { view: 'spots', label: 'Perfect spot',
         title: 'Requirements, ranked by how hard they are',
         body: 'Must-have, nice-to-have, deal breaker. That ranking is what ' +
               'a filter throws away and what makes matching possible.' },
@@ -4778,9 +4804,9 @@ a{color:var(--teal)}
               'that leads to a confirmed move-in, which is what we bill on.' }
     ],
 
-    playTitle: 'Have a look yourself',
+    playTitle: 'Now try it yourself',
     playBody: 'Nothing can break. Come back to this bar when you are done.',
-    playNext: 'I have seen enough',
+    playNext: 'I am done looking',
 
     acctTitle: 'Want an account on it?',
     acctBody: 'A real account takes about a minute and shows you what a ' +
@@ -4801,7 +4827,31 @@ a{color:var(--teal)}
 
     bizOffer: 'Want the model and the numbers?',
     bizOfferGo: 'Show me',
-    bizOfferSkip: 'No thanks'
+    bizOfferSkip: 'No thanks',
+
+    bizTitle: 'Where this goes',
+    bizBody: [
+      'Two ways a landlord pays. A flat fee for a verified renter we ' +
+      'introduce, or a single flat fee once somebody actually moves in, ' +
+      'part of which goes back to the renter. Neither moves with the rent, ' +
+      'which is what keeps this a marketing channel and not a brokerage.',
+      'Searching and listing are free. The renter is never the payer.',
+      'The asset is the demand object: a verified person, a drawn area, ' +
+      'and requirements ranked by how hard they are, captured while they ' +
+      'are deciding. Someone moving is also deciding about a loan, ' +
+      'insurance, and often about buying inside two years. Those are ' +
+      'licensed partner channels, later. We underwrite none of it.',
+      'What we do not have yet is inventory. That is the constraint and we ' +
+      'are not pretending otherwise. Supply comes from property managers ' +
+      'onboarded directly, one company at a time. No aggregator feeds.'
+    ],
+    bizMore: 'The full picture, with the numbers, is on our investor page.',
+    bizLink: 'The full picture, with the numbers',
+    bizDone: 'Close',
+
+    /* Shown on the panel instead of gating it. */
+    bizAsk: 'One more thing, if you have a minute.',
+    bizAskGo: 'Tell us where this falls down'
   };
 
   /* Folded once, at definition time, so nothing downstream has to know
@@ -4860,25 +4910,6 @@ a{color:var(--teal)}
     });
   }
 
-  /* ⭐ The zone picker and the criteria editor both paint from S.draft, and
-     paintDraft() dereferences it without checking. A renter arriving at
-     step 1 has never started a spot, so there is nothing there. Clone the
-     first demo spot so both screens have something real to show. Demo only,
-     and it never touches a spot that already exists. */
-  function tourSeedDraft() {
-    if (!DEMO) return;
-    if (S.draft && S.draft.zone) return;
-    var src = (S.spots && S.spots[0]) || null;
-    if (!src) return;
-    S.draft = JSON.parse(JSON.stringify({
-      zone: src.zone || {},
-      options: src.options || [],
-      criteria: src.criteria || { must_have: [], nice_to_have: [],
-                                  deal_breakers: [], notes: '' }
-    }));
-    trail('tour: seeded a draft for the deep views');
-  }
-
   function tourResume() {
     if (tour.done) { trail('tour: already finished'); return; }
     if (tour.i >= 0) { tour.on = true; tourShow(); }
@@ -4908,24 +4939,27 @@ a{color:var(--teal)}
 
     if (i >= total) { tourAccount(); return; }
 
-    /* Before go(), not after. Entering the view is what paints it. */
-    var st = TOUR_COPY.steps[i];
-    if (st && (st.view === 'zone' || st.view === 'edit')) tourSeedDraft();
-
     var isPlay = (i === steps.length);
     var st = isPlay ? null : steps[i];
 
-    $('tourFill').style.width = Math.round(((i + 1) / (total + 1)) * 100) + '%';
+    /* +1 for the free-play step, +1 more for the ask on the way out. A bar
+       that reads full while screens remain is a promise the tour breaks. */
+    $('tourFill').style.width =
+      Math.round(((i + 1) / (steps.length + 2)) * 100) + '%';
     $('tourStep').textContent = isPlay
       ? 'Your turn'
       : 'Step ' + (i + 1) + ' of ' + total + '  \u00b7  ' + st.label;
     $('tourTitle').textContent = isPlay ? TOUR_COPY.playTitle : st.title;
     $('tourBody').textContent = isPlay ? TOUR_COPY.playBody : st.body;
     $('tourNext').textContent = isPlay ? TOUR_COPY.playNext : 'Next';
+    /* 🔑 Nothing to skip past on the last step, and an exit here is an exit
+       taken thirty seconds before the only question we needed answered. */
+    $('tourSkip').style.display = isPlay ? 'none' : '';
 
     if (!isPlay) { try { go(st.view); } catch (e) { keep(e, 'tour go'); } }
 
     $('tourBar').classList.add('on');
+    document.body.classList.add('tour-running');
   }
 
   function tourNext() {
@@ -4941,6 +4975,7 @@ a{color:var(--teal)}
      goes straight on to the survey. */
   function tourAccount() {
     $('tourBar').classList.remove('on');
+    document.body.classList.remove('tour-running');
     var c = TOUR_COPY;
     $('tFeedback').firstChild.innerHTML =
       '<h2>' + esc2(c.acctTitle) + '</h2>' +
@@ -4954,14 +4989,24 @@ a{color:var(--teal)}
       location.href = '/app?signup=1';
     });
     $('acctSkip').addEventListener('click', function () {
-      trail('tour: declined the account, on to feedback');
-      tourFeedback();
+      /* 🔑 Investors came for the model, so the panel is the destination and
+         the survey is offered from it. Renters get the reverse. */
+      if (TOUR_WHO === 'investor') {
+        trail('tour: investor, straight to the business panel');
+        $('tFeedback').classList.remove('on');
+        tour.done = true; tourSave();
+        tourBiz();
+      } else {
+        trail('tour: declined the account, on to feedback');
+        tourFeedback();
+      }
     });
     $('tFeedback').classList.add('on');
   }
 
   function tourFeedback() {
     $('tourBar').classList.remove('on');
+    document.body.classList.remove('tour-running');
     var c = TOUR_COPY;
     var answers = { use: null, worth: '', friction: '' };
 
@@ -5084,7 +5129,18 @@ a{color:var(--teal)}
          current; a snapshot pasted in here would quietly turn into fiction. */
       '<div class="tour-note"><p>' + esc2(c.bizMore) + '</p></div>' +
       '<button class="cta" id="bizLink">' + esc2(c.bizLink) + '</button>' +
+      (TOUR_WHO === 'investor'
+        ? '<div class="tour-note"><p>' + esc2(c.bizAsk) + '</p></div>' +
+          '<button class="cta ghost" id="bizAsk">' + esc2(c.bizAskGo) + '</button>'
+        : '') +
       '<button class="cta ghost" id="bizDone">' + esc2(c.bizDone) + '</button>';
+    if ($('bizAsk')) {
+      $('bizAsk').addEventListener('click', function () {
+        trail('tour: investor opted into the survey');
+        $('tBiz').classList.remove('on');
+        tourFeedback();
+      });
+    }
     $('bizLink').addEventListener('click', function () {
       trail('tour: opened the investor page');
       window.open('https://www.renters.com/investors', '_blank');
@@ -5098,7 +5154,10 @@ a{color:var(--teal)}
   $('tourNext').addEventListener('click', tourNext);
   $('tourSkip').addEventListener('click', function () {
     $('tourBar').classList.remove('on');
+    document.body.classList.remove('tour-running');
     tour.on = false; tourSave();
+    trail('tour: skipped mid-walkthrough');
+    toast('Walkthrough closed. Restart it from the You tab.');
   });
 
   var K_INTRO = 'rdc_app_intro_seen';
