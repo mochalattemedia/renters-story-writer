@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v55                                       -->
+<!--  VERSION: shell-v56                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v55">
+<meta name="rdc-version" content="shell-v56">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v55
+/* ============================================================ shell-v56
+
+   v56: THE WALKTHROUGH TEACHES THE PRODUCT, NOT THE TABS.
+
+   v54/v55 walked the four tabs. That shows where things live and explains
+   nothing. The parts that actually need explaining are the ones nobody has
+   seen anywhere else: drawing a zone, dreaming up a perfect spot, editing
+   it afterwards, getting verified, what a swipe means here, and booking
+   without the phone tag. Six steps, in that order, each one landing on the
+   screen it describes.
+
+   Then the renter plays, then they are invited to make a real account and
+   do the whole thing for themselves, then the survey, then the business
+   model last and only if asked for.
+
+   ============================================================ shell-v55
 
    v55: THE TOUR CAN ALWAYS BE REOPENED, AND IT SAYS WHAT IT DID.
 
@@ -1232,7 +1247,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v55';
+  var V = 'shell-v56';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -4519,33 +4534,59 @@ a{color:var(--teal)}
        that screen is for. `view` drives the app; the renter is never asked
        to find anything themselves. */
     steps: [
-      { view: 'spots', label: 'Spots',
-        title: 'Tell us where, and what would work',
-        body: 'A perfect spot is two things: the area you would live in, ' +
-              'and what would have to be true about the place. You can ' +
-              'speak it out loud or fill it in.' },
-      { view: 'matches', label: 'Matches',
-        title: 'We bring you places, you swipe',
-        body: 'Left to pass, right to look closer. No photographs on the ' +
-              'front, on purpose - photos are how people lose evenings on ' +
-              'places they were never getting. The card shows what the ' +
-              'landlord requires, checked against you.' },
+      { view: 'spots', label: 'Zones',
+        title: 'Draw where you would actually live',
+        body: 'Not a city, not a radius around a pin. Drop a point and ' +
+              'stretch it until it covers the area you would genuinely ' +
+              'take, then add another somewhere else. Most people have ' +
+              'two or three, and they are rarely next to each other.' },
+      { view: 'spots', label: 'Perfect spot',
+        title: 'Now describe the place itself',
+        body: 'Say it out loud if it is easier. Rent, beds, a washer, dogs ' +
+              'allowed, no ground floor. Sort them into must-have, ' +
+              'nice-to-have and deal breaker, because the difference ' +
+              'between those three is the whole of matching.' },
+      { view: 'spots', label: 'Editing',
+        title: 'It changes when you change',
+        body: 'Everything here is editable, and it should be. Budgets ' +
+              'move, a job moves, a nice-to-have quietly turns into a ' +
+              'must-have. Open a spot and change it and the next matches ' +
+              'come back different.' },
+      { view: 'me', label: 'Verify',
+        title: 'Confirm once, carry it everywhere',
+        body: 'A photo of your ID and a quick selfie. That is the blue ' +
+              'check, and landlords here go through the same thing. It is ' +
+              'the reason nothing on this app is a fake listing or a ' +
+              'stranger fishing for your details.' },
+      { view: 'matches', label: 'Swiping',
+        title: 'Left to pass, right to look closer',
+        body: 'No photographs on the front of the card, on purpose. Photos ' +
+              'are how people lose evenings on places they were never ' +
+              'getting. What you get instead is what the landlord requires ' +
+              'and whether you already meet it.' },
       { view: 'showings', label: 'Showings',
         title: 'Book it without the phone tag',
         body: 'Set the hours you are free once. Booking happens against ' +
-              'that, so nobody is trading messages about Tuesday.' },
-      { view: 'me', label: 'You',
-        title: 'Verified, on both sides',
-        body: 'Your identity is confirmed once and it travels with you. ' +
-              'Landlords here are verified too. That is the whole reason ' +
-              'this is not another listings site.' }
+              'that, so nobody is trading messages about Tuesday. Both ' +
+              'sides already know who they are meeting.' }
     ],
 
     playTitle: 'Now have a go',
-    playBody: 'Nothing here can break and nothing leaves this phone. Add a ' +
-              'spot, swipe a few, book a showing, change your photo. Come ' +
+    playBody: 'Nothing here can break and nothing leaves this phone. Draw a ' +
+              'zone, describe a spot, swipe a few, book a showing. Come ' +
               'back to this bar when you are done.',
     playNext: 'I have had a look',
+
+    /* Offered after the play step. Everything up to here has been invented
+       data on a demo account; this is the point where it can become theirs. */
+    acctTitle: 'Want to do that for real?',
+    acctBody: 'Everything you just did was a demo account with invented ' +
+              'places in it. Making your own takes about a minute, and ' +
+              'then the zones and the spot you build are yours and they ' +
+              'stay. There are no listings yet, so you will not get ' +
+              'matches on day one. You will get them first.',
+    acctGo: 'Create my account',
+    acctSkip: 'Not yet, carry on',
 
     fbTitle: 'What did you make of it?',
     fbIntro: 'Say what you actually think. The unflattering version is the ' +
@@ -4675,7 +4716,7 @@ a{color:var(--teal)}
     var total = steps.length + 1;              /* + the free-play step */
     var i = tour.i;
 
-    if (i >= total) { tourFeedback(); return; }
+    if (i >= total) { tourAccount(); return; }
 
     var isPlay = (i === steps.length);
     var st = isPlay ? null : steps[i];
@@ -4698,6 +4739,31 @@ a{color:var(--teal)}
     tourSave();
     tourShow();
     vibrate(5);
+  }
+
+  /* 🔑 The walkthrough is a demo, and the demo has to offer a way out of
+     itself. Somebody who liked it enough to reach the end should not have
+     to work out where the real thing lives. Declining costs one tap and
+     goes straight on to the survey. */
+  function tourAccount() {
+    $('tourBar').classList.remove('on');
+    var c = TOUR_COPY;
+    $('tFeedback').firstChild.innerHTML =
+      '<h2>' + esc2(c.acctTitle) + '</h2>' +
+      '<p>' + esc2(c.acctBody) + '</p>' +
+      '<button class="cta" id="acctGo">' + esc2(c.acctGo) + '</button>' +
+      '<button class="cta ghost" id="acctSkip">' + esc2(c.acctSkip) + '</button>';
+
+    $('acctGo').addEventListener('click', function () {
+      trail('tour: chose to create a real account');
+      /* Leaves demo behind entirely - no tour params, no invented data. */
+      location.href = '/app?signup=1';
+    });
+    $('acctSkip').addEventListener('click', function () {
+      trail('tour: declined the account, on to feedback');
+      tourFeedback();
+    });
+    $('tFeedback').classList.add('on');
   }
 
   function tourFeedback() {
