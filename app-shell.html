@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v58                                       -->
+<!--  VERSION: shell-v60                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,47 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v58">
+<meta name="rdc-version" content="shell-v60">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v58
+/* ============================================================ shell-v60
+
+   v60: "SEND IT" NOW SENDS IT.  (pairs with tour-feedback tf-v1)
+
+   Since v54 the survey button wrote to localStorage and stopped. Every
+   answer anybody gave died on their own phone. The walkthrough exists to
+   collect exactly those three answers, so this was the one hole that made
+   the rest of it pointless.
+
+   THE LOCAL COPY STAYS AND IS WRITTEN FIRST. A renter on a lift with no
+   signal should not lose a considered answer because a POST failed, and
+   the local copy is also what gets retried. On failure the screen says so
+   and offers the retry rather than thanking somebody for nothing.
+
+   ============================================================ shell-v59
+
+   v59: ONE WALKTHROUGH, TWO AUDIENCES.
+
+   ?tour=1            renter
+   ?tour=1&who=investor   investor
+
+   Same six steps, same screens, same app. What changes is the framing and
+   the question at the end. A renter is being asked whether this would help
+   them find a place. An investor is being asked what makes them sceptical.
+   Asking either one the other one's question wastes the meeting.
+
+   The tagline carries both. "Tell us what matters most" is a promise to a
+   renter about their apartment and a thesis to an investor about a demand
+   object nobody else collects. Same words, and that is the point.
+
+   BUILT AS OVERRIDES, NOT A SECOND COPY. TOUR_COPY stays the renter script
+   and the investor keys are folded over it at boot, so a step rewritten
+   once lands in both. Two parallel scripts would drift apart inside a week.
+
+   ============================================================ shell-v58
 
    v58: THE NARRATION STOPS LOOKING LIKE THE APP.
 
@@ -1274,7 +1308,7 @@ a{color:var(--teal)}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v58';
+  var V = 'shell-v60';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -1503,6 +1537,16 @@ a{color:var(--teal)}
   var TOUR_ON = (function () {
     try { return new URLSearchParams(location.search).get('tour') === '1'; }
     catch (e) { return false; }
+  })();
+
+  /* Who is holding the phone. Anything that is not the investor link is
+     treated as a renter, so a mistyped parameter shows the softer script
+     rather than pitching the business at somebody looking for a flat. */
+  var TOUR_WHO = (function () {
+    try {
+      return new URLSearchParams(location.search).get('who') === 'investor'
+        ? 'investor' : 'renter';
+    } catch (e) { return 'renter'; }
   })();
 
   function demoDate(daysFromNow, hh, mm) {
@@ -4614,6 +4658,7 @@ a{color:var(--teal)}
     fbThanksBody: 'This shapes what gets built next. If you want to talk it ' +
                   'through properly, reply to the message that sent you here.',
 
+    /* Renter script above. Investor keys below are folded over it. */
     bizOffer: 'Curious what we are building toward?',
     bizOfferGo: 'Show me',
     bizOfferSkip: 'No thanks, I am done',
@@ -4663,9 +4708,97 @@ a{color:var(--teal)}
 
   function esc2(x) { return esc(String(x == null ? '' : x)); }
 
+  /* ⭐ ONLY WHAT DIFFERS. Every key absent here falls through to the renter
+     script above, which is what stops the two versions drifting. */
+  var TOUR_INVESTOR = {
+    minutes: 'About 5 minutes',
+
+    welcomeTitle: 'What matters most is what nobody asks',
+    welcomeBody: [
+      'Rental search has always started with inventory and made the renter ' +
+      'chase it. This starts at the other end. We ask a renter what matters ' +
+      'most, capture it as a structured object, and match supply to it.',
+      'That object is the asset. Verified identity on both sides, a real ' +
+      'area rather than a radius, and requirements sorted by how hard they ' +
+      'are. Nobody else is collecting it.',
+      'What follows is the product as built. The listings in it are ' +
+      'invented, standing in for supply we onboard directly from property ' +
+      'managers, one company at a time. Everything else is real.'
+    ],
+    welcomeNote: 'Nothing you do here is written to our systems. It lives ' +
+      'on this phone.',
+    welcomeGo: 'Walk me through it',
+    welcomeSkip: 'I will look around myself',
+
+    /* Same screens, same order. An investor needs to know why each one is
+       built the way it is, not what to tap. */
+    steps: [
+      { view: 'spots', label: 'Zones',
+        title: 'Demand starts with a real area',
+        body: 'A radius around a pin crosses a river and a school ' +
+              'catchment. A drawn zone does not, and it is far better ' +
+              'signal on where somebody would actually sign.' },
+      { view: 'spots', label: 'Perfect spot',
+        title: 'Requirements, ranked by how hard they are',
+        body: 'Must-have, nice-to-have, deal breaker. That ranking is what ' +
+              'a filter throws away and what makes matching possible.' },
+      { view: 'spots', label: 'Editing',
+        title: 'Demand is not captured once',
+        body: 'Every edit is a fresh signal at the moment it changes. This ' +
+              'is a live object, not a form filled in and abandoned.' },
+      { view: 'me', label: 'Verify',
+        title: 'Both sides confirm identity',
+        body: 'This is the moat and the cost. It kills the fake listing ' +
+              'and it is why the leads are worth paying for.' },
+      { view: 'matches', label: 'Swiping',
+        title: 'Requirements on the card, not photographs',
+        body: 'The renter sees what the landlord requires and whether they ' +
+              'meet it. Fewer wasted showings on both sides.' },
+      { view: 'showings', label: 'Showings',
+        title: 'Where the transaction becomes measurable',
+        body: 'A booked showing against declared availability is the event ' +
+              'that leads to a confirmed move-in, which is what we bill on.' }
+    ],
+
+    playTitle: 'Have a look yourself',
+    playBody: 'Nothing can break. Come back to this bar when you are done.',
+    playNext: 'I have seen enough',
+
+    acctTitle: 'Want an account on it?',
+    acctBody: 'A real account takes about a minute and shows you what a ' +
+              'renter sees from the inside. There are no listings yet, so ' +
+              'no matches will arrive.',
+    acctGo: 'Create an account',
+    acctSkip: 'Not now',
+
+    fbTitle: 'Where does this fall down?',
+    fbIntro: 'The sceptical read is the useful one.',
+    fbQ1: 'Would you look at this properly?',
+    fbQ2: 'What is the hardest question you would ask us?',
+    fbQ3: 'What did we not show you that you wanted to see?',
+    fbSend: 'Send it',
+    fbThanksTitle: 'Thank you, that is useful',
+    fbThanksBody: 'If you want to go deeper, reply to the message that ' +
+                  'sent you here.',
+
+    bizOffer: 'Want the model and the numbers?',
+    bizOfferGo: 'Show me',
+    bizOfferSkip: 'No thanks'
+  };
+
+  /* Folded once, at definition time, so nothing downstream has to know
+     which audience it is painting for. */
+  if (TOUR_WHO === 'investor') {
+    for (var _tk in TOUR_INVESTOR) {
+      if (Object.prototype.hasOwnProperty.call(TOUR_INVESTOR, _tk)) {
+        TOUR_COPY[_tk] = TOUR_INVESTOR[_tk];
+      }
+    }
+  }
+
   function tourStart() {
     if (!DEMO) { trail('tour: not demo, standing down'); return; }
-    trail('tour: start, TOUR_ON=' + TOUR_ON);
+    trail('tour: start, TOUR_ON=' + TOUR_ON + ' who=' + TOUR_WHO);
     /* ?reset=1 wipes the run. Without it the second person handed the same
        phone inherits the first person's answers and half-finished tour. */
     try {
@@ -4830,20 +4963,55 @@ a{color:var(--teal)}
     $('tFeedback').classList.add('on');
   }
 
-  /* 🔴 NOTHING IS SENT ANYWHERE YET, AND THE SCREEN DOES NOT PRETEND
-     OTHERWISE BEYOND SAYING THANK YOU. There is no feedback endpoint built.
-     The answers are kept on the device so nothing anybody typed is lost,
-     and wiring this to a real function is a deliberate next step rather
-     than something to fake now. A form that swallows a considered answer
-     is worse than no form. */
+  /* Local first, always, and it is kept even after a successful send. The
+     network is the part that can fail; the phone is not. */
   function tourSendFeedback(a) {
     try {
       localStorage.setItem('rdc_tour_feedback', JSON.stringify({
         at: new Date().toISOString(), answers: a
       }));
     } catch (e) {}
-    trail('tour feedback captured locally');
 
+    var btn = $('fbSend');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
+
+    fetch(FN + 'tour-feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key: VLOG_KEY,
+        who: TOUR_WHO,
+        shell: V,
+        use: a.use || '',
+        worth: a.worth || '',
+        friction: a.friction || ''
+      })
+    }).then(function (r) {
+      /* 🔑 A RESPONSE THAT IS NOT AN EXPLICIT FAILURE IS NOT A SUCCESS.
+         A crashed function returns an error page, and reading it as JSON
+         without checking the status reports a save that never happened. */
+      if (!r.ok) throw new Error('http ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      if (!j || j.ok !== true) throw new Error('rejected');
+      trail('tour feedback sent, stored=' + j.stored);
+      tourFeedbackThanks();
+    })['catch'](function (e) {
+      trail('tour feedback send FAILED: ' + (e && e.message));
+      tourFeedbackFailed(a);
+    });
+  }
+
+  /* Says what happened and gives the button back. Thanking somebody for an
+     answer that never arrived is the version of this that loses the answer
+     AND the trust. */
+  function tourFeedbackFailed(a) {
+    var btn = $('fbSend');
+    if (btn) { btn.disabled = false; btn.textContent = 'Try sending again'; }
+    toast('That did not send. Your answers are safe on this phone.');
+  }
+
+  function tourFeedbackThanks() {
     tour.done = true; tourSave();
 
     var c = TOUR_COPY;
