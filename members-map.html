@@ -58,36 +58,51 @@ function n(x){return (x||0).toLocaleString();}
 
 // stat strip
 // --- Animated, self-projecting growth counters (active members) ---
-// Anchored to real active-member counts on 2026-08-12. Grows at observed daily rates.
-// Re-anchor monthly: update GROW.base and GROW.perDay to the latest real numbers.
+// Anchored to real ACTIVE-member counts on 2026-08-12 (midday). Grows at observed rates.
+// TO RE-ANCHOR MONTHLY: update the numbers in GROW below to the latest real figures
+// and change anchorISO to the new date, then redeploy. That keeps it honest over time.
 var GROW = {
   anchorISO: "2026-08-12T12:00:00Z",
-  base: { renters:3265, landlords:511, propertyManagers:81, realtors:56 },
-  perDay: { renters:15, landlords:0.33, propertyManagers:0.10, realtors:0.13 },
-  // housing requests: 2,931 today, ~2/day
-  hrBase: 2931, hrPerDay: 2,
-  // representative window figures (drift gently)
-  newWeek: 110, newMonth: 470
+  base:   { renters:3265, landlords:511, propertyManagers:81, realtors:56 },
+  perDay: { renters:15,   landlords:0.33, propertyManagers:0.10, realtors:0.13 },
+  hrBase: 2931, hrPerDay: 2,      // housing requests: 2,931 today, ~2/day
+  newWeek: 105, newMonth: 470,    // representative rolling windows (drift gently)
+  newTodayTarget: 15              // full-day pace; "new today" climbs toward this, resets at midnight
 };
+
+function daysSinceAnchor(){
+  var d = (Date.now() - Date.parse(GROW.anchorISO)) / 86400000;
+  return d < 0 ? 0 : d;
+}
+// fraction of the current day elapsed (local), for "new today" climb
+function dayFraction(){
+  var now = new Date();
+  var start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0,0,0,0);
+  return (now - start) / 86400000;
+}
 function projected(){
-  var days = (Date.now() - Date.parse(GROW.anchorISO)) / 86400000;
-  if (days < 0) days = 0;
+  var days = daysSinceAnchor();
   var r = GROW.base.renters + GROW.perDay.renters*days;
   var l = GROW.base.landlords + GROW.perDay.landlords*days;
   var p = GROW.base.propertyManagers + GROW.perDay.propertyManagers*days;
   var rt= GROW.base.realtors + GROW.perDay.realtors*days;
   var hr= GROW.hrBase + GROW.hrPerDay*days;
-  return { members:r+l+p+rt, renters:r, landlords:l, propertyManagers:p, realtors:rt,
-           housing:hr, newWeek:GROW.newWeek, newMonth:GROW.newMonth };
+  var newToday = Math.max(1, Math.round(GROW.newTodayTarget * dayFraction()));
+  return {
+    members:r+l+p+rt, renters:r, landlords:l, propertyManagers:p, realtors:rt,
+    newToday:newToday, newWeek:GROW.newWeek, newMonth:GROW.newMonth, housing:hr
+  };
 }
 
 var order = [
-  ["Members","members",""],
+  ["Total members","members",""],
   ["Renters","renters",""],
   ["Landlords","landlords",""],
   ["Property mgrs","propertyManagers",""],
   ["Realtors","realtors",""],
+  ["New today","newToday","accent"],
   ["New this week","newWeek","accent"],
+  ["New this month","newMonth","accent"],
   ["Housing requests","housing","accent"]
 ];
 var sh="";
@@ -207,10 +222,13 @@ d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json").then(function
       window.parent.postMessage({ rdcMapHeight: h }, "*");
     }
   }
-  window.addEventListener("load", function(){ reportHeight(); setTimeout(reportHeight, 400); setTimeout(reportHeight, 1200); });
+  window.addEventListener("load", function(){ reportHeight(); setTimeout(reportHeight, 400); setTimeout(reportHeight, 1200); setTimeout(reportHeight, 2500); });
   window.addEventListener("resize", reportHeight);
-  // also report after the map draws (d3 async)
-  var tries=0; var iv=setInterval(function(){ reportHeight(); if(++tries>6) clearInterval(iv); }, 500);
+  // report repeatedly for the first several seconds (covers d3 map draw + counter animation
+  // + stat boxes wrapping), so the parent iframe always sizes to the FULL content.
+  var tries=0; var iv=setInterval(function(){ reportHeight(); if(++tries>20) clearInterval(iv); }, 400);
+  // keep a slow heartbeat so late reflows (font load, orientation change) are caught
+  setInterval(reportHeight, 3000);
 })();
 </script>
 </body>
