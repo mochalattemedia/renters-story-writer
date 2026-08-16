@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v62                                       -->
+<!--  VERSION: shell-v63                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v62">
+<meta name="rdc-version" content="shell-v63">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v62
+/* ============================================================ shell-v63
+
+   v63: THE GREEN BUTTON IS THE THING WE WANT THEM TO DO.
+
+   The last step offered "I am done looking" in green. That is an exit
+   wearing the primary button, and it asks somebody who has just spent five
+   minutes enjoying the product to declare they are finished with it. The
+   moment they are most likely to sign up is the moment we were handing
+   them a door.
+
+   Green is now the real account. The way out is a second button that is
+   plainly a way out, and it leads to the survey and the deck rather than
+   to nothing, so leaving still produces the answer we needed.
+
+   THE SEPARATE ACCOUNT SCREEN IS GONE. It asked the same question one
+   screen later, which meant the offer arrived after the enthusiasm had
+   already been spent on a button that said the opposite.
+
+   ============================================================ shell-v62
 
    v62: AN INVESTOR DOES NOT ANSWER A SURVEY TO REACH THE DECK.
 
@@ -1064,6 +1082,13 @@ body.tour-running .body{padding-bottom:230px}
 .tour-act .cta{flex:1 1 auto;margin:0}
 .tour-skip{flex:0 0 auto;background:none;border:0;font-size:12.5px;font-weight:700;
   color:rgba(255,255,255,.7);text-decoration:underline;padding:8px 2px}
+/* Plainly a way out, and plainly not the thing being recommended. Full
+   width so it cannot be mistaken for the small per-step Skip link. */
+.tour-out{display:none;width:100%;margin:9px 0 0;background:none;
+  border:1px solid rgba(255,255,255,.32);border-radius:999px;
+  font-family:'Open Sans',sans-serif;font-size:14px;font-weight:700;
+  color:rgba(255,255,255,.9);padding:13px 16px;cursor:pointer}
+.tour-out.on{display:block}
 /* The full-screen panels: welcome, feedback, and the optional last leg. */
 .tour-full{position:fixed;inset:0;z-index:940;background:var(--paper);
   overflow-y:auto;-webkit-overflow-scrolling:touch;
@@ -1311,6 +1336,7 @@ body.tour-running .body{padding-bottom:230px}
     <div class="tour-act">
       <button class="cta" id="tourNext">Next</button>
       <button type="button" class="tour-skip" id="tourSkip">Skip</button>
+      <button type="button" class="tour-out" id="tourOut" hidden></button>
     </div>
   </div>
 
@@ -1352,7 +1378,7 @@ body.tour-running .body{padding-bottom:230px}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v62';
+  var V = 'shell-v63';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -4676,9 +4702,10 @@ body.tour-running .body{padding-bottom:230px}
     ],
 
     playTitle: 'Now try it yourself',
-    playBody: 'Nothing can break and nothing leaves this phone. Come back ' +
-              'to this bar when you are done.',
-    playNext: 'I am done looking',
+    playBody: 'Nothing can break and nothing leaves this phone. When you ' +
+              'want the real thing, everything you build in it stays.',
+    playNext: 'Set up my real account',
+    playOut: 'Not yet, I have thoughts',
 
     /* Offered after the play step. Everything up to here has been invented
        data on a demo account; this is the point where it can become theirs. */
@@ -4805,8 +4832,10 @@ body.tour-running .body{padding-bottom:230px}
     ],
 
     playTitle: 'Now try it yourself',
-    playBody: 'Nothing can break. Come back to this bar when you are done.',
-    playNext: 'I am done looking',
+    playBody: 'Nothing can break. A real account takes about a minute and ' +
+              'shows you what a renter sees from the inside.',
+    playNext: 'Set up an account',
+    playOut: 'Not yet, show me the model',
 
     acctTitle: 'Want an account on it?',
     acctBody: 'A real account takes about a minute and shows you what a ' +
@@ -4956,6 +4985,13 @@ body.tour-running .body{padding-bottom:230px}
        taken thirty seconds before the only question we needed answered. */
     $('tourSkip').style.display = isPlay ? 'none' : '';
 
+    /* ⭐ Only on the last step. Everywhere else the small Skip link is the
+       right size for what it does. */
+    var out = $('tourOut');
+    out.hidden = !isPlay;
+    out.classList[isPlay ? 'add' : 'remove']('on');
+    if (isPlay) out.textContent = TOUR_COPY.playOut;
+
     if (!isPlay) { try { go(st.view); } catch (e) { keep(e, 'tour go'); } }
 
     $('tourBar').classList.add('on');
@@ -4963,10 +4999,32 @@ body.tour-running .body{padding-bottom:230px}
   }
 
   function tourNext() {
+    /* On the last step green means the real account, not another screen. */
+    if (tour.i === TOUR_COPY.steps.length) {
+      trail('tour: chose the real account from the play step');
+      location.href = '/app?signup=1';
+      return;
+    }
     tour.i += 1;
     tourSave();
     tourShow();
     vibrate(5);
+  }
+
+  /* Leaving still lands somewhere useful. A renter is asked what they made
+     of it; an investor gets the model, with the survey offered from it. */
+  function tourOut() {
+    $('tourBar').classList.remove('on');
+    document.body.classList.remove('tour-running');
+    vibrate(5);
+    if (TOUR_WHO === 'investor') {
+      trail('tour: investor declined the account, to the model');
+      tour.done = true; tourSave();
+      tourBiz();
+    } else {
+      trail('tour: renter declined the account, to the survey');
+      tourFeedback();
+    }
   }
 
   /* 🔑 The walkthrough is a demo, and the demo has to offer a way out of
@@ -5152,6 +5210,7 @@ body.tour-running .body{padding-bottom:230px}
   }
 
   $('tourNext').addEventListener('click', tourNext);
+  $('tourOut').addEventListener('click', tourOut);
   $('tourSkip').addEventListener('click', function () {
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
