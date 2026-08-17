@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v63                                       -->
+<!--  VERSION: shell-v64                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v63">
+<meta name="rdc-version" content="shell-v64">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v63
+/* ============================================================ shell-v64
+
+   v64: THERE IS A WAY TO JOIN.
+
+   Sign in was the only account route in the app. Somebody who had never
+   been a member had nowhere to go from the intro screen, and the tour's
+   green button pointed at /app?signup=1, a path that does not exist and
+   never did.
+
+   Joining is /checkout/renters, and it goes through the same framed sheet
+   as sign in and change password. That inherits the chrome stripping, the
+   session watch and the captcha handling that already work rather than
+   getting a fourth implementation of the same thing.
+
+   THE 'register' ENTRY IS GONE. It pointed at a tab anchor on /login,
+   which is not where joining lives. A route table with a plausible wrong
+   entry is worse than one with a gap: the gap gets fixed, the wrong entry
+   gets trusted.
+
+   ============================================================ shell-v63
 
    v63: THE GREEN BUTTON IS THE THING WE WANT THEM TO DO.
 
@@ -1228,6 +1247,7 @@ body.tour-running .body{padding-bottom:230px}
 <div class="introAct" id="introAct">
   <button class="cta" id="introGo">Dream up your perfect spot</button>
   <button class="cta ghost" id="introSkip">Got it, do not show this again</button>
+  <span class="signin">New here? <button type="button" class="lnk" id="introJoin">Create an account</button></span>
   <span class="signin">Already a member? <button type="button" class="lnk" id="introSignin">Sign in</button></span>
   <button type="button" class="vstamp" id="vstamp"></button>
 </div>
@@ -1378,7 +1398,7 @@ body.tour-running .body{padding-bottom:230px}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v63';
+  var V = 'shell-v64';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -4293,8 +4313,11 @@ body.tour-running .body{padding-bottom:230px}
     login: { url: '/login', title: 'Sign in',
       lede: 'Your spots, your matches and your showings are on your account, ' +
             'not on this phone.' },
-    register: { url: '/login#register-tab-1', title: 'Create your account',
-      lede: 'One account. Everything you set up here follows you.' },
+    /* Both names land on the one real route so a third spelling cannot
+       appear later and quietly point somewhere else. */
+    join: { url: '/checkout/renters?src=app', title: 'Create your account',
+      lede: 'One account. Everything you set up here follows you, on any ' +
+            'phone you sign in from.' },
     signup: { url: '/checkout/renters?src=app', title: 'Create your account',
       lede: 'Your spot is held. Make an account and we start looking.' },
     /* 🔑 watch:false. There is no navigation that means "the password
@@ -5001,8 +5024,10 @@ body.tour-running .body{padding-bottom:230px}
   function tourNext() {
     /* On the last step green means the real account, not another screen. */
     if (tour.i === TOUR_COPY.steps.length) {
+      /* 🔑 The sheet, not a navigation. Leaving the page here throws away
+         the walkthrough state and the survey along with it. */
       trail('tour: chose the real account from the play step');
-      location.href = '/app?signup=1';
+      openWeb('join');
       return;
     }
     tour.i += 1;
@@ -5043,8 +5068,7 @@ body.tour-running .body{padding-bottom:230px}
 
     $('acctGo').addEventListener('click', function () {
       trail('tour: chose to create a real account');
-      /* Leaves demo behind entirely - no tour params, no invented data. */
-      location.href = '/app?signup=1';
+      openWeb('join');
     });
     $('acctSkip').addEventListener('click', function () {
       /* 🔑 Investors came for the model, so the panel is the destination and
@@ -5238,6 +5262,10 @@ body.tour-running .body{padding-bottom:230px}
     hideIntro();
     go('spots');
     vibrate(5);
+  });
+
+  $('introJoin').addEventListener('click', function () {
+    openWeb('join');
   });
 
   $('introSignin').addEventListener('click', function () {
