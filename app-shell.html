@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v64                                       -->
+<!--  VERSION: shell-v65                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v64">
+<meta name="rdc-version" content="shell-v65">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v64
+/* ============================================================ shell-v65
+
+   v65: LOGGING OUT LEAVES YOU IN THE APP.
+
+   The Log out row sent the browser to /logout and stopped caring. BD then
+   dropped the person on the website - full navy header, hamburger menu,
+   Login / Join / Contact Us - which is a different product wearing the
+   same logo. From an installed app it is worse still: there is no address
+   bar, so the way back to /app is to close the whole thing and reopen it.
+
+   /logout now carries a return, and the app catches the arrival and shows
+   the intro rather than a signed-out dashboard.
+
+   ============================================================ shell-v64
 
    v64: THERE IS A WAY TO JOIN.
 
@@ -1398,7 +1411,7 @@ body.tour-running .body{padding-bottom:230px}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v64';
+  var V = 'shell-v65';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -1718,6 +1731,21 @@ body.tour-running .body{padding-bottom:230px}
       el.hidden = true;
     }
   }
+
+  /* Landing back from a logout. The flag is the fallback for a BD build
+     that ignores the return parameter and sends them to the site root; the
+     app still knows what happened the next time it is opened. */
+  var CAME_FROM_LOGOUT = (function () {
+    var q = false;
+    try { q = new URLSearchParams(location.search).get('out') === '1'; }
+    catch (e) {}
+    var f = false;
+    try {
+      f = localStorage.getItem('rdc_just_out') === '1';
+      if (f) localStorage.removeItem('rdc_just_out');
+    } catch (e) {}
+    return q || f;
+  })();
 
   function boot() {
     return Promise.all([
@@ -2999,7 +3027,11 @@ body.tour-running .body{padding-bottom:230px}
     var out = $('meOut');
     if (out) out.addEventListener('click', function () {
       if (!window.confirm('Log out? Your spots and matches stay on your account.')) return;
-      location.href = '/logout';
+      /* 🔑 Comes back here, not to the website. Somebody inside an installed
+         app has no address bar to type their way home with. */
+      try { localStorage.setItem('rdc_just_out', '1'); } catch (e) {}
+      location.href = '/logout?return=' +
+        encodeURIComponent(location.origin + '/app?out=1');
     });
   }
 
