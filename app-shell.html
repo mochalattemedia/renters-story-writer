@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v68                                       -->
+<!--  VERSION: shell-v69                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v68">
+<meta name="rdc-version" content="shell-v69">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v68
+/* ============================================================ shell-v69
+
+   v69: THE WALKTHROUGH GOES BACKWARDS.
+
+   Six steps, forward only. Miss a sentence, get interrupted, want a second
+   look at the zone map, and the only options were to carry on or to leave
+   and restart from the beginning. v67 made it worse by hiding the app's
+   own back arrow during steps, which was correct for the arrow and left
+   nothing in its place.
+
+   Back sits on the left of the bar and is hidden on step one, where there
+   is nowhere to go. This is the fourth thing this session that could only
+   be left and not re-entered. THE PATTERN IS THE LESSON: anything that
+   moves somebody forward needs a way back before it ships.
+
+   ============================================================ shell-v68
 
    v68: THE VERSION IS VISIBLE WHERE THE TESTING STARTS.
 
@@ -1164,6 +1179,12 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
   color:rgba(255,255,255,.7);text-decoration:underline;padding:8px 2px}
 /* Plainly a way out, and plainly not the thing being recommended. Full
    width so it cannot be mistaken for the small per-step Skip link. */
+/* Square, quiet, and the same height as the green button so the row does
+   not look assembled out of spare parts. */
+.tour-back{flex:0 0 auto;width:46px;background:none;border:1px solid rgba(255,255,255,.32);
+  border-radius:999px;color:#fff;font-size:26px;line-height:1;font-weight:700;
+  padding:11px 0;cursor:pointer}
+.tour-back[hidden]{display:none}
 .tour-out{display:none;width:100%;margin:9px 0 0;background:none;
   border:1px solid rgba(255,255,255,.32);border-radius:999px;
   font-family:'Open Sans',sans-serif;font-size:14px;font-weight:700;
@@ -1417,6 +1438,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
     <h4 id="tourTitle"></h4>
     <p id="tourBody"></p>
     <div class="tour-act">
+      <button type="button" class="tour-back" id="tourBack" aria-label="Back">&lsaquo;</button>
       <button class="cta" id="tourNext">Next</button>
       <button type="button" class="tour-skip" id="tourSkip">Skip</button>
       <button type="button" class="tour-out" id="tourOut" hidden></button>
@@ -1461,7 +1483,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v68';
+  var V = 'shell-v69';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5103,6 +5125,10 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 
     /* ⭐ Only on the last step. Everywhere else the small Skip link is the
        right size for what it does. */
+    /* Nothing behind step one, and nothing to step back into once the
+       narration is over and the app is theirs to poke at. */
+    $('tourBack').hidden = (i <= 0) || isPlay;
+
     var out = $('tourOut');
     out.hidden = !isPlay;
     out.classList[isPlay ? 'add' : 'remove']('on');
@@ -5332,6 +5358,14 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
     });
     $('tBiz').classList.add('on');
   }
+
+  $('tourBack').addEventListener('click', function () {
+    if (tour.i <= 0) return;
+    tour.i -= 1;
+    tourSave();
+    tourShow();
+    vibrate(5);
+  });
 
   $('tourNext').addEventListener('click', tourNext);
   $('tourOut').addEventListener('click', tourOut);
