@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v66                                       -->
+<!--  VERSION: shell-v68                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,41 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v66">
+<meta name="rdc-version" content="shell-v68">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v66
+/* ============================================================ shell-v68
+
+   v68: THE VERSION IS VISIBLE WHERE THE TESTING STARTS.
+
+   The stamp has always been on the intro screen, but the walkthrough
+   welcome covers the intro, so anybody opening a tour link could not see
+   which build they were about to test. Several rounds of "is this live
+   yet" came out of exactly that. The welcome now carries it too, and it
+   names the audience, because the two scripts are easy to confuse from a
+   screenshot alone.
+
+   ============================================================ shell-v67
+
+   v67: THE WALKTHROUGH OPENS THE ZONE PICKER AND THE SPOT EDITOR.
+
+   Steps one, two and three all pointed at 'spots', so three taps in a row
+   left the renter looking at the same list of cards while the bar talked
+   about drawing a zone and describing a place. The two screens nobody has
+   seen anywhere else, the ones the whole product turns on, were being
+   described rather than shown.
+
+   go() already routes 'zone' and 'edit' as first-class views. The steps
+   were simply aimed at the wrong ones.
+
+   Step 1 lands on the map. Step 2 lands on the criteria. Step 3 comes back
+   out to the list, which is what makes editing legible: you have just seen
+   the two screens, now here is where they live and how to reopen them.
+
+   ============================================================ shell-v66
 
    v66: JOINING WORKS IN THE DEMO. IT IS THE ONE THING THAT MUST.
 
@@ -1153,6 +1181,8 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 .tour-full h3{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:16px;
   color:var(--navy);margin:22px 0 7px}
 .tour-full p{font-size:14px;line-height:1.62;color:var(--ink-2);margin:0 0 14px}
+.tour-stamp{text-align:center;font-size:11px;font-weight:600;letter-spacing:.04em;
+  color:var(--slate);opacity:.6;margin:18px 0 0}
 .tour-note{background:var(--white);border:1px solid var(--line);border-left:3px solid var(--gold);
   border-radius:var(--r);padding:14px 16px;margin:0 0 18px}
 .tour-note p{margin:0;font-size:13px;line-height:1.6}
@@ -1431,7 +1461,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v66';
+  var V = 'shell-v68';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -4758,11 +4788,11 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
        that screen is for. `view` drives the app; the renter is never asked
        to find anything themselves. */
     steps: [
-      { view: 'spots', label: 'Zones',
+      { view: 'zone', label: 'Zones',
         title: 'Draw where you would actually live',
         body: 'Not a city, not a radius around a pin. Stretch a shape over ' +
               'the area you would actually take, then add another.' },
-      { view: 'spots', label: 'Perfect spot',
+      { view: 'edit', label: 'Perfect spot',
         title: 'Now describe the place itself',
         body: 'Rent, beds, a washer, dogs allowed. Speak it or tap it, then ' +
               'sort it into must-have, nice-to-have and deal breaker.' },
@@ -4887,12 +4917,12 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
     /* Same screens, same order. An investor needs to know why each one is
        built the way it is, not what to tap. */
     steps: [
-      { view: 'spots', label: 'Zones',
+      { view: 'zone', label: 'Zones',
         title: 'Demand starts with a real area',
         body: 'A radius around a pin crosses a river and a school ' +
               'catchment. A drawn zone does not, and it is far better ' +
               'signal on where somebody would actually sign.' },
-      { view: 'spots', label: 'Perfect spot',
+      { view: 'edit', label: 'Perfect spot',
         title: 'Requirements, ranked by how hard they are',
         body: 'Must-have, nice-to-have, deal breaker. That ranking is what ' +
               'a filter throws away and what makes matching possible.' },
@@ -5004,7 +5034,10 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
       c.welcomeBody.map(function (t) { return '<p>' + esc2(t) + '</p>'; }).join('') +
       '<div class="tour-note"><p>' + esc2(c.welcomeNote) + '</p></div>' +
       '<button class="cta" id="twGo">' + esc2(c.welcomeGo) + '</button>' +
-      '<button class="cta ghost" id="twSkip">' + esc2(c.welcomeSkip) + '</button>';
+      '<button class="cta ghost" id="twSkip">' + esc2(c.welcomeSkip) + '</button>' +
+      /* Small, grey, last. It is for whoever is testing, not for the
+         renter, so it should read as a footer rather than as content. */
+      '<div class="tour-stamp">' + esc2(V) + ' \u00b7 ' + esc2(TOUR_WHO) + '</div>';
 
     $('twGo').addEventListener('click', function () {
       $('tWelcome').classList.remove('on');
@@ -5076,6 +5109,13 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
     if (isPlay) out.textContent = TOUR_COPY.playOut;
 
     if (!isPlay) { try { go(st.view); } catch (e) { keep(e, 'tour go'); } }
+
+    /* 🔑 'zone' and 'edit' are deep views and swap the mark for a back
+       arrow. Tapping it mid-walkthrough leaves the bar narrating a screen
+       that is no longer on show, so it is out of reach while a step owns
+       the view. The bar's own Skip is the way out. */
+    var bk = $('back');
+    if (bk) bk.hidden = !isPlay ? true : bk.hidden;
 
     $('tourBar').classList.add('on');
     document.body.classList.add('tour-running');
