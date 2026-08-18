@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v69                                       -->
+<!--  VERSION: shell-v70                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,29 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v69">
+<meta name="rdc-version" content="shell-v70">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v69
+/* ============================================================ shell-v70
+
+   v70: BACK AND FORWARD, AS OFTEN AS THEY LIKE, THE WHOLE WAY THROUGH.
+
+   v69 hid Back on step one and on the free-play step. Both were defensible
+   and both were wrong in use: stepping from two to one made the control
+   vanish, which reads as broken rather than as "you are at the start", and
+   reaching the end meant the six steps were gone for good.
+
+   Back never disappears now. From step one it reopens the welcome. From
+   free play it returns to the last step, so somebody who wants a second
+   look at the zone map after poking about can simply walk back to it.
+
+   THE WELCOME IS PART OF THE SEQUENCE, NOT A DOOR THAT SHUTS BEHIND THEM.
+   Fifth version of the same lesson this session.
+
+   ============================================================ shell-v69
 
    v69: THE WALKTHROUGH GOES BACKWARDS.
 
@@ -1483,7 +1499,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v69';
+  var V = 'shell-v70';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5125,9 +5141,9 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 
     /* ⭐ Only on the last step. Everywhere else the small Skip link is the
        right size for what it does. */
-    /* Nothing behind step one, and nothing to step back into once the
-       narration is over and the app is theirs to poke at. */
-    $('tourBack').hidden = (i <= 0) || isPlay;
+    /* ⭐ Always available. There is somewhere to go back to from every
+       screen in the sequence, including the first one. */
+    $('tourBack').hidden = false;
 
     var out = $('tourOut');
     out.hidden = !isPlay;
@@ -5360,11 +5376,26 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
   }
 
   $('tourBack').addEventListener('click', function () {
-    if (tour.i <= 0) return;
+    vibrate(5);
+
+    /* Back from step one is the welcome. Hiding the bar first, because the
+       welcome is a full screen and a bar left showing underneath it
+       narrates a step that is no longer on show. */
+    if (tour.i <= 0) {
+      trail('tour: back to the welcome');
+      tour.i = -1;
+      tour.on = false;
+      tourSave();
+      $('tourBar').classList.remove('on');
+      document.body.classList.remove('tour-running');
+      tourPaintWelcome();
+      $('tWelcome').classList.add('on');
+      return;
+    }
+
     tour.i -= 1;
     tourSave();
     tourShow();
-    vibrate(5);
   });
 
   $('tourNext').addEventListener('click', tourNext);
