@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v65                                       -->
+<!--  VERSION: shell-v66                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v65">
+<meta name="rdc-version" content="shell-v66">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v65
+/* ============================================================ shell-v66
+
+   v66: JOINING WORKS IN THE DEMO. IT IS THE ONE THING THAT MUST.
+
+   openWeb refused every sheet under DEMO with "sign in is switched off".
+   That rule was right when the only sheet was sign in: authenticating a
+   real member into a demo full of invented listings would be a mess.
+   Joining is the opposite case. The walkthrough now ends on Set up an
+   account, and the demo was answering that button with a refusal, telling
+   somebody no at the exact moment they were converting.
+
+   Join is allowed through. Sign in and change password stay blocked.
+
+   The refusal was also printing straight across the step title, because
+   the toast sits above the tab bar and the walkthrough bar is far taller
+   than the tab bar. It now clears whichever is on screen.
+
+   ============================================================ shell-v65
 
    v65: LOGGING OUT LEAVES YOU IN THE APP.
 
@@ -997,6 +1014,9 @@ body.tour-running .body{padding-bottom:230px}
 .cta.ghost{background:transparent;color:var(--slate);font-size:13px;padding:9px;margin-top:2px}
 .cta.navy{background:var(--navy);color:#fff}
 
+/* While the walkthrough is up the bar is the bottom of the screen, not the
+   tab bar, so the toast has to clear a much taller thing. */
+body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 .toast{position:fixed;left:50%;bottom:calc(var(--nav) + 68px + env(safe-area-inset-bottom));
   transform:translate(-50%,18px);background:var(--navy);color:#fff;padding:12px 19px;
   border-radius:12px;font-size:13px;font-weight:600;z-index:900;opacity:0;pointer-events:none;
@@ -1411,7 +1431,7 @@ body.tour-running .body{padding-bottom:230px}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v65';
+  var V = 'shell-v66';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -4528,7 +4548,15 @@ body.tour-running .body{padding-bottom:230px}
 
   function openWeb(kind) {
     var cfg = WEB[kind] || WEB.login;
-    if (DEMO) { toast('Demo — sign in is switched off'); return; }
+
+    /* 🔑 Joining is the exception. The demo exists to make somebody want an
+       account; refusing to give them one is the demo working against
+       itself. */
+    var isJoin = (kind === 'join' || kind === 'signup');
+    if (DEMO && !isJoin) {
+      toast('Demo — sign in is switched off');
+      return;
+    }
 
     trailClear();
     trail('openWeb ' + kind + ' -> ' + cfg.url);
