@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v75                                       -->
+<!--  VERSION: shell-v72                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,69 +9,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v75">
+<meta name="rdc-version" content="shell-v72">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v75
-
-   v75: TWO FIXES TO v74, BOTH MINE.
-
-   1. THE LOCK DISABLED THE BAR IT WAS SUPPOSED TO LEAVE ALONE. The comment
-   in v74 says "the bar sits outside .app so it keeps working". It does not.
-   #tourBar is a child of .app, so pointer-events:none on .app killed Next,
-   Back and Skip along with everything else, and the walkthrough stopped
-   dead on step one with no way forward. I asserted the DOM shape instead of
-   grepping for it - the same mistake as trusting a version number without
-   checking the file.
-
-   The lock now targets the two content regions by name and never the bar.
-
-   2. THE "LIVE AND COLLECTING TODAY" LINE LANDED INSIDE THE BUTTON ROW,
-   because it was inserted before the back button, which is a flex child of
-   .tour-act. It rendered as a column beside Next. It now sits above the
-   row, where it was meant to be.
-
-   ============================================================ shell-v74
-
-   v74: THE INVESTOR WALKTHROUGH IS A PRESENTATION, NOT A SANDBOX.
-
-   Steps one to six were fully interactive, which is right for a renter and
-   wrong for somebody being shown the product. An investor who taps into
-   the zone editor mid-step is now two screens away from the narration,
-   looking at a control they have no reason to operate, and the story has
-   stopped. Worse, they can break the demo state and the remaining steps
-   describe a screen that no longer matches.
-
-   During steps one to six on the investor script the app is display only.
-   Taps land on nothing; the bar is the only thing that responds. The
-   free-play step lifts it completely, which is the moment the app becomes
-   theirs to poke at and the moment the invitation actually means something.
-
-   THE RENTER SCRIPT IS UNTOUCHED. Their whole point is doing it.
-
-   ============================================================ shell-v73
-
-   v73: EVERY STEP SAYS WHAT IT WILL DO IN A REAL ACCOUNT, AND WHICH
-   STEPS WILL NOT DO ANYTHING YET.
-
-   The walkthrough was selling six working screens. Three of them - swiping,
-   showings, and the matches count - will be empty on day one, because
-   there are no listings to match against. Somebody who signs up on the
-   strength of steps five and six and then finds nothing there has been
-   sold something we do not have.
-
-   Each step now carries one line about the real account. On the steps that
-   are live it says what they will do. On the ones that are not it says so
-   in plain words.
-
-   🔑 SAYING IT DURING THE PITCH IS CHEAPER THAN SAYING IT AFTERWARDS. They
-   will find out inside ninety seconds either way. The only question is
-   whether they hear it from us or discover it alone.
-
-   ============================================================ shell-v72
+/* ============================================================ shell-v72
 
    v72: THE INVESTOR IS SHOWN A FINISHED OBJECT, NOT AN EMPTY FORM.
 
@@ -1288,16 +1232,6 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
    width so it cannot be mistaken for the small per-step Skip link. */
 /* Square, quiet, and the same height as the green button so the row does
    not look assembled out of spare parts. */
-/* 🔑 Display only, and NAMED REGIONS ONLY. #tourBar is a child of .app, so
-   locking .app locks the walkthrough controls too - which is exactly how
-   v74 shipped unable to reach step two. */
-body.tour-locked .top,
-body.tour-locked .body,
-body.tour-locked .nav{pointer-events:none}
-.tour-real{width:100%;margin:0 0 13px;font-size:12.5px;line-height:1.5;font-weight:600;
-  color:rgba(255,255,255,.7);border-left:2px solid rgba(255,255,255,.28);padding:2px 0 2px 10px}
-.tour-real.warn{color:#f6d68a;border-left-color:var(--gold)}
-.tour-real[hidden]{display:none}
 .tour-back{flex:0 0 auto;width:46px;background:none;border:1px solid rgba(255,255,255,.32);
   border-radius:999px;color:#fff;font-size:26px;line-height:1;font-weight:700;
   padding:11px 0;cursor:pointer}
@@ -1554,7 +1488,6 @@ body.tour-locked .nav{pointer-events:none}
     <p class="tour-step" id="tourStep"></p>
     <h4 id="tourTitle"></h4>
     <p id="tourBody"></p>
-    <p class="tour-real" id="tourReal" hidden></p>
     <div class="tour-act">
       <button type="button" class="tour-back" id="tourBack" aria-label="Back">&lsaquo;</button>
       <button class="cta" id="tourNext">Next</button>
@@ -1601,7 +1534,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v75';
+  var V = 'shell-v72';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -4936,33 +4869,26 @@ body.tour-locked .nav{pointer-events:none}
        to find anything themselves. */
     steps: [
       { view: 'zone', label: 'Zones',
-        real: 'In your account: you draw these yourself, as many as you like.',
         title: 'Draw where you would actually live',
         body: 'Not a city, not a radius around a pin. Stretch a shape over ' +
               'the area you would actually take, then add another.' },
       { view: 'edit', label: 'Perfect spot',
-        real: 'In your account: speak it or tap it, and change it whenever.',
         title: 'Now describe the place itself',
         body: 'Rent, beds, a washer, dogs allowed. Speak it or tap it, then ' +
               'sort it into must-have, nice-to-have and deal breaker.' },
       { view: 'spots', label: 'Editing',
-        real: 'In your account: this works from day one.',
         title: 'It changes when you change',
         body: 'Budgets move and jobs move. Change a spot and the next ' +
               'matches come back different.' },
       { view: 'me', label: 'Verify',
-        real: 'In your account: this works from day one.',
         title: 'Confirm once, carry it everywhere',
         body: 'ID and a quick selfie, once. Landlords do the same, which ' +
               'is why there are no fake listings here.' },
       { view: 'matches', label: 'Swiping',
-        real: 'Not live yet. We have no listings to match you against, so ' +
-              'your account will be empty here until we do.',
         title: 'Left to pass, right to look closer',
         body: 'No photos on the front, on purpose. You see what the ' +
               'landlord requires and whether you already meet it.' },
       { view: 'showings', label: 'Showings',
-        real: 'Not live yet. It arrives with the listings.',
         title: 'Book it without the phone tag',
         body: 'Set the hours you are free once. No messages about ' +
               'Tuesday, and both sides know who they are meeting.' }
@@ -5072,33 +4998,26 @@ body.tour-locked .nav{pointer-events:none}
        built the way it is, not what to tap. */
     steps: [
       { view: 'zone', label: 'Zones',
-        real: 'Live and collecting today.',
         title: 'Demand starts with a real area',
         body: 'This is a renter\u2019s drawn zone. A radius around a pin ' +
               'crosses rivers and catchments; a drawn shape does not.' },
       { view: 'edit', label: 'Perfect spot',
-        real: 'Live and collecting today.',
         title: 'Requirements, ranked by how hard they are',
         body: 'The same renter\u2019s criteria. Must-have, nice-to-have, ' +
               'deal breaker - the ranking a filter throws away.' },
       { view: 'spots', label: 'Editing',
-        real: 'Live and collecting today.',
         title: 'Demand is not captured once',
         body: 'Every edit is a fresh signal at the moment it changes. This ' +
               'is a live object, not a form filled in and abandoned.' },
       { view: 'me', label: 'Verify',
-        real: 'Live today, on both sides.',
         title: 'Both sides confirm identity',
         body: 'This is the moat and the cost. It kills the fake listing ' +
               'and it is why the leads are worth paying for.' },
       { view: 'matches', label: 'Swiping',
-        real: 'Built, not yet switched on. It needs inventory to run ' +
-              'against, and that is the constraint we are working on.',
         title: 'Requirements on the card, not photographs',
         body: 'The renter sees what the landlord requires and whether they ' +
               'meet it. Fewer wasted showings on both sides.' },
       { view: 'showings', label: 'Showings',
-        real: 'Built, not yet switched on.',
         title: 'Where the transaction becomes measurable',
         body: 'A booked showing against declared availability is the event ' +
               'that leads to a confirmed move-in, which is what we bill on.' }
@@ -5256,20 +5175,6 @@ body.tour-locked .nav{pointer-events:none}
       : 'Step ' + (i + 1) + ' of ' + total + '  \u00b7  ' + st.label;
     $('tourTitle').textContent = isPlay ? TOUR_COPY.playTitle : st.title;
     $('tourBody').textContent = isPlay ? TOUR_COPY.playBody : st.body;
-
-    /* One line, quieter than the body, and it earns its place by being the
-       only part of the bar that is about their account rather than ours. */
-    var rl = $('tourReal');
-    if (isPlay || !st.real) {
-      rl.hidden = true;
-    } else {
-      rl.hidden = false;
-      rl.textContent = st.real;
-      /* Amber when the answer is "not yet", so a claim and a caveat never
-         look like the same sentence. */
-      rl.className = 'tour-real' +
-        (/^(Not live|Built, not)/.test(st.real) ? ' warn' : '');
-    }
     $('tourNext').textContent = isPlay ? TOUR_COPY.playNext : 'Next';
     /* 🔑 Nothing to skip past on the last step, and an exit here is an exit
        taken thirty seconds before the only question we needed answered. */
@@ -5306,12 +5211,6 @@ body.tour-locked .nav{pointer-events:none}
 
     if (!isPlay) { try { go(st.view); } catch (e) { keep(e, 'tour go'); } }
 
-    /* ⭐ Investor only, and only while a step owns the screen. Lifted on the
-       free-play step so "now try it yourself" is a real offer. */
-    document.body.classList[
-      (TOUR_WHO === 'investor' && !isPlay) ? 'add' : 'remove'
-    ]('tour-locked');
-
     /* 🔑 'zone' and 'edit' are deep views and swap the mark for a back
        arrow. Tapping it mid-walkthrough leaves the bar narrating a screen
        that is no longer on show, so it is out of reach while a step owns
@@ -5343,7 +5242,6 @@ body.tour-locked .nav{pointer-events:none}
   function tourOut() {
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
-    document.body.classList.remove('tour-locked');
     vibrate(5);
     if (TOUR_WHO === 'investor') {
       trail('tour: investor declined the account, to the model');
@@ -5362,7 +5260,6 @@ body.tour-locked .nav{pointer-events:none}
   function tourAccount() {
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
-    document.body.classList.remove('tour-locked');
     var c = TOUR_COPY;
     $('tFeedback').firstChild.innerHTML =
       '<h2>' + esc2(c.acctTitle) + '</h2>' +
@@ -5393,7 +5290,6 @@ body.tour-locked .nav{pointer-events:none}
   function tourFeedback() {
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
-    document.body.classList.remove('tour-locked');
     var c = TOUR_COPY;
     var answers = { use: null, worth: '', friction: '' };
 
@@ -5551,7 +5447,6 @@ body.tour-locked .nav{pointer-events:none}
       tourSave();
       $('tourBar').classList.remove('on');
       document.body.classList.remove('tour-running');
-      document.body.classList.remove('tour-locked');
       tourPaintWelcome();
       $('tWelcome').classList.add('on');
       return;
@@ -5567,7 +5462,6 @@ body.tour-locked .nav{pointer-events:none}
   $('tourSkip').addEventListener('click', function () {
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
-    document.body.classList.remove('tour-locked');
     tour.on = false; tourSave();
     trail('tour: skipped mid-walkthrough');
     toast('Walkthrough closed. Restart it from the You tab.');
