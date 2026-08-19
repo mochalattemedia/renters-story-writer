@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v71                                       -->
+<!--  VERSION: shell-v72                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v71">
+<meta name="rdc-version" content="shell-v72">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v71
+/* ============================================================ shell-v72
+
+   v72: THE INVESTOR IS SHOWN A FINISHED OBJECT, NOT AN EMPTY FORM.
+
+   v71 seeded a BLANK draft before opening the zone and spot screens, so
+   step one landed on an empty map reading "No zones drawn yet" over a view
+   of Kansas, and step two on an unfilled form. For a renter that is
+   correct: it is their turn, and a blank map is an invitation.
+
+   For an investor it sells nothing. They are not going to draw a zone in a
+   meeting. They need to see what a completed demand object looks like -
+   the drawn area, the ranked requirements - because that object is the
+   entire asset being described.
+
+   Investor steps now open the demo spot already filled in. Renter steps
+   still open blank, because the two audiences want opposite things from
+   the same screen.
+
+   ============================================================ shell-v71
 
    v71: THE WALKTHROUGH GIVES ITSELF A DRAFT TO WORK ON.
 
@@ -1516,7 +1534,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v71';
+  var V = 'shell-v72';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -4981,13 +4999,12 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
     steps: [
       { view: 'zone', label: 'Zones',
         title: 'Demand starts with a real area',
-        body: 'A radius around a pin crosses a river and a school ' +
-              'catchment. A drawn zone does not, and it is far better ' +
-              'signal on where somebody would actually sign.' },
+        body: 'This is a renter\u2019s drawn zone. A radius around a pin ' +
+              'crosses rivers and catchments; a drawn shape does not.' },
       { view: 'edit', label: 'Perfect spot',
         title: 'Requirements, ranked by how hard they are',
-        body: 'Must-have, nice-to-have, deal breaker. That ranking is what ' +
-              'a filter throws away and what makes matching possible.' },
+        body: 'The same renter\u2019s criteria. Must-have, nice-to-have, ' +
+              'deal breaker - the ranking a filter throws away.' },
       { view: 'spots', label: 'Editing',
         title: 'Demand is not captured once',
         body: 'Every edit is a fresh signal at the moment it changes. This ' +
@@ -5177,13 +5194,19 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
     /* ⭐ Seeded BEFORE the view opens. The zone and edit screens are both
        draft-backed, and every other route into them creates one first. */
     if (!isPlay && (st.view === 'zone' || st.view === 'edit')) {
-      if (!S.draft) {
-        try {
+      try {
+        /* ⭐ An investor is shown the finished object; a renter is handed
+           an empty one. Same screens, opposite purposes. */
+        if (TOUR_WHO === 'investor' && S.spots && S.spots.length) {
+          S.draft = JSON.parse(JSON.stringify(S.spots[0]));
+          S.editIdx = 0;
+          trail('tour: loaded the demo spot for ' + st.view);
+        } else if (!S.draft) {
           S.draft = blankDraft();
           S.editIdx = -1;
           trail('tour: seeded a blank draft for ' + st.view);
-        } catch (e) { keep(e, 'tour draft'); }
-      }
+        }
+      } catch (e) { keep(e, 'tour draft'); }
     }
 
     if (!isPlay) { try { go(st.view); } catch (e) { keep(e, 'tour go'); } }
