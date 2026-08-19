@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v70                                       -->
+<!--  VERSION: shell-v71                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v70">
+<meta name="rdc-version" content="shell-v71">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v70
+/* ============================================================ shell-v71
+
+   v71: THE WALKTHROUGH GIVES ITSELF A DRAFT TO WORK ON.
+
+   v67 pointed steps one and two at 'zone' and 'edit' so the renter would
+   see those screens rather than read about them. It went straight there
+   with go(), which skips the one line every other route into those screens
+   runs first: S.draft = blankDraft().
+
+   Every chip handler opens with `if (!S.draft) return;`. So the chips
+   painted, looked live, and did nothing at all when tapped. During the one
+   step whose entire subject is sorting requirements into three buckets.
+
+   🔑 A GUARD THAT RETURNS SILENTLY IS INVISIBLE FROM THE OUTSIDE. Nothing
+   was thrown, nothing logged, the screen looked right. Same shape as the
+   BD write that returns success and files the column under users_meta.
+
+   ============================================================ shell-v70
 
    v70: BACK AND FORWARD, AS OFTEN AS THEY LIKE, THE WHOLE WAY THROUGH.
 
@@ -1499,7 +1516,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v70';
+  var V = 'shell-v71';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2023,7 +2040,14 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
       b.setAttribute('aria-pressed', 'false');
       b.textContent = pretty(k);
       b.addEventListener('click', function () {
-        if (!S.draft) return;
+        /* Was a bare return. A chip that answers a tap with nothing is
+           indistinguishable from a chip that is broken, which is exactly
+           how v67 shipped for four versions without anybody seeing it. */
+        if (!S.draft) {
+          trail('chip tap with no draft: ' + k);
+          toast('Open a spot first.');
+          return;
+        }
         var arr = S.draft.criteria[bag], i = arr.indexOf(k);
         if (i === -1) {
           /* cap 0 means no limit - the same convention nice to have and
@@ -5149,6 +5173,18 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
     out.hidden = !isPlay;
     out.classList[isPlay ? 'add' : 'remove']('on');
     if (isPlay) out.textContent = TOUR_COPY.playOut;
+
+    /* ⭐ Seeded BEFORE the view opens. The zone and edit screens are both
+       draft-backed, and every other route into them creates one first. */
+    if (!isPlay && (st.view === 'zone' || st.view === 'edit')) {
+      if (!S.draft) {
+        try {
+          S.draft = blankDraft();
+          S.editIdx = -1;
+          trail('tour: seeded a blank draft for ' + st.view);
+        } catch (e) { keep(e, 'tour draft'); }
+      }
+    }
 
     if (!isPlay) { try { go(st.view); } catch (e) { keep(e, 'tour go'); } }
 
