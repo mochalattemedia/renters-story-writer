@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v73                                       -->
+<!--  VERSION: shell-v74                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v73">
+<meta name="rdc-version" content="shell-v74">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v73
+/* ============================================================ shell-v74
+
+   v74: THE INVESTOR WALKTHROUGH IS A PRESENTATION, NOT A SANDBOX.
+
+   Steps one to six were fully interactive, which is right for a renter and
+   wrong for somebody being shown the product. An investor who taps into
+   the zone editor mid-step is now two screens away from the narration,
+   looking at a control they have no reason to operate, and the story has
+   stopped. Worse, they can break the demo state and the remaining steps
+   describe a screen that no longer matches.
+
+   During steps one to six on the investor script the app is display only.
+   Taps land on nothing; the bar is the only thing that responds. The
+   free-play step lifts it completely, which is the moment the app becomes
+   theirs to poke at and the moment the invitation actually means something.
+
+   THE RENTER SCRIPT IS UNTOUCHED. Their whole point is doing it.
+
+   ============================================================ shell-v73
 
    v73: EVERY STEP SAYS WHAT IT WILL DO IN A REAL ACCOUNT, AND WHICH
    STEPS WILL NOT DO ANYTHING YET.
@@ -1251,6 +1269,10 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
    width so it cannot be mistaken for the small per-step Skip link. */
 /* Square, quiet, and the same height as the green button so the row does
    not look assembled out of spare parts. */
+/* Display only. The bar sits outside .app so it keeps working, and the
+   cursor is left alone because a "not allowed" cursor reads as an error
+   rather than as a deliberate choice. */
+body.tour-locked .app{pointer-events:none}
 .tour-real{width:100%;margin:0 0 13px;font-size:12.5px;line-height:1.5;font-weight:600;
   color:rgba(255,255,255,.7);border-left:2px solid rgba(255,255,255,.28);padding:2px 0 2px 10px}
 .tour-real.warn{color:#f6d68a;border-left-color:var(--gold)}
@@ -1558,7 +1580,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v73';
+  var V = 'shell-v74';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5263,6 +5285,12 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 
     if (!isPlay) { try { go(st.view); } catch (e) { keep(e, 'tour go'); } }
 
+    /* ⭐ Investor only, and only while a step owns the screen. Lifted on the
+       free-play step so "now try it yourself" is a real offer. */
+    document.body.classList[
+      (TOUR_WHO === 'investor' && !isPlay) ? 'add' : 'remove'
+    ]('tour-locked');
+
     /* 🔑 'zone' and 'edit' are deep views and swap the mark for a back
        arrow. Tapping it mid-walkthrough leaves the bar narrating a screen
        that is no longer on show, so it is out of reach while a step owns
@@ -5294,6 +5322,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
   function tourOut() {
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
+    document.body.classList.remove('tour-locked');
     vibrate(5);
     if (TOUR_WHO === 'investor') {
       trail('tour: investor declined the account, to the model');
@@ -5312,6 +5341,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
   function tourAccount() {
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
+    document.body.classList.remove('tour-locked');
     var c = TOUR_COPY;
     $('tFeedback').firstChild.innerHTML =
       '<h2>' + esc2(c.acctTitle) + '</h2>' +
@@ -5342,6 +5372,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
   function tourFeedback() {
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
+    document.body.classList.remove('tour-locked');
     var c = TOUR_COPY;
     var answers = { use: null, worth: '', friction: '' };
 
@@ -5499,6 +5530,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
       tourSave();
       $('tourBar').classList.remove('on');
       document.body.classList.remove('tour-running');
+      document.body.classList.remove('tour-locked');
       tourPaintWelcome();
       $('tWelcome').classList.add('on');
       return;
@@ -5514,6 +5546,7 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
   $('tourSkip').addEventListener('click', function () {
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
+    document.body.classList.remove('tour-locked');
     tour.on = false; tourSave();
     trail('tour: skipped mid-walkthrough');
     toast('Walkthrough closed. Restart it from the You tab.');
