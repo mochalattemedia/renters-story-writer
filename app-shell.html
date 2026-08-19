@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v74                                       -->
+<!--  VERSION: shell-v75                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v74">
+<meta name="rdc-version" content="shell-v75">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v74
+/* ============================================================ shell-v75
+
+   v75: TWO FIXES TO v74, BOTH MINE.
+
+   1. THE LOCK DISABLED THE BAR IT WAS SUPPOSED TO LEAVE ALONE. The comment
+   in v74 says "the bar sits outside .app so it keeps working". It does not.
+   #tourBar is a child of .app, so pointer-events:none on .app killed Next,
+   Back and Skip along with everything else, and the walkthrough stopped
+   dead on step one with no way forward. I asserted the DOM shape instead of
+   grepping for it - the same mistake as trusting a version number without
+   checking the file.
+
+   The lock now targets the two content regions by name and never the bar.
+
+   2. THE "LIVE AND COLLECTING TODAY" LINE LANDED INSIDE THE BUTTON ROW,
+   because it was inserted before the back button, which is a flex child of
+   .tour-act. It rendered as a column beside Next. It now sits above the
+   row, where it was meant to be.
+
+   ============================================================ shell-v74
 
    v74: THE INVESTOR WALKTHROUGH IS A PRESENTATION, NOT A SANDBOX.
 
@@ -1269,10 +1288,12 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
    width so it cannot be mistaken for the small per-step Skip link. */
 /* Square, quiet, and the same height as the green button so the row does
    not look assembled out of spare parts. */
-/* Display only. The bar sits outside .app so it keeps working, and the
-   cursor is left alone because a "not allowed" cursor reads as an error
-   rather than as a deliberate choice. */
-body.tour-locked .app{pointer-events:none}
+/* 🔑 Display only, and NAMED REGIONS ONLY. #tourBar is a child of .app, so
+   locking .app locks the walkthrough controls too - which is exactly how
+   v74 shipped unable to reach step two. */
+body.tour-locked .top,
+body.tour-locked .body,
+body.tour-locked .nav{pointer-events:none}
 .tour-real{width:100%;margin:0 0 13px;font-size:12.5px;line-height:1.5;font-weight:600;
   color:rgba(255,255,255,.7);border-left:2px solid rgba(255,255,255,.28);padding:2px 0 2px 10px}
 .tour-real.warn{color:#f6d68a;border-left-color:var(--gold)}
@@ -1533,8 +1554,8 @@ body.tour-locked .app{pointer-events:none}
     <p class="tour-step" id="tourStep"></p>
     <h4 id="tourTitle"></h4>
     <p id="tourBody"></p>
+    <p class="tour-real" id="tourReal" hidden></p>
     <div class="tour-act">
-      <p class="tour-real" id="tourReal" hidden></p>
       <button type="button" class="tour-back" id="tourBack" aria-label="Back">&lsaquo;</button>
       <button class="cta" id="tourNext">Next</button>
       <button type="button" class="tour-skip" id="tourSkip">Skip</button>
@@ -1580,7 +1601,7 @@ body.tour-locked .app{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v74';
+  var V = 'shell-v75';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
