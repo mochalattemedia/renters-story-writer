@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v78                                       -->
+<!--  VERSION: shell-v80                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,66 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v78">
+<meta name="rdc-version" content="shell-v80">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v78
+/* ============================================================ shell-v80
+
+   v80: FULL SCREEN OR NOT AT ALL.
+
+   The 200px inline video is gone. It was object-fit:cover, which is a
+   polite way of saying it cropped the top and bottom off every capture,
+   and what it cropped included the thing the step was talking about. A
+   clip you can only half see is worse than no clip, because it looks
+   like the product is what fits in the box.
+
+   It was also sitting several inches down a bar the reader was already
+   scrolling past, as a small thing to press. Small things to press at the
+   bottom of a narration panel do not get pressed.
+
+   So there is one way to watch a clip now and it is the whole screen.
+   The step opens it, it plays once, it closes itself. Under the
+   narration there is a single text row to play it again, which is a row
+   of type rather than a cropped video pretending to be a control.
+
+   THE OVERLAY GOT ITS MARGINS BACK. It was padded 16px each side and the
+   video was width-constrained inside that, so a portrait capture was
+   rendering about 40px narrower than the screen it was filling. Full
+   bleed now, corners square, because a rounded rectangle floating on a
+   backdrop is a thumbnail no matter how large it is.
+
+   ============================================================ shell-v79
+
+   v79: THE CLIP TAKES THE SCREEN, PLAYS ONCE, AND HANDS IT BACK.
+
+   v78 played the clips inline at 200px and left a tap to enlarge. In
+   practice the tap is where people stopped: a 200px letterbox of a phone
+   capture is legible enough to ignore and too small to read. Full screen
+   is where these actually work.
+
+   So a clip step now opens itself. Land on the step, the capture takes
+   the screen, plays once through, and closes on its own. The bar comes
+   back with Next under your thumb. Nothing to press to start it and
+   nothing to press to get out of it.
+
+   Step 2 does the same with the extraction scene, on a timer rather than
+   an ended event, because it is HTML and has no end to fire. Which means
+   there is now no step in the walkthrough that requires a tap to show
+   what it is describing.
+
+   ONCE PER STEP PER SESSION. Going Back re-opening the clip every time
+   would make the Back button feel like a trap, so a step that has already
+   played is remembered. The inline video stays under the narration,
+   looping quietly, and tapping it replays full screen on demand.
+
+   The overlay video lost its loop attribute. It is the same element the
+   inline path used to hand off to, and a looping clip in an auto-closing
+   overlay has no way to know when it is finished.
+
+   ============================================================ shell-v78
 
    v78: THE CLIPS PLAY THEMSELVES.
 
@@ -975,7 +1028,6 @@ a{color:var(--teal)}
 /* While the walkthrough is running the bar is a fixed slab across the
    bottom. Without this the last card on every screen sits underneath it. */
 body.tour-running .body{padding-bottom:300px}
-body.tour-running.tour-vid-on .body{padding-bottom:460px}
 .view{display:none}
 .view.on{display:block}
 
@@ -1412,27 +1464,18 @@ body.tour-locked .nav{pointer-events:none}
 .tour-clip.prev s{color:#f6d68a}
 .tour-clip.prev .pl{background:var(--gold)}
 
-/* ⭐ INLINE AND PLAYING, NOT WAITING TO BE ASKED. object-fit:cover crops
-   the portrait capture to its middle band, which is the map, the card or
-   the slot grid. What gets cut is the app chrome, and the app chrome is
-   already on screen behind this bar. */
-.tour-vid{display:block;width:100%;height:200px;object-fit:cover;
-  border-radius:12px;background:#081f38;margin:0 0 5px;cursor:pointer;
-  border:1px solid rgba(255,255,255,.14)}
-.tour-vid[hidden]{display:none}
-.tour-vcap{margin:0 0 12px;font-size:10.5px;letter-spacing:.06em;
-  text-transform:uppercase;font-weight:700;color:rgba(255,255,255,.42)}
-.tour-vcap[hidden]{display:none}
-.tour-vcap.bad{color:#f6d68a;text-transform:none;letter-spacing:0;
-  font-size:12.5px;font-weight:600}
-
-.cw{position:fixed;inset:0;z-index:1200;background:rgba(8,31,56,.94);
+.cw{position:fixed;inset:0;z-index:1200;background:#081f38;
   display:none;flex-direction:column;align-items:center;justify-content:center;
-  padding:calc(64px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom))}
+  padding:0}
 .cw.on{display:flex}
-.cw video{max-width:100%;max-height:72vh;border-radius:14px;display:block;
-  background:#000;box-shadow:0 18px 50px rgba(0,0,0,.5)}
-.cw .cwcap{margin:13px 0 0;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+/* Full bleed, square corners. A rounded rectangle floating on a backdrop
+   reads as a thumbnail however big it is. */
+.cw video{width:100%;max-height:100vh;height:auto;display:block;background:#000}
+.cw .xs-pad{padding:calc(58px + env(safe-area-inset-top)) 14px
+  calc(18px + env(safe-area-inset-bottom));display:flex;
+  align-items:center;justify-content:center;width:100%}
+.cw .cwcap{position:absolute;left:0;right:0;
+  bottom:calc(16px + env(safe-area-inset-bottom));margin:0;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
   font-weight:700;color:rgba(255,255,255,.55);text-align:center}
 .cw .cwcap.prev{color:#f6d68a}
 .cw .cwmiss{color:#fff;text-align:center;font-size:15px;line-height:1.6;max-width:300px}
@@ -1742,9 +1785,6 @@ body.tour-locked .nav{pointer-events:none}
     <p class="tour-step" id="tourStep"></p>
     <h4 id="tourTitle"></h4>
     <p id="tourBody"></p>
-    <video class="tour-vid" id="tourVid" muted playsinline loop
-           preload="auto" hidden></video>
-    <p class="tour-vcap" id="tourVcap" hidden></p>
     <button type="button" class="tour-clip" id="tourClip" hidden>
       <span class="pl"><b></b></span>
       <span><span id="tourClipLbl"></span><s id="tourClipCap"></s></span>
@@ -1762,10 +1802,12 @@ body.tour-locked .nav{pointer-events:none}
        never becomes a containing block for a position:fixed overlay. -->
   <div class="cw" id="cw">
     <button type="button" class="cwx" id="cwx" aria-label="Close">&times;</button>
-    <video id="cwVid" muted playsinline loop preload="none"></video>
+    <!-- No loop. This one closes itself on "ended", and a looping
+         clip never fires it. -->
+    <video id="cwVid" muted playsinline preload="none"></video>
     <p class="cwmiss" id="cwMiss" hidden></p>
 
-    <div class="xs" id="xScene" hidden>
+    <div class="xs-pad" id="xPad" hidden><div class="xs" id="xScene">
       <div class="xc">
         <p class="xe">What we heard &middot; tap to fix anything</p>
         <p class="xt">Hi I&rsquo;m looking to move in <span class="xsrc" data-x="move">September 1</span>
@@ -1797,7 +1839,7 @@ body.tour-locked .nav{pointer-events:none}
         <p>You did not mention a budget or how many bedrooms. Tap to add them,
            or say another sentence.</p>
       </div>
-    </div>
+    </div></div>
 
     <p class="cwcap" id="cwCap"></p>
   </div>
@@ -1840,7 +1882,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v78';
+  var V = 'shell-v80';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5282,8 +5324,13 @@ body.tour-locked .nav{pointer-events:none}
     } catch (e) {}
   }
 
+  /* Which steps have already taken the screen this session. Cleared with
+     the tour, so a restart plays them again. */
+  var vSeen = {};
+
   function tourReset() {
     tour = { on: false, i: -1, done: false };
+    vSeen = {};
     try { localStorage.removeItem(K_TOUR); } catch (e) {}
   }
 
@@ -5453,24 +5500,11 @@ body.tour-locked .nav{pointer-events:none}
     if (w) w.addEventListener('click', function (e) {
       if (e.target === this) clipClose();
     });
-    var iv = $('tourVid');
-    if (iv) {
-      iv.addEventListener('click', function () {
-        clipOpen(this.getAttribute('data-clip'), false);
-      });
-      iv.addEventListener('error', function () {
-        if (!this.getAttribute('src')) return;  /* removeAttribute fires this */
-        this.hidden = true;
-        document.body.classList.remove('tour-vid-on');
-        var c = $('tourVcap');
-        c.hidden = false;
-        c.className = 'tour-vcap bad';
-        c.textContent = 'That clip is not uploaded yet.';
-        trail('inline clip missing');
-      });
-    }
-
     var v = $('cwVid');
+    if (v) v.addEventListener('ended', function () {
+      trail('clip finished');
+      clipClose();
+    });
     if (v) v.addEventListener('error', function () {
       if (!this.getAttribute('src')) return;   /* removeAttribute fires this */
       this.style.display = 'none';
@@ -5485,7 +5519,7 @@ body.tour-locked .nav{pointer-events:none}
   /* Every exit from the walkthrough goes through one of these, and a
      video left decoding behind a closed bar is a battery drain nobody
      can see. */
-  function tourTeardown() { clipClose(); vidStop(); }
+  function tourTeardown() { clipClose(); }
 
   function tourPaintWelcome() {
     var c = TOUR_COPY;
@@ -5610,15 +5644,18 @@ body.tour-locked .nav{pointer-events:none}
   }
 
   function clipOpen(name, isPrev) {
-    var v = $('cwVid'), miss = $('cwMiss'), sc = $('xScene');
+    var v = $('cwVid'), miss = $('cwMiss');
     if (name === 'x-extract') {
       v.style.display = 'none';
       v.removeAttribute('src');
       miss.hidden = true;
-      sc.hidden = false;
+      $('xPad').hidden = false;
       xPlay();
+      /* The last beat of X_PLAN lands at 7.1s. Three seconds to read it,
+         then the screen goes back to the narration. */
+      autoShut = setTimeout(clipClose, 10100);
     } else {
-      sc.hidden = true;
+      $('xPad').hidden = true;
       miss.hidden = true;
       v.style.display = '';
       v.src = NET + '/' + name;
@@ -5632,27 +5669,30 @@ body.tour-locked .nav{pointer-events:none}
     trail('clip open ' + name);
   }
 
-  function vidStop() {
-    var vd = $('tourVid');
-    try { vd.pause(); } catch (e) {}
-    vd.removeAttribute('src');
-    vd.hidden = true;
-    $('tourVcap').hidden = true;
-    document.body.classList.remove('tour-vid-on');
+  /* The delay before a clip takes the screen, and the hold before the
+     extraction scene gives it back. Both have to be cancellable: a fast
+     tap on Next should not be followed half a second later by a clip for
+     the step you already left. */
+  var autoOpen = null, autoShut = null;
+
+  function autoClear() {
+    if (autoOpen) { clearTimeout(autoOpen); autoOpen = null; }
+    if (autoShut) { clearTimeout(autoShut); autoShut = null; }
   }
 
   function clipClose() {
+    autoClear();
     var v = $('cwVid');
     try { v.pause(); } catch (e) {}
     v.removeAttribute('src');
-    $('xScene').hidden = true;
+    $('xPad').hidden = true;
     xReset();
     $('cw').classList.remove('on');
   }
 
   function tourShow() {
+    autoClear();
     clipClose();                       /* never leave a clip running behind */
-    vidStop();
     var steps = TOUR_COPY.steps;
     var total = steps.length + 1;              /* + the free-play step */
     var i = tour.i;
@@ -5690,34 +5730,30 @@ body.tour-locked .nav{pointer-events:none}
        it is a page of its own and will not survive a 200px letterbox.
        A step with neither gets no row at all: an empty frame reads as a
        thing that failed to load. */
-    var cb = $('tourClip'), vd = $('tourVid'), vc = $('tourVcap');
+    /* \u2b50 One row, and it is type rather than a cropped video pretending
+       to be a control. The clip itself opens on arrival and takes the
+       whole screen; this is only here to watch it a second time. */
+    var cb = $('tourClip');
     var name = (!isPlay && st.clip) ? st.clip : '';
-    var isVid = name && name.slice(-4) === '.mp4';
 
-    if (isVid) {
-      cb.hidden = true;
-      vd.hidden = false;
-      vc.hidden = false;
-      vc.className = 'tour-vcap';
-      vc.textContent = 'Recorded in the app \u00b7 tap to enlarge';
-      vd.setAttribute('data-clip', name);
-      vd.src = NET + '/' + name;
-      vd.play().catch(function () {});
-      document.body.classList.add('tour-vid-on');
-    } else {
-      vidStop();
-      if (name) {
-        cb.hidden = false;
-        cb.className = 'tour-clip' + (st.preview ? ' prev' : '');
-        cb.setAttribute('data-clip', name);
-        cb.setAttribute('data-prev', st.preview ? '1' : '');
-        $('tourClipLbl').textContent = st.preview ? 'See how it will work'
-                                                  : 'See it in motion';
-        $('tourClipCap').textContent = st.preview ? 'Target \u00b7 not yet matched'
-                                                  : 'Recorded in the app';
-      } else {
-        cb.hidden = true;
+    if (name) {
+      cb.hidden = false;
+      cb.className = 'tour-clip' + (st.preview ? ' prev' : '');
+      cb.setAttribute('data-clip', name);
+      cb.setAttribute('data-prev', st.preview ? '1' : '');
+      $('tourClipLbl').textContent = 'Play it again';
+      $('tourClipCap').textContent = st.preview ? 'Target \u00b7 not yet matched'
+                                                : 'Recorded in the app';
+      /* First arrival takes the screen. Every arrival after that does not,
+         or Back becomes a thing people stop pressing. */
+      if (!vSeen[name]) {
+        vSeen[name] = 1;
+        autoOpen = setTimeout(function () {
+          clipOpen(name, st.preview === true);
+        }, 420);
       }
+    } else {
+      cb.hidden = true;
     }
 
     $('tourNext').textContent = isPlay ? TOUR_COPY.playNext : 'Next';
