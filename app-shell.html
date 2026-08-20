@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v96                                       -->
+<!--  VERSION: shell-v97                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,41 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v96">
+<meta name="rdc-version" content="shell-v97">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v96
+/* ============================================================ shell-v97
+
+   v97: THE BAR IS MEASURED NOW, NOT GUESSED AT.
+
+   The matches card was rendering with an empty middle: rent band, a thin
+   strip of nothing, then the footer. No address, no bed and bath line,
+   none of the four requirement ticks. Which is the one card in the app
+   that carries the whole "requirements, not photographs" argument, and
+   it was showing up with the requirements missing.
+
+   Nothing wrong with the deck. body.tour-running .body reserved a flat
+   300px for the bar, a number that was right when the bar was smaller.
+   Step five now runs a two-line title, a body, a clip row, an amber
+   caveat and the buttons, which measures about 410px. So the iframe ran
+   110px behind the bar; the deck sizes its card to the iframe; .photo
+   took its 112px minimum out of what was left; and .body, which is
+   overflow:hidden, clipped everything else away.
+
+   A constant standing in for the height of something whose height
+   depends on its copy was going to drift the moment anybody edited a
+   line. It is measured after every paint now, written to a custom
+   property, and read by the padding rule. Edit a step, add a caveat,
+   wrap a title onto three lines: the clearance follows.
+
+   Measured in a rAF because offsetHeight before layout returns the
+   previous step's height, which would have been a bug that only showed
+   up when two consecutive steps had different-length copy.
+
+   ============================================================ shell-v96
 
    v96: THE MODEL IN TWO LINES, AND NO BOXES AROUND ANYTHING.
 
@@ -1391,7 +1419,9 @@ a{color:var(--teal)}
 .body.tight{overflow:hidden;padding-bottom:12px}
 /* While the walkthrough is running the bar is a fixed slab across the
    bottom. Without this the last card on every screen sits underneath it. */
-body.tour-running .body{padding-bottom:300px}
+/* \u2b50 Measured, not guessed. The fallback is only for the frame between
+   the bar appearing and the first measurement landing. */
+body.tour-running .body{padding-bottom:var(--tourpad,300px)}
 .view{display:none}
 .view.on{display:block}
 
@@ -2261,7 +2291,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v96';
+  var V = 'shell-v97';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5907,7 +5937,10 @@ body.tour-locked .nav{pointer-events:none}
   /* Every exit from the walkthrough goes through one of these, and a
      video left decoding behind a closed bar is a battery drain nobody
      can see. */
-  function tourTeardown() { clipClose(); }
+  function tourTeardown() {
+    clipClose();
+    document.body.style.removeProperty('--tourpad');
+  }
 
   function tourPaintWelcome() {
     var c = TOUR_COPY;
@@ -6200,6 +6233,27 @@ body.tour-locked .nav{pointer-events:none}
 
     $('tourBar').classList.add('on');
     document.body.classList.add('tour-running');
+    tourPad();
+  }
+
+  /* \u2b50 WHAT THE BAR ACTUALLY IS, NOT WHAT IT WAS WHEN SOMEBODY LAST
+     COUNTED. Read in a rAF because offsetHeight before layout returns the
+     previous step's height, which would only ever have gone wrong between
+     two steps whose copy was different lengths - the hardest kind of bug
+     to catch by looking.
+
+     The iframe views are the reason this matters. app-deck sizes its card
+     to the height it is given and clips the middle when that is short, so
+     a bar 110px taller than its reservation does not overlap the card, it
+     empties it. */
+  function tourPad() {
+    requestAnimationFrame(function () {
+      var b = $('tourBar');
+      if (!b) return;
+      var h = b.offsetHeight || 300;
+      document.body.style.setProperty('--tourpad', (h + 16) + 'px');
+      trail('tour: bar ' + h + 'px');
+    });
   }
 
   function tourNext() {
