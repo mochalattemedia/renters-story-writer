@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v77                                       -->
+<!--  VERSION: shell-v78                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,40 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v77">
+<meta name="rdc-version" content="shell-v78">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v77
+/* ============================================================ shell-v78
+
+   v78: THE CLIPS PLAY THEMSELVES.
+
+   v77 made every clip a tap. That was the right call for portrait video
+   at full size and the wrong call for the walkthrough, because a step
+   that needs a tap before it shows you anything is a step most people
+   read past. The clips now autoplay inline, muted, looping, in the bar.
+   Tapping one still opens it full size.
+
+   Height is capped at 200px and the video is object-fit:cover, so the
+   frame crops to the middle fifth-to-fifth of the capture. That is the
+   map on the zone clip, the card on the swipe clip, and the slot grid on
+   the showings clip. The app chrome at top and bottom is what gets cut,
+   which is the part the tour is already showing behind the bar.
+
+   The extra clearance only applies on steps that actually have a video.
+   Reserving 450px of padding on a step with nothing to play is how a
+   walkthrough ends up feeling like it is hiding the app.
+
+   AND THE DEAD FRAMES ARE OUT OF THE FOOTAGE. The zone capture ran 12.4
+   seconds and roughly 9 of them were frozen: nothing moves between one
+   tap and the next. Cut on the static stretches, which is invisible
+   because the frames on either side are identical, it comes to 7.6
+   seconds and stops feeling like it is repeating. Swipe is 3.3, showings
+   is 4.5. Those are the real lengths of what was recorded.
+
+   ============================================================ shell-v77
 
    v77: REAL FOOTAGE REPLACES THE DIAGRAM, AND THE EXTRACTION RUNS LIVE.
 
@@ -948,6 +975,7 @@ a{color:var(--teal)}
 /* While the walkthrough is running the bar is a fixed slab across the
    bottom. Without this the last card on every screen sits underneath it. */
 body.tour-running .body{padding-bottom:300px}
+body.tour-running.tour-vid-on .body{padding-bottom:460px}
 .view{display:none}
 .view.on{display:block}
 
@@ -1384,6 +1412,20 @@ body.tour-locked .nav{pointer-events:none}
 .tour-clip.prev s{color:#f6d68a}
 .tour-clip.prev .pl{background:var(--gold)}
 
+/* ⭐ INLINE AND PLAYING, NOT WAITING TO BE ASKED. object-fit:cover crops
+   the portrait capture to its middle band, which is the map, the card or
+   the slot grid. What gets cut is the app chrome, and the app chrome is
+   already on screen behind this bar. */
+.tour-vid{display:block;width:100%;height:200px;object-fit:cover;
+  border-radius:12px;background:#081f38;margin:0 0 5px;cursor:pointer;
+  border:1px solid rgba(255,255,255,.14)}
+.tour-vid[hidden]{display:none}
+.tour-vcap{margin:0 0 12px;font-size:10.5px;letter-spacing:.06em;
+  text-transform:uppercase;font-weight:700;color:rgba(255,255,255,.42)}
+.tour-vcap[hidden]{display:none}
+.tour-vcap.bad{color:#f6d68a;text-transform:none;letter-spacing:0;
+  font-size:12.5px;font-weight:600}
+
 .cw{position:fixed;inset:0;z-index:1200;background:rgba(8,31,56,.94);
   display:none;flex-direction:column;align-items:center;justify-content:center;
   padding:calc(64px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom))}
@@ -1700,6 +1742,9 @@ body.tour-locked .nav{pointer-events:none}
     <p class="tour-step" id="tourStep"></p>
     <h4 id="tourTitle"></h4>
     <p id="tourBody"></p>
+    <video class="tour-vid" id="tourVid" muted playsinline loop
+           preload="auto" hidden></video>
+    <p class="tour-vcap" id="tourVcap" hidden></p>
     <button type="button" class="tour-clip" id="tourClip" hidden>
       <span class="pl"><b></b></span>
       <span><span id="tourClipLbl"></span><s id="tourClipCap"></s></span>
@@ -1795,7 +1840,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v77';
+  var V = 'shell-v78';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5408,6 +5453,23 @@ body.tour-locked .nav{pointer-events:none}
     if (w) w.addEventListener('click', function (e) {
       if (e.target === this) clipClose();
     });
+    var iv = $('tourVid');
+    if (iv) {
+      iv.addEventListener('click', function () {
+        clipOpen(this.getAttribute('data-clip'), false);
+      });
+      iv.addEventListener('error', function () {
+        if (!this.getAttribute('src')) return;  /* removeAttribute fires this */
+        this.hidden = true;
+        document.body.classList.remove('tour-vid-on');
+        var c = $('tourVcap');
+        c.hidden = false;
+        c.className = 'tour-vcap bad';
+        c.textContent = 'That clip is not uploaded yet.';
+        trail('inline clip missing');
+      });
+    }
+
     var v = $('cwVid');
     if (v) v.addEventListener('error', function () {
       if (!this.getAttribute('src')) return;   /* removeAttribute fires this */
@@ -5419,6 +5481,11 @@ body.tour-locked .nav{pointer-events:none}
       trail('clip missing');
     });
   })();
+
+  /* Every exit from the walkthrough goes through one of these, and a
+     video left decoding behind a closed bar is a battery drain nobody
+     can see. */
+  function tourTeardown() { clipClose(); vidStop(); }
 
   function tourPaintWelcome() {
     var c = TOUR_COPY;
@@ -5459,6 +5526,7 @@ body.tour-locked .nav{pointer-events:none}
      and somebody wants another look. */
   function tourRestart() {
     tourReset();
+    tourTeardown();
     $('tourBar').classList.remove('on');
     $('tFeedback').classList.remove('on');
     $('tBiz').classList.remove('on');
@@ -5564,6 +5632,15 @@ body.tour-locked .nav{pointer-events:none}
     trail('clip open ' + name);
   }
 
+  function vidStop() {
+    var vd = $('tourVid');
+    try { vd.pause(); } catch (e) {}
+    vd.removeAttribute('src');
+    vd.hidden = true;
+    $('tourVcap').hidden = true;
+    document.body.classList.remove('tour-vid-on');
+  }
+
   function clipClose() {
     var v = $('cwVid');
     try { v.pause(); } catch (e) {}
@@ -5575,6 +5652,7 @@ body.tour-locked .nav{pointer-events:none}
 
   function tourShow() {
     clipClose();                       /* never leave a clip running behind */
+    vidStop();
     var steps = TOUR_COPY.steps;
     var total = steps.length + 1;              /* + the free-play step */
     var i = tour.i;
@@ -5608,20 +5686,38 @@ body.tour-locked .nav{pointer-events:none}
         (/^(Not live|Built and working|Voice capture)/.test(st.real)
           ? ' warn' : '');
     }
-    /* ⭐ A step with nothing to show gets no row at all. An empty frame
-       reads as a thing that failed to load. */
-    var cb = $('tourClip');
-    if (!isPlay && st.clip) {
-      cb.hidden = false;
-      cb.className = 'tour-clip' + (st.preview ? ' prev' : '');
-      cb.setAttribute('data-clip', st.clip);
-      cb.setAttribute('data-prev', st.preview ? '1' : '');
-      $('tourClipLbl').textContent = st.preview ? 'See how it will work'
-                                                : 'See it in motion';
-      $('tourClipCap').textContent = st.preview ? 'Target \u00b7 not yet matched'
-                                                : 'Recorded in the app';
-    } else {
+    /* ⭐ Footage plays where it stands. A scene still needs a tap, because
+       it is a page of its own and will not survive a 200px letterbox.
+       A step with neither gets no row at all: an empty frame reads as a
+       thing that failed to load. */
+    var cb = $('tourClip'), vd = $('tourVid'), vc = $('tourVcap');
+    var name = (!isPlay && st.clip) ? st.clip : '';
+    var isVid = name && name.slice(-4) === '.mp4';
+
+    if (isVid) {
       cb.hidden = true;
+      vd.hidden = false;
+      vc.hidden = false;
+      vc.className = 'tour-vcap';
+      vc.textContent = 'Recorded in the app \u00b7 tap to enlarge';
+      vd.setAttribute('data-clip', name);
+      vd.src = NET + '/' + name;
+      vd.play().catch(function () {});
+      document.body.classList.add('tour-vid-on');
+    } else {
+      vidStop();
+      if (name) {
+        cb.hidden = false;
+        cb.className = 'tour-clip' + (st.preview ? ' prev' : '');
+        cb.setAttribute('data-clip', name);
+        cb.setAttribute('data-prev', st.preview ? '1' : '');
+        $('tourClipLbl').textContent = st.preview ? 'See how it will work'
+                                                  : 'See it in motion';
+        $('tourClipCap').textContent = st.preview ? 'Target \u00b7 not yet matched'
+                                                  : 'Recorded in the app';
+      } else {
+        cb.hidden = true;
+      }
     }
 
     $('tourNext').textContent = isPlay ? TOUR_COPY.playNext : 'Next';
@@ -5695,6 +5791,7 @@ body.tour-locked .nav{pointer-events:none}
   /* Leaving still lands somewhere useful. A renter is asked what they made
      of it; an investor gets the model, with the survey offered from it. */
   function tourOut() {
+    tourTeardown();
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
     document.body.classList.remove('tour-locked');
@@ -5714,6 +5811,7 @@ body.tour-locked .nav{pointer-events:none}
      to work out where the real thing lives. Declining costs one tap and
      goes straight on to the survey. */
   function tourAccount() {
+    tourTeardown();
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
     document.body.classList.remove('tour-locked');
@@ -5745,6 +5843,7 @@ body.tour-locked .nav{pointer-events:none}
   }
 
   function tourFeedback() {
+    tourTeardown();
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
     document.body.classList.remove('tour-locked');
@@ -5903,7 +6002,8 @@ body.tour-locked .nav{pointer-events:none}
       tour.i = -1;
       tour.on = false;
       tourSave();
-      $('tourBar').classList.remove('on');
+      tourTeardown();
+    $('tourBar').classList.remove('on');
       document.body.classList.remove('tour-running');
       document.body.classList.remove('tour-locked');
       tourPaintWelcome();
@@ -5919,6 +6019,7 @@ body.tour-locked .nav{pointer-events:none}
   $('tourNext').addEventListener('click', tourNext);
   $('tourOut').addEventListener('click', tourOut);
   $('tourSkip').addEventListener('click', function () {
+    tourTeardown();
     $('tourBar').classList.remove('on');
     document.body.classList.remove('tour-running');
     document.body.classList.remove('tour-locked');
