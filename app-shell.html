@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v107                                      -->
+<!--  VERSION: shell-v109                                      -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,67 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v107">
+<meta name="rdc-version" content="shell-v109">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v107
+/* ============================================================ shell-v109
+
+   v109: THE RENTER SCRIPT GETS THE SAME PASS.
+
+   Same shape as v108, second person throughout. One line per slide, every
+   title a subject and a verb, and the words on the screen are the words
+   the app already uses: zones, must have, nice to have, deal breakers.
+   Copy that names a bucket differently from the bucket costs the reader a
+   translation on every glance.
+
+   THE FOUR "IN YOUR ACCOUNT" LINES ARE GONE. They were a different animal
+   from the investor's four - reassurance about what a real account does,
+   not a claim about status - and they still repeated the step they sat
+   under. A slide that has just shown somebody drawing a zone does not
+   need a line saying they can draw zones.
+
+   The two that matter stay, shortened. "Matches will be empty until we
+   have listings" is the one thing a renter needs to be told before they
+   go looking for it themselves.
+
+   Slide four keeps its title. "Confirm once, carry it everywhere" is the
+   best line in either script and nothing here improves it.
+
+   And both scripts now say deal breakers, because that is what the bucket
+   in the app says.
+
+   ============================================================ shell-v108
+
+   v108: ALL SEVEN, WORKSHOPPED ONE AT A TIME.
+
+   Every title is a subject and a verb now, so tapping through reads as a
+   sequence rather than seven headings. Every body is one line and every
+   word in it is a word somebody would say out loud.
+
+   WHAT WENT. "Demand starts with a real area", "Requirements, ranked by
+   how hard they are", "Demand is not captured once", "Where the
+   transaction becomes measurable" - four theses standing where four
+   descriptions belonged. A slide with a picture under it does not need
+   the picture argued for.
+
+   FIT, NOT REQUIREMENTS. Slide five turns on one word. Requirement is
+   the landlord's word for what he demands; fit is the renter's word for
+   whether the place works. This product starts on the renter's side and
+   the copy now does too. Fit also carries degree, which is what the
+   Strong Match badge on the card is already saying, and a requirement is
+   only ever met or unmet.
+
+   THE FOUR "LIVE TODAY" LINES ARE GONE. Saying four slides are live
+   implies the other two might not be, and the other two say so
+   themselves. One gap, named where it applies, twice.
+
+   SLIDE SEVEN IS A TITLE. "Try it yourself" with the green button under
+   it. Anything else on that screen was explaining a button.
+
+   ============================================================ shell-v107
 
    v107: OPEN BY DEFAULT AGAIN.
 
@@ -2577,7 +2631,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v107';
+  var V = 'shell-v109';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5972,44 +6026,37 @@ body.tour-locked .nav{pointer-events:none}
        that screen is for. `view` drives the app; the renter is never asked
        to find anything themselves. */
     steps: [
+      /* No status line on the first four. The step has just shown the
+         thing; a line underneath saying you can do the thing is the slide
+         explaining itself. */
       { view: 'zone', label: 'Zones',
         clip: 'tour-zone.mp4',
-        real: 'In your account: you draw these yourself, as many as you like.',
-        title: 'Draw where you would actually live',
-        body: 'Stretch a shape over the area you would actually take, ' +
-              'then add another.' },
+        title: 'Draw where you want to live',
+        body: 'You can create as many zones as you\u2019d like.' },
       { view: 'edit', label: 'Perfect spot',
         clip: 'x-extract',
-        real: 'In your account: speak it or tap it, and change it whenever.',
-        title: 'Now describe the place itself',
-        body: 'Say it out loud. We sort it into must-have, nice-to-have ' +
-              'and deal breaker.' },
+        title: 'You say it, we sort it',
+        body: 'Must have, nice to have, and deal breakers.' },
       { view: 'spots', label: 'Editing',
-        real: 'In your account: this works from day one.',
-        title: 'It changes when you change',
-        body: 'Change a spot and the next matches come back different.' },
+        title: 'Change it whenever',
+        body: 'What we send you changes with it.' },
       { view: 'me', label: 'Verify',
-        real: 'In your account: this works from day one.',
         title: 'Confirm once, carry it everywhere',
-        body: 'ID and a quick selfie, once. Landlords do the same.' },
+        body: 'ID and a quick selfie. Landlords do the same.' },
       { view: 'matches', label: 'Swiping',
         clip: 'tour-swipe.mp4',
-        real: 'Not live yet. We have no listings to match you against, so ' +
-              'your account will be empty here until we do.',
-        title: 'Left to pass, right to look closer',
-        body: 'You see what the landlord requires and whether you meet ' +
-              'it, before the photos.' },
+        real: 'Not live yet. Matches will be empty until we have listings.',
+        title: 'You know how it fits before you swipe',
+        body: 'Income, pets, parking, dates.' },
       { view: 'showings', label: 'Showings',
         clip: 'tour-showing.mp4',
         real: 'Not live yet. It arrives with the listings.',
-        title: 'Book it without the phone tag',
-        body: 'Set the hours you are free once. No messages about ' +
-              'Tuesday.' }
+        title: 'Book the showing right here',
+        body: 'Swipe right to open it. Photos, location, then pick a time.' }
     ],
 
-    playTitle: 'Now try it yourself',
-    playBody: 'Nothing can break and nothing leaves this phone. When you ' +
-              'want the real thing, everything you build in it stays.',
+    playTitle: 'Try it yourself',
+    playBody: '',
     playNext: 'Set up my real account',
     playOut: 'Not yet, I have thoughts',
 
@@ -6112,44 +6159,41 @@ body.tour-locked .nav{pointer-events:none}
     /* Same screens, same order. An investor needs to know why each one is
        built the way it is, not what to tap. */
     steps: [
+      /* No status line on the first four. One gap in this walkthrough and
+         it belongs on the two slides it is true about. */
       { view: 'zone', label: 'Zones',
         clip: 'tour-zone.mp4',
-        real: 'This feature is live today.',
-        title: 'Demand starts with a real area',
-        body: 'The renter draws where they would live. We turn it into ' +
-              'real neighborhoods.' },
+        title: 'Where they would actually live',
+        body: 'They draw it. We turn it into neighborhoods and ZIP codes.' },
       { view: 'edit', label: 'Perfect spot',
         clip: 'x-extract',
-        real: 'This feature is live today.',
-        title: 'Requirements, ranked by how hard they are',
-        body: 'They say what they want out loud. We sort it by what they ' +
-              'will not give up.' },
+        title: 'They say it, we sort it',
+        body: 'Must have, nice to have, and deal breakers.' },
       { view: 'spots', label: 'Editing',
-        real: 'This feature is live today.',
-        title: 'Demand is not captured once',
-        body: 'They change it whenever they like. We always know what ' +
-              'they want now.' },
+        title: 'They change it whenever',
+        body: 'So what we hold is what they want today, not last month.' },
       { view: 'me', label: 'Verify',
-        real: 'This feature is live today, on both sides.',
         title: 'Both sides confirm identity',
         body: 'Renters and landlords both prove who they are.' },
+      /* Fit, not requirements. Requirement is the landlord's word for what
+         he demands; fit is the renter's word for whether the place works,
+         and it carries degree the way the Strong Match badge already does. */
       { view: 'matches', label: 'Swiping',
         clip: 'tour-swipe.mp4',
-        real: 'Built and working. What it lacks is inventory to run ' +
-              'against, and that is the constraint we are working on now.',
-        title: 'Requirements on the card, not photographs',
-        body: 'They see what the landlord requires before they see the ' +
-              'photos.' },
+        real: 'Built and working. It needs inventory to run against.',
+        title: 'They know how it fits before swiping left or right',
+        body: 'Income, pets, parking, dates.' },
       { view: 'showings', label: 'Showings',
         clip: 'tour-showing.mp4',
         real: 'Built and working. It goes live with the inventory.',
-        title: 'Where the transaction becomes measurable',
-        body: 'They book a time. That is where a move-in starts.' }
+        title: 'The showing is booked in the app',
+        body: 'Swipe right to open it. Photos, location, then pick a time.' }
     ],
 
-    playTitle: 'Now try it yourself',
-    playBody: 'Nothing can break. A real account takes about a minute and ' +
-              'shows you what a renter sees from the inside.',
+    playTitle: 'Try it yourself',
+    /* Empty. The green button underneath says what the next step is and
+       a sentence above it was explaining a button. */
+    playBody: '',
     playNext: 'Set up an account',
     playOut: 'Not yet, show me the model',
 
@@ -6510,7 +6554,12 @@ body.tour-locked .nav{pointer-events:none}
       ? 'Your turn'
       : 'Step ' + (i + 1) + ' of ' + total + '  \u00b7  ' + st.label;
     $('tourTitle').textContent = isPlay ? TOUR_COPY.playTitle : st.title;
-    $('tourBody').textContent = isPlay ? TOUR_COPY.playBody : st.body;
+    /* \u2b50 An empty body means no paragraph, not an empty one. A blank <p>
+       leaves a gap under the title that reads as something failing to
+       load. */
+    var bd = isPlay ? TOUR_COPY.playBody : st.body;
+    $('tourBody').textContent = bd || '';
+    $('tourBody').hidden = !bd;
 
     /* One line, quieter than the body, and it earns its place by being the
        only part of the bar that is about their account rather than ours. */
