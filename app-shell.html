@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v83                                       -->
+<!--  VERSION: shell-v84                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,37 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v83">
+<meta name="rdc-version" content="shell-v84">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v83
+/* ============================================================ shell-v84
+
+   v84: DEMO NEVER LEARNED ABOUT THE NEW LINKS.
+
+   v81 taught TOUR_ON that ?tour=investor and ?tour=renter are tour links.
+   It did not teach DEMO, which still asked whether tour was exactly '1'.
+   So the walkthrough switched on, the audience resolved to investor, and
+   then tourStart hit "if (!DEMO) return" and stood down. What you got was
+   the app with no demo data and no narration, which reads as the renter
+   path because that is what the app looks like when nothing is running.
+
+   The same shape as the join guard in v66: a condition written when there
+   was one caller, left alone when a second arrived. Two functions were
+   asking the same question in two different vocabularies and only one of
+   them got the update.
+
+   There is one vocabulary now. TOUR_P is read first, before anything that
+   depends on it, and DEMO, TOUR_ON and TOUR_WHO are all derived from that
+   single read. Adding a fifth way to open the walkthrough now means
+   editing one list rather than remembering which three places to touch.
+
+   DEMO also honours the fragment, so /app#investor turns the demo data on
+   even if nothing rewrote it into the query on the way through.
+
+   ============================================================ shell-v83
 
    v83: A FORM OF THE LINK THAT HAS NO QUERY STRING AT ALL.
 
@@ -1970,7 +1994,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v83';
+  var V = 'shell-v84';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2184,45 +2208,41 @@ body.tour-locked .nav{pointer-events:none}
 
      It also WRITES NOTHING. Every action toasts and returns; the save
      paths are short-circuited, so a demo cannot touch a real record. */
-  var DEMO = (function () {
-    try {
-      var q = new URLSearchParams(location.search);
-      return q.get('demo') === '1' || q.get('tour') === '1';
-    } catch (e) { return false; }
-  })();
+  /* \u2b50 READ FIRST, AND ONCE. Everything that asks a question about how
+     this page was opened reads it from here. v81 taught TOUR_ON about
+     ?tour=investor and left DEMO still asking whether tour was exactly
+     '1', so the walkthrough switched on and then stood down at the demo
+     guard. One read, one vocabulary, one list to edit.
 
-  /* ?tour=1 is the link handed to a renter: demo data AND the walkthrough.
-     ?demo=1 stays what it was - demo data, no narration - because showing
-     somebody the app over your shoulder wants no wizard in the way.
-     ?tour=1&reset=1 wipes a previous run, which the second person to be
-     handed the same phone needs. */
-  /* \u2b50 Read once. A pasted link that gets truncated at the first & loses
-     every parameter after it, which is why the audience now travels in
-     the tour value rather than in a second parameter. */
+     A fragment is not a query: it never reaches the server, no redirect
+     rewrites it, and there is no & in it to be truncated at. */
   var TOUR_P = (function () {
-    var out = { tour: '', who: '', reset: '', hash: '' };
+    var out = { tour: '', who: '', reset: '', hash: '', demo: '' };
     try {
       var q = new URLSearchParams(location.search);
       out.tour  = (q.get('tour')  || '').toLowerCase();
       out.who   = (q.get('who')   || '').toLowerCase();
       out.reset = (q.get('reset') || '');
+      out.demo  = (q.get('demo')  || '');
     } catch (e) {}
-    /* \u2b50 A fragment is not a query. It never reaches the server, no
-       redirect rewrites it, and there is no & in it to be truncated at.
-       When ?tour=investor keeps arriving as plain /app, this is the door
-       that still opens. */
     try {
       out.hash = (location.hash || '').replace(/^#/, '').toLowerCase();
     } catch (e) {}
     return out;
   })();
 
-  var TOUR_ON = (TOUR_P.tour === '1' ||
-                 TOUR_P.tour === 'renter' ||
-                 TOUR_P.tour === 'investor' ||
-                 TOUR_P.hash === 'tour' ||
-                 TOUR_P.hash === 'renter' ||
-                 TOUR_P.hash === 'investor');
+  /* The values of ?tour= and #... that mean "run the walkthrough". Add a
+     form here and DEMO, TOUR_ON and TOUR_WHO all learn it at once. */
+  var TOUR_FORMS = ['1', 'tour', 'renter', 'investor'];
+
+  var TOUR_ON = (TOUR_FORMS.indexOf(TOUR_P.tour) >= 0 ||
+                 TOUR_FORMS.indexOf(TOUR_P.hash) >= 0);
+
+  /* ?tour= in any of its forms is the link handed to somebody: demo data
+     AND the walkthrough. ?demo=1 stays what it was - demo data, no
+     narration - because showing somebody the app over your shoulder
+     wants no wizard in the way. */
+  var DEMO = (TOUR_P.demo === '1' || TOUR_ON);
 
   /* Who is holding the phone. Anything that is not one of the investor
      forms is treated as a renter, so a mistyped parameter shows the
@@ -5585,7 +5605,13 @@ body.tour-locked .nav{pointer-events:none}
   }
 
   function tourStart() {
-    if (!DEMO) { trail('tour: not demo, standing down'); return; }
+    if (!DEMO) {
+      /* Should be unreachable: DEMO is derived from TOUR_ON. Left in place
+         because the day somebody splits them again, this line is the only
+         thing that will say so. */
+      trail('tour: not demo, standing down');
+      return;
+    }
     trail('tour: start, TOUR_ON=' + TOUR_ON + ' who=' + TOUR_WHO +
           ' search=' + (location.search || '(none)') +
           ' hash=' + (location.hash || '(none)'));
