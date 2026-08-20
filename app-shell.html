@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v104                                      -->
+<!--  VERSION: shell-v105                                      -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v104">
+<meta name="rdc-version" content="shell-v105">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v104
+/* ============================================================ shell-v105
+
+   v105: A TRANSITION ON A HIDDEN ELEMENT IS NOT A TRANSITION.
+
+   The slide's countdown was solid green from the first frame. cwRun was
+   being called inside clipOpen, several lines before the overlay got its
+   .on class, so it ran while .cw was still display:none. A browser will
+   not animate a property on an element that is not being displayed; it
+   resolves the value and moves on. By the time the overlay appeared the
+   width had been 100% for a while, and what somebody saw was a full bar
+   that never moved.
+
+   The run now happens after .on lands, inside a rAF so the paint with the
+   overlay visible has already gone through. Same shape as the chip
+   animation fix: a style change is only animatable once the thing it is
+   changing is on screen.
+
+   The clip path was accidentally fine, because its run is triggered by
+   loadedmetadata, which cannot fire before the element exists and is
+   being displayed. Accidentally right is still worth naming, because
+   nothing about that ordering was deliberate.
+
+   ============================================================ shell-v104
 
    v104: THE COUNTDOWN WAS BEHIND THE CLOCK.
 
@@ -2507,7 +2529,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v104';
+  var V = 'shell-v105';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -6334,6 +6356,8 @@ body.tour-locked .nav{pointer-events:none}
      runs. The reflow read between the two writes is what makes the reset
      take; without it the browser collapses both into one style change and
      the bar never moves. */
+  var cwPending = 0;
+
   function cwRun(ms) {
     var f = $('cwpFill');
     if (!f) return;
@@ -6359,7 +6383,7 @@ body.tour-locked .nav{pointer-events:none}
       miss.hidden = true;
       $('xPad').hidden = false;
       $('cwKind').textContent = 'Slide';
-      cwRun(13600);
+      cwPending = 13600;       /* started once the overlay is on screen */
       xPlay();
       /* The last beat of X_PLAN lands at 8.1s. Five and a half seconds to
          read it before the screen goes back to the narration, because
@@ -6370,7 +6394,8 @@ body.tour-locked .nav{pointer-events:none}
       miss.hidden = true;
       v.style.display = '';
       $('cwKind').textContent = 'Video';
-      cwStop();                /* starts when the duration is known */
+      cwPending = 0;           /* starts when the duration is known */
+      cwStop();
       v.src = NET + '/' + name;
       v.play().catch(function () {});
     }
@@ -6379,6 +6404,15 @@ body.tour-locked .nav{pointer-events:none}
                                              : 'Recorded in the app';
     cap.className = 'cwcap';
     $('cw').classList.add('on');
+    /* \u2b50 AFTER .on, AND AFTER A FRAME. A transition on a display:none
+       element does not run - the value resolves and that is that - so
+       starting the countdown any earlier produced a bar that was already
+       full before anybody could see it. */
+    if (cwPending) {
+      var ms = cwPending;
+      cwPending = 0;
+      requestAnimationFrame(function () { cwRun(ms); });
+    }
     trail('clip open ' + name);
   }
 
@@ -6395,6 +6429,7 @@ body.tour-locked .nav{pointer-events:none}
 
   function clipClose() {
     autoClear();
+    cwPending = 0;
     cwStop();
     var v = $('cwVid');
     try { v.pause(); } catch (e) {}
