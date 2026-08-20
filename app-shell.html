@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v117                                      -->
+<!--  VERSION: shell-v118                                      -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v117">
+<meta name="rdc-version" content="shell-v118">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v117
+/* ============================================================ shell-v118
+
+   v118: THE FEE LINE, WITHOUT THE CLAIM IN THE MIDDLE OF IT.
+
+   "and ours are far more qualified than the industry standard" sat inside
+   the one sentence on the panel that has to read as fact rather than as
+   pitch. A comparison nobody has been given a number for, wedged between
+   two prices that are exact, invites a reader to wonder which of the
+   three they are supposed to believe.
+
+   One sentence, two ways to pay, no adjective. The qualification argument
+   is a better argument out loud, where somebody can ask what the standard
+   is and get an answer.
+
+   ============================================================ shell-v117
 
    v117: 11.4 SECONDS, WHICH IS THE THIRD ANSWER AND THE RIGHT ONE.
 
@@ -2758,7 +2772,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v117';
+  var V = 'shell-v118';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -6357,10 +6371,9 @@ body.tour-locked .nav{pointer-events:none}
 
     bizTitle: 'Where this goes',
     bizBody: [
-      'Landlords and property managers pay per qualified lead, and ours ' +
-      'are far more qualified than the industry standard. Or they opt in ' +
-      'to a one-time $650 marketing fee on move-in, of which $150 goes ' +
-      'back to the renter.',
+      'Landlords and property managers pay per qualified lead, or they ' +
+      'can opt in to a one-time $650 marketing fee on move-in, of which ' +
+      '$150 goes back to the renter.',
       'There is nothing to search. Listing is free and the renter never ' +
       'pays us.'
     ],
