@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v85                                       -->
+<!--  VERSION: shell-v86                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v85">
+<meta name="rdc-version" content="shell-v86">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v85
+/* ============================================================ shell-v86
+
+   v86: THE WELCOME IS HALF THE WORDS AT A SIZE YOU CAN READ.
+
+   Four paragraphs of 14px before anybody has seen a single screen. The
+   welcome is the one part of the walkthrough that has to be read rather
+   than watched, and it was set smaller than the narration that follows it
+   and asked more of the reader than any step does.
+
+   Two paragraphs now, at 17px, with the line height opened up. The fourth
+   paragraph explaining that three steps are recordings and one is a
+   target is gone entirely: every step already says which it is, in gold
+   or in grey, at the moment it matters. Explaining a labelling system in
+   advance of the labels is a paragraph that earns nothing.
+
+   AND THE SANDBOX NOTE SAYS WHAT IT MEANS. "Nothing you do here is
+   written to our systems. It lives on this phone." is true and reads, to
+   somebody who has not seen the app yet, as though the app does not do
+   anything. It now says it plainly: this is a sandbox, tapping things
+   changes nothing real, and on the investor side it says the same in the
+   register that side is asking in.
+
+   ============================================================ shell-v85
 
    v85: THE EXTRACTION SCENE WAS ON SCREEN THE WHOLE TIME.
 
@@ -1693,11 +1715,17 @@ body.tour-locked .nav{pointer-events:none}
   opacity:0;pointer-events:none;transition:opacity .3s var(--ease)}
 .tour-full.on{opacity:1;pointer-events:auto}
 .tour-full .in{max-width:440px;margin:0 auto}
-.tour-full h2{font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:26px;
-  line-height:1.15;color:var(--navy);margin:0 0 12px}
+.tour-full h2{font-family:'Red Hat Display',sans-serif;font-weight:900;font-size:29px;
+  line-height:1.13;color:var(--navy);margin:0 0 16px}
 .tour-full h3{font-family:'Red Hat Display',sans-serif;font-weight:700;font-size:16px;
   color:var(--navy);margin:22px 0 7px}
 .tour-full p{font-size:14px;line-height:1.62;color:var(--ink-2);margin:0 0 14px}
+/* \u2b50 The welcome is the one screen that has to be read rather than
+   watched, and it was set smaller than the narration that follows it.
+   Scoped to the welcome so the business panel and the survey, which are
+   longer and denser by nature, keep the tighter setting. */
+#tWelcome p{font-size:17px;line-height:1.55;margin:0 0 16px}
+#tWelcome .tour-note p{font-size:14.5px;line-height:1.5;margin:0}
 .tour-stamp{text-align:center;font-size:11px;font-weight:600;letter-spacing:.04em;
   color:var(--slate);opacity:.6;margin:18px 0 0}
 .tour-note{background:var(--white);border:1px solid var(--line);border-left:3px solid var(--gold);
@@ -2032,7 +2060,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v85';
+  var V = 'shell-v86';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5378,16 +5406,10 @@ body.tour-locked .nav{pointer-events:none}
 
     welcomeTitle: 'Would you give this five minutes?',
     welcomeBody: [
-      'You are house hunting right now, which makes you the person whose ' +
-      'opinion is worth more to us than anybody else\u2019s.',
-      'This is the app we are building. It is real and it works. What it ' +
-      'does not have yet is listings, so nothing you see in Matches is a ' +
-      'real place. Everything else is the actual product.',
-      'By the end you will have made an account, described somewhere you ' +
-      'would genuinely live, and booked a showing. Then we ask what you think.'
+      'This is the app we are building. It works. It has no listings yet, ' +
+      'so nothing in Matches is a real place.'
     ],
-    welcomeNote: 'Nothing you do here is saved to our systems or shared ' +
-      'with anybody. It lives on this phone and you can wipe it whenever.',
+    welcomeNote: 'Nothing you tap is saved. It stays on this phone.',
     welcomeGo: 'Start the walkthrough',
     welcomeSkip: 'Just let me look around',
 
@@ -5519,21 +5541,10 @@ body.tour-locked .nav{pointer-events:none}
 
     welcomeTitle: 'What matters most is what nobody asks',
     welcomeBody: [
-      'Rental search has always started with inventory and made the renter ' +
-      'chase it. This starts at the other end. We ask a renter what matters ' +
-      'most, capture it as a structured object, and match supply to it.',
-      'That object is the asset. Verified identity on both sides, a real ' +
-      'area rather than a radius, and requirements sorted by how hard they ' +
-      'are. Nobody else is collecting it.',
-      'What follows is the product as built. The listings in it are ' +
-      'invented, standing in for supply we onboard directly from property ' +
-      'managers, one company at a time. Everything else is real.',
-      'Three steps carry a recording made in the app. One carries a ' +
-      'target we are building the extraction to hit, and it says so in ' +
-      'gold rather than green. Every step tells you which it is.'
+      'Rental search starts with inventory and makes the renter chase it. ' +
+      'We start with what the renter needs. That object is the asset.'
     ],
-    welcomeNote: 'Nothing you do here is written to our systems. It lives ' +
-      'on this phone.',
+    welcomeNote: 'A sandbox. The listings are invented; nothing else is.',
     welcomeGo: 'Walk me through it',
     welcomeSkip: 'I will look around myself',
 
