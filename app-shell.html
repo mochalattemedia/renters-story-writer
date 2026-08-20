@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v102                                      -->
+<!--  VERSION: shell-v103                                      -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,38 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v102">
+<meta name="rdc-version" content="shell-v103">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v102
+/* ============================================================ shell-v103
+
+   v103: THE PITCH COMES BACK.
+
+   window.open(_blank) put the investor page in a new tab. The demo tab
+   survived, the panel was still on it with all three routes, and on a
+   phone almost nobody goes looking through a tab switcher to find it. So
+   "read the model, then use the app" existed and was unreachable in
+   practice, which is the same failure as v101 in a different costume:
+   two things offered, one of them lost the moment the other is taken.
+
+   It opens in the framed sheet now, the same one sign-in and checkout
+   use. Cancel puts somebody back on the panel with the app underneath,
+   still running, all three buttons where they left them.
+
+   watch:false, because a sheet watching for a session closes itself on
+   arrival at any page under a signed-in path, and this one is a public
+   marketing page nobody is signing in from.
+
+   AND THERE IS A WAY OUT OF THE FRAME. If /investors refuses to be
+   framed - it is a BD page and BD pages have opinions - the sheet is a
+   blank rectangle with no explanation. A quiet line under the sheet head
+   opens it in a tab instead, so a frame that fails is an inconvenience
+   rather than a dead end.
+
+   ============================================================ shell-v102
 
    v102: THE END IS A JUNCTION, NOT A QUEUE.
 
@@ -1804,6 +1829,11 @@ body.tour-running .body{padding-bottom:var(--tourpad,300px)}
 .lg-v{flex:0 0 auto;font-size:10.5px;font-weight:700;letter-spacing:.05em;
   color:var(--slate);opacity:.75;padding:6px 2px}
 .lg-x{flex:0 0 auto;font-size:13px;font-weight:700;color:var(--slate);padding:6px 4px}
+/* Quiet on purpose. It is only ever the right answer when the frame has
+   already failed, and it should not compete with the page when it has not. */
+.lg-tab{flex:0 0 auto;display:block;width:100%;border:0;background:none;
+  text-align:center;font:600 12px/1 'Open Sans',sans-serif;color:var(--slate);
+  text-decoration:underline;padding:0 18px 10px;cursor:pointer}
 .lg-wrap{flex:1 1 auto;position:relative;min-height:0;
   border-top:1px solid var(--line)}
 /* 🔴 HIDDEN UNTIL STRIPPED. visibility rather than display so the frame
@@ -2450,7 +2480,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v102';
+  var V = 'shell-v103';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5432,7 +5462,13 @@ body.tour-locked .nav{pointer-events:none}
        already under /account/. */
     password: { url: '/account/password', title: 'Change password', watch: false,
       lede: 'One password for the app and the website. There is only one ' +
-            'account behind both.' }
+            'account behind both.' },
+    /* watch:false. Nobody signs in from a public marketing page, and a
+       sheet watching for a session would close itself on arrival. */
+    pitch: { url: '/investors', title: 'The model and the numbers',
+      watch: false, tab: true,
+      lede: 'Where the money comes from, what we have, and what we are ' +
+            'short of.' }
   };
 
   var webPoll = null, webFirst = true, webOpen = false, webUncover = null;
@@ -5610,6 +5646,16 @@ body.tour-locked .nav{pointer-events:none}
     return TOUR_ON ? (V + ' \u00b7 ' + TOUR_WHO) : V;
   }
 
+  /* \u2b50 A DOOR OUT OF THE FRAME. BD pages have opinions about being
+     framed, and a page that refuses is a blank rectangle with nothing to
+     read and nothing to press. Only rendered where the target is a page
+     somebody might reasonably want in a tab of its own. */
+  function webTabLink(cfg) {
+    if (!cfg.tab) return '';
+    return '<button type="button" class="lg-tab" id="lgTab">' +
+           'Not loading? Open it in a new tab</button>';
+  }
+
   function openWeb(kind) {
     var cfg = WEB[kind] || WEB.login;
 
@@ -5636,6 +5682,7 @@ body.tour-locked .nav{pointer-events:none}
       '<div class="lg-head"><h3>' + esc(cfg.title) + '</h3>' +
         '<span class="lg-v">' + esc(vStampText()) + '</span>' +
         '<button type="button" class="lg-x" id="lgClose">Cancel</button></div>' +
+      webTabLink(cfg) +
       '<div class="lg-wrap">' +
         /* 🔴 NO allow-top-navigation, AND THAT IS THE WHOLE POINT. Without a
            sandbox BD's page navigated the TOP window straight out of the
@@ -5651,6 +5698,16 @@ body.tour-locked .nav{pointer-events:none}
       '</div>';
     $('sheetA').innerHTML = '';
     $('lgClose').addEventListener('click', function () { closeWeb(); });
+
+    /* ⭐ Only present when the route asked for it. Reads the URL off the
+       config rather than off the frame, because a frame that was refused
+       has no URL to read. */
+    if ($('lgTab')) {
+      $('lgTab').addEventListener('click', function () {
+        trail('openWeb ' + kind + ' -> new tab fallback');
+        window.open(cfg.url, '_blank');
+      });
+    }
 
     $('lgFrame').addEventListener('load', function () { onWebFrame(this); });
 
@@ -6738,9 +6795,11 @@ body.tour-locked .nav{pointer-events:none}
         tourFeedback();
       });
     }
+    /* Framed, not a new tab. Cancel comes back to this panel with the app
+       still running underneath and all three routes where they were. */
     $('bizLink').addEventListener('click', function () {
       trail('tour: opened the investor page');
-      window.open('https://www.renters.com/investors', '_blank');
+      openWeb('pitch');
     });
     $('bizTry').addEventListener('click', tourTryIt);
     $('bizDone').addEventListener('click', function () {
