@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v80                                       -->
+<!--  VERSION: shell-v82                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,64 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v80">
+<meta name="rdc-version" content="shell-v82">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v80
+/* ============================================================ shell-v82
+
+   v82: IT ALWAYS STARTS AT THE BEGINNING.
+
+   Resume is gone. It was built for somebody who opens a link in a spare
+   moment and gets interrupted, and for a long walkthrough that is the
+   right instinct. This one is six steps and four short clips. Landing in
+   the middle of it costs more than starting over ever did: you get no
+   welcome, no idea which of the two scripts you are on, and no sense of
+   where you are in a sequence you never saw the front of.
+
+   So every arrival on a tour link resets and shows the welcome. Which
+   also means the clips re-arm every time, and the link you hand somebody
+   behaves the same on their phone as it did on yours.
+
+   That makes TOUR_FRESH and tourResume dead, and they are out rather
+   than left sitting there for somebody to wire back up by accident.
+   ?reset=1 still parses and now simply describes what already happens.
+
+   tourSave stays. It is what the You tab reads to decide whether to
+   offer the walkthrough again, and it is what records that somebody
+   finished. Nothing reads it back to decide where to land.
+
+   ============================================================ shell-v81
+
+   v81: THE AUDIENCE NO LONGER RIDES ON AN AMPERSAND.
+
+   ?tour=1&who=investor&reset=1 kept opening the renter script, then
+   working on the third or fourth try. The parameter reading was fine.
+   What was arriving at the page was ?tour=1 on its own, because a URL
+   pasted into a field that linkifies it gets truncated at the first &.
+   Everything before the ampersand survived, everything after it did not,
+   and anything that is not who=investor is deliberately treated as a
+   renter. So the failure looked like a race and was a paste.
+
+   The audience now travels in the tour value itself:
+
+     ?tour=investor    investor, always from step one
+     ?tour=renter      renter, always from step one
+     ?tour=1           renter, resumes where it left off
+
+   No ampersand, nothing to truncate. The two named forms also reset on
+   arrival, because those are the links being freshly pasted and the
+   person pasting one wants the beginning. ?tour=1 keeps resuming, since
+   that is the link already in the wild and a renter who got interrupted
+   should not start over.
+
+   ?who=investor and ?reset=1 still work. Nothing sent out before this
+   stops working; there is simply now a form that cannot be broken by
+   being pasted somewhere.
+
+   ============================================================ shell-v80
 
    v80: FULL SCREEN OR NOT AT ALL.
 
@@ -434,8 +485,12 @@
 
    v59: ONE WALKTHROUGH, TWO AUDIENCES.
 
-   ?tour=1            renter
-   ?tour=1&who=investor   investor
+   ?tour=investor     investor
+   ?tour=renter       renter
+   ?tour=1            renter (older form, still works)
+   ?tour=1&who=investor   investor (older form, still works)
+
+   Every one of them starts at the welcome. There is no resume.
 
    Same six steps, same screens, same app. What changes is the framing and
    the question at the end. A renter is being asked whether this would help
@@ -1882,7 +1937,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v80';
+  var V = 'shell-v82';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2108,20 +2163,31 @@ body.tour-locked .nav{pointer-events:none}
      somebody the app over your shoulder wants no wizard in the way.
      ?tour=1&reset=1 wipes a previous run, which the second person to be
      handed the same phone needs. */
-  var TOUR_ON = (function () {
-    try { return new URLSearchParams(location.search).get('tour') === '1'; }
-    catch (e) { return false; }
+  /* \u2b50 Read once. A pasted link that gets truncated at the first & loses
+     every parameter after it, which is why the audience now travels in
+     the tour value rather than in a second parameter. */
+  var TOUR_P = (function () {
+    try {
+      var q = new URLSearchParams(location.search);
+      return {
+        tour:  (q.get('tour')  || '').toLowerCase(),
+        who:   (q.get('who')   || '').toLowerCase(),
+        reset: (q.get('reset') || '')
+      };
+    } catch (e) { return { tour: '', who: '', reset: '' }; }
   })();
 
-  /* Who is holding the phone. Anything that is not the investor link is
-     treated as a renter, so a mistyped parameter shows the softer script
-     rather than pitching the business at somebody looking for a flat. */
-  var TOUR_WHO = (function () {
-    try {
-      return new URLSearchParams(location.search).get('who') === 'investor'
-        ? 'investor' : 'renter';
-    } catch (e) { return 'renter'; }
-  })();
+  var TOUR_ON = (TOUR_P.tour === '1' ||
+                 TOUR_P.tour === 'renter' ||
+                 TOUR_P.tour === 'investor');
+
+  /* Who is holding the phone. Anything that is not one of the investor
+     forms is treated as a renter, so a mistyped parameter shows the
+     softer script rather than pitching the business at somebody looking
+     for a flat. */
+  var TOUR_WHO = (TOUR_P.tour === 'investor' || TOUR_P.who === 'investor')
+    ? 'investor' : 'renter';
+
 
   function demoDate(daysFromNow, hh, mm) {
     var d = new Date();
@@ -5317,12 +5383,9 @@ body.tour-locked .nav{pointer-events:none}
   /* Resumable on purpose. Somebody sent a link opens it in a spare moment
      and gets interrupted; a walkthrough that restarts from the top is one
      they do not come back to. */
-  function tourLoad() {
-    try {
-      var r = JSON.parse(localStorage.getItem(K_TOUR) || 'null');
-      if (r && typeof r.i === 'number') tour = r;
-    } catch (e) {}
-  }
+  /* No tourLoad. Nothing reads the saved state back to decide where to
+     land any more; tourSave exists so the You tab knows whether to offer
+     the walkthrough again, and that is the only reader. */
 
   /* Which steps have already taken the screen this session. Cleared with
      the tour, so a restart plays them again. */
@@ -5468,20 +5531,15 @@ body.tour-locked .nav{pointer-events:none}
 
   function tourStart() {
     if (!DEMO) { trail('tour: not demo, standing down'); return; }
-    trail('tour: start, TOUR_ON=' + TOUR_ON + ' who=' + TOUR_WHO);
-    /* ?reset=1 wipes the run. Without it the second person handed the same
-       phone inherits the first person's answers and half-finished tour. */
-    try {
-      if (new URLSearchParams(location.search).get('reset') === '1') tourReset();
-    } catch (e) {}
-    tourLoad();
-    trail('tour: state i=' + tour.i + ' done=' + tour.done + ' on=' + tour.on);
+    trail('tour: start, TOUR_ON=' + TOUR_ON + ' who=' + TOUR_WHO +
+          ' raw=' + location.search);
+    /* \u2b50 Always from the top. Six steps is not long enough to be worth
+       resuming, and dropping somebody into the middle of it costs them
+       the welcome, the audience stamp and any sense of the sequence. It
+       also means the second person handed this phone never inherits the
+       first person's half-finished run. */
+    tourReset();
     tourPaintWelcome();
-    if (tour.done || tour.i >= 0) {
-      trail('tour: resuming');
-      tourResume();
-      return;
-    }
     trail('tour: showing welcome');
     $('tWelcome').classList.add('on');
   }
@@ -5548,11 +5606,6 @@ body.tour-locked .nav{pointer-events:none}
          back is the complaint this version exists to answer. */
       toast('Walkthrough closed. Restart it from the You tab.');
     });
-  }
-
-  function tourResume() {
-    if (tour.done) { trail('tour: already finished'); return; }
-    if (tour.i >= 0) { tour.on = true; tourShow(); }
   }
 
   /* 🔑 THE WAY BACK, AND IT IS ALWAYS ON SCREEN. Reachable whether the
