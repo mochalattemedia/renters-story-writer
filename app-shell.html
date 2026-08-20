@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v94                                       -->
+<!--  VERSION: shell-v96                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,55 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v94">
+<meta name="rdc-version" content="shell-v96">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v94
+/* ============================================================ shell-v96
+
+   v96: THE MODEL IN TWO LINES, AND NO BOXES AROUND ANYTHING.
+
+   Two gold-bordered callouts sat on this panel: one saying the numbers
+   are on the investor page, directly above a button that opens the
+   investor page, and one saying "one more thing, if you have a minute"
+   directly above a button that says what the one more thing is. Both
+   were a sentence introducing a control that already introduced itself.
+
+   The model is two paragraphs now and it names the price. That is a
+   departure from Rule 51 and a deliberate one: 650 and 150 are fixed
+   prices set by us, not measurements of anything, so they do not drift
+   the way a visitor count does. The figures that DO drift stay on the
+   investor page behind the link, which is what the rule was written to
+   protect.
+
+   The inventory paragraph is gone from here because steps five and six
+   already say it, in amber, attached to the screens it is about. Saying
+   it a third time on the way out reads as apologising.
+
+   ============================================================ shell-v95
+
+   v95: THE BUSINESS PANEL SAYS THE SAME THINGS IN HALF THE WORDS.
+
+   Four paragraphs, and the third was carrying the demand object, the
+   adjacent products, the licensing position and the timing of all of it
+   in one breath. This is the screen an investor reads after asking to
+   see the model, which is the one moment they will read carefully, and it
+   was still the wrong shape: every paragraph defending itself as it went.
+
+   Four short ones now, one idea each. How a landlord pays. Who never
+   pays. What we own. What we are missing. The defences - marketing
+   channel not brokerage, we underwrite nothing, no aggregator feeds -
+   are still in there, but as clauses rather than as the point of the
+   sentence they are attached to.
+
+   AND THE LINK STOPPED SAYING ITSELF TWICE. bizMore and bizLink were
+   both "the full picture, with the numbers", one as a sentence and one
+   as the button under it. The sentence says what is there; the button
+   says what pressing it does.
+
+   ============================================================ shell-v94
 
    v94: THE BANNER WAS SAYING SOMETHING FALSE.
 
@@ -2219,7 +2261,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v94';
+  var V = 'shell-v96';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5784,26 +5826,20 @@ body.tour-locked .nav{pointer-events:none}
 
     bizTitle: 'Where this goes',
     bizBody: [
-      'Two ways a landlord pays. A flat fee for a verified renter we ' +
-      'introduce, or a single flat fee once somebody actually moves in, ' +
-      'part of which goes back to the renter. Neither moves with the rent, ' +
-      'which is what keeps this a marketing channel and not a brokerage.',
-      'Searching and listing are free. The renter is never the payer.',
-      'The asset is the demand object: a verified person, a drawn area, ' +
-      'and requirements ranked by how hard they are, captured while they ' +
-      'are deciding. Someone moving is also deciding about a loan, ' +
-      'insurance, and often about buying inside two years. Those are ' +
-      'licensed partner channels, later. We underwrite none of it.',
-      'What we do not have yet is inventory. That is the constraint and we ' +
-      'are not pretending otherwise. Supply comes from property managers ' +
-      'onboarded directly, one company at a time. No aggregator feeds.'
+      'Landlords and property managers pay per qualified lead, and ours ' +
+      'are far more qualified than the industry standard. Or they opt in ' +
+      'to a one-time $650 marketing fee on move-in, of which $150 goes ' +
+      'back to the renter.',
+      'Searching and listing are free. The renter never pays us.'
     ],
-    bizMore: 'The full picture, with the numbers, is on our investor page.',
-    bizLink: 'The full picture, with the numbers',
+    /* Empty. The button below says where it goes; a sentence above it
+       saying the same thing is a caption on a control. */
+    bizMore: '',
+    bizLink: 'View the pitch',
     bizDone: 'Close',
 
-    /* Shown on the panel instead of gating it. */
-    bizAsk: 'One more thing, if you have a minute.',
+    /* Empty. The button names the thing it does. */
+    bizAsk: '',
     bizAskGo: 'Tell us where this falls down'
   };
 
@@ -6358,12 +6394,19 @@ body.tour-locked .nav{pointer-events:none}
     $('tBiz').firstChild.innerHTML =
       '<h2>' + esc2(c.bizTitle) + '</h2>' +
       c.bizBody.map(function (t) { return '<p>' + esc2(t) + '</p>'; }).join('') +
-      /* 🔑 Linked, never copied. Figures live on one page that gets kept
-         current; a snapshot pasted in here would quietly turn into fiction. */
-      '<div class="tour-note"><p>' + esc2(c.bizMore) + '</p></div>' +
+      /* 🔑 Anything that moves is linked, never copied. Fixed prices can
+         sit here; measurements cannot, because a snapshot pasted in would
+         quietly turn into fiction. */
+      /* ⭐ An empty string means no box. A sentence introducing a button
+         that already says what it does is a caption on a control. */
+      (c.bizMore
+        ? '<div class="tour-note"><p>' + esc2(c.bizMore) + '</p></div>'
+        : '') +
       '<button class="cta" id="bizLink">' + esc2(c.bizLink) + '</button>' +
       (TOUR_WHO === 'investor'
-        ? '<div class="tour-note"><p>' + esc2(c.bizAsk) + '</p></div>' +
+        ? (c.bizAsk
+            ? '<div class="tour-note"><p>' + esc2(c.bizAsk) + '</p></div>'
+            : '') +
           '<button class="cta ghost" id="bizAsk">' + esc2(c.bizAskGo) + '</button>'
         : '') +
       '<button class="cta ghost" id="bizDone">' + esc2(c.bizDone) + '</button>';
