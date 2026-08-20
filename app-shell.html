@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v116                                      -->
+<!--  VERSION: shell-v117                                      -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v116">
+<meta name="rdc-version" content="shell-v117">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v116
+/* ============================================================ shell-v117
+
+   v117: 11.4 SECONDS, WHICH IS THE THIRD ANSWER AND THE RIGHT ONE.
+
+   10.1 was too short to read the last panel. 13.6, asked for to fix that,
+   is longer than the panel takes to read. Both were true and the reason
+   is that the ask was never about total length: the last beat lands at
+   8.1s and what matters is the gap after it.
+
+   3.3 seconds of hold now instead of 5.5. Long enough for one short
+   sentence, which is all that panel is since v111 trimmed it, and short
+   enough that nobody is sitting there waiting for a screen they have
+   finished with.
+
+   Worth noting the two changes interacted. v111 cut the panel to one line
+   and the hold set for the old three-line version stayed where it was, so
+   the slide got longer to read and then stopped needing the time. A
+   duration tuned to copy needs revisiting when the copy moves.
+
+   ============================================================ shell-v116
 
    v116: TELL US WHAT YOU THINK, AND EXIT.
 
@@ -2739,7 +2758,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v116';
+  var V = 'shell-v117';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -6611,12 +6630,13 @@ body.tour-locked .nav{pointer-events:none}
       miss.hidden = true;
       $('xPad').hidden = false;
       $('cwKind').textContent = 'Slide';
-      cwPending = 13600;       /* started once the overlay is on screen */
+      cwPending = 11400;       /* started once the overlay is on screen */
       xPlay();
-      /* The last beat of X_PLAN lands at 8.1s. Five and a half seconds to
-         read it before the screen goes back to the narration, because
-         three was long enough to notice the panel and not to read it. */
-      autoShut = setTimeout(clipClose, 13600);
+      /* The last beat of X_PLAN lands at 8.1s, so this is 3.3 seconds of
+         hold. Enough for the one sentence that panel has been since v111,
+         and not so long that somebody sits waiting for a screen they have
+         finished reading. */
+      autoShut = setTimeout(clipClose, 11400);
     } else {
       $('xPad').hidden = true;
       miss.hidden = true;
