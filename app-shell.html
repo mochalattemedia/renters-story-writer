@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v84                                       -->
+<!--  VERSION: shell-v85                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,43 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v84">
+<meta name="rdc-version" content="shell-v85">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v84
+/* ============================================================ shell-v85
+
+   v85: THE EXTRACTION SCENE WAS ON SCREEN THE WHOLE TIME.
+
+   .cw .xs-pad set display:flex. The browser hides [hidden] elements with
+   a UA rule of specificity zero, and a two-class selector beats it, so
+   xPad.hidden = true did precisely nothing. The scene rendered on every
+   step that opened the overlay, stacked underneath the video, which is
+   why a clip appeared to be two recordings spliced together: it was the
+   clip on top and the extraction card below it, in the same column.
+
+   Every other element in this file that gets hidden by attribute has an
+   explicit [hidden] rule next to it. This one did not, and it was the
+   one element whose display rule was strong enough to matter.
+
+   THE OVERLAY IS A CHILD OF BODY NOW. It was inside .app, which is itself
+   position:fixed. Nothing there should contain a fixed child, but "should"
+   is doing a lot of work in a file that has already been bitten once by
+   assuming DOM shape rather than checking it. At body level there is
+   nothing above it to contain it, and the question stops being askable.
+
+   AND THE HEIGHTS ARE dvh. 100vh on iOS Safari means the viewport with
+   the toolbars retracted, so the bottom of a clip sat behind the browser
+   chrome. dvh is the viewport as it currently is.
+
+   THE CLIPS ARE SINGLE TAKES AGAIN. v78 cut dead frames out of the middle
+   of each one. The joins were not invisible. They are one continuous span
+   each now, trimmed only at the head and tail: zone 9.8s, swipe 6.6s,
+   showings 8.1s.
+
+   ============================================================ shell-v84
 
    v84: DEMO NEVER LEARNED ABOUT THE NEW LINKS.
 
@@ -1582,10 +1612,16 @@ body.tour-locked .nav{pointer-events:none}
 .cw.on{display:flex}
 /* Full bleed, square corners. A rounded rectangle floating on a backdrop
    reads as a thumbnail however big it is. */
-.cw video{width:100%;max-height:100vh;height:auto;display:block;background:#000}
+/* dvh, not vh. On iOS 100vh is the viewport with the toolbars retracted,
+   so the bottom of a portrait clip sits behind the browser chrome. */
+.cw video{width:100%;max-height:100dvh;height:auto;display:block;background:#000}
 .cw .xs-pad{padding:calc(58px + env(safe-area-inset-top)) 14px
   calc(18px + env(safe-area-inset-bottom));display:flex;
   align-items:center;justify-content:center;width:100%}
+/* \u2b50 The UA rule for [hidden] has specificity zero and the line above
+   is two classes, so without this the scene ignores hidden entirely and
+   renders under whatever else the overlay is showing. */
+.cw .xs-pad[hidden]{display:none}
 .cw .cwcap{position:absolute;left:0;right:0;
   bottom:calc(16px + env(safe-area-inset-bottom));margin:0;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
   font-weight:700;color:rgba(255,255,255,.55);text-align:center}
@@ -1599,7 +1635,7 @@ body.tour-locked .nav{pointer-events:none}
 /* SCENE: EXTRACTION. Live HTML, not footage. The sentence comes apart
    phrase by phrase and the chips land where the ranking words put them.
    This is the target the description function gets built against. */
-.xs{width:100%;max-width:400px;max-height:72vh;overflow:auto;
+.xs{width:100%;max-width:400px;max-height:72dvh;overflow:auto;
   -webkit-overflow-scrolling:touch;background:#eef1f5;border-radius:16px;
   padding:14px;box-shadow:0 18px 50px rgba(0,0,0,.5)}
 .xs[hidden]{display:none}
@@ -1910,8 +1946,45 @@ body.tour-locked .nav{pointer-events:none}
     </div>
   </div>
 
-  <!-- ⭐ Sibling of #tourBar, not a child of it, so the bar's transform
-       never becomes a containing block for a position:fixed overlay. -->
+
+  <nav class="nav" id="nav">
+    <button data-tab="spots" aria-current="true">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <path d="M11 2.5c-3 0-5.5 2.4-5.5 5.4 0 4 5.5 11.6 5.5 11.6s5.5-7.6 5.5-11.6c0-3-2.5-5.4-5.5-5.4z"
+              stroke="#6b7f93" stroke-width="1.7" stroke-linejoin="round"/>
+        <circle cx="11" cy="8" r="2" stroke="#6b7f93" stroke-width="1.7"/>
+      </svg>Spots</button>
+    <button data-tab="matches"><span class="dot"></span>
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <path d="M11 18.5s-7-4.3-7-9.3A4.1 4.1 0 0 1 11 6.4a4.1 4.1 0 0 1 7 2.8c0 5-7 9.3-7 9.3z"
+              stroke="#6b7f93" stroke-width="1.7" stroke-linejoin="round"/>
+      </svg>Matches</button>
+    <button data-tab="showings"><span class="dot"></span>
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <path d="M4 5.5h14v13H4zM4 9.5h14M8 3v4M14 3v4"
+              stroke="#6b7f93" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>Showings</button>
+    <button data-tab="me"><span class="dot"></span>
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <circle cx="11" cy="7.5" r="3.3" stroke="#6b7f93" stroke-width="1.7"/>
+        <path d="M4.5 18.5c0-3.3 2.9-5.5 6.5-5.5s6.5 2.2 6.5 5.5"
+              stroke="#6b7f93" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>Me</button>
+  </nav>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Edit your details">
+  <div class="grab"><i></i></div>
+  <div class="sheet-b" id="sheetB"></div>
+  <div class="sheet-a" id="sheetA"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ⭐ A CHILD OF BODY, DELIBERATELY. Nothing above it means nothing can
+     become a containing block for it, and no future edit inside .app can
+     quietly start clipping it. -->
   <div class="cw" id="cw">
     <button type="button" class="cwx" id="cwx" aria-label="Close">&times;</button>
     <!-- No loop. This one closes itself on "ended", and a looping
@@ -1956,45 +2029,10 @@ body.tour-locked .nav{pointer-events:none}
     <p class="cwcap" id="cwCap"></p>
   </div>
 
-  <nav class="nav" id="nav">
-    <button data-tab="spots" aria-current="true">
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-        <path d="M11 2.5c-3 0-5.5 2.4-5.5 5.4 0 4 5.5 11.6 5.5 11.6s5.5-7.6 5.5-11.6c0-3-2.5-5.4-5.5-5.4z"
-              stroke="#6b7f93" stroke-width="1.7" stroke-linejoin="round"/>
-        <circle cx="11" cy="8" r="2" stroke="#6b7f93" stroke-width="1.7"/>
-      </svg>Spots</button>
-    <button data-tab="matches"><span class="dot"></span>
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-        <path d="M11 18.5s-7-4.3-7-9.3A4.1 4.1 0 0 1 11 6.4a4.1 4.1 0 0 1 7 2.8c0 5-7 9.3-7 9.3z"
-              stroke="#6b7f93" stroke-width="1.7" stroke-linejoin="round"/>
-      </svg>Matches</button>
-    <button data-tab="showings"><span class="dot"></span>
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-        <path d="M4 5.5h14v13H4zM4 9.5h14M8 3v4M14 3v4"
-              stroke="#6b7f93" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>Showings</button>
-    <button data-tab="me"><span class="dot"></span>
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-        <circle cx="11" cy="7.5" r="3.3" stroke="#6b7f93" stroke-width="1.7"/>
-        <path d="M4.5 18.5c0-3.3 2.9-5.5 6.5-5.5s6.5 2.2 6.5 5.5"
-              stroke="#6b7f93" stroke-width="1.7" stroke-linecap="round"/>
-      </svg>Me</button>
-  </nav>
-</div>
-
-<div class="scrim" id="scrim"></div>
-<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Edit your details">
-  <div class="grab"><i></i></div>
-  <div class="sheet-b" id="sheetB"></div>
-  <div class="sheet-a" id="sheetA"></div>
-</div>
-
-<div class="toast" id="toast"></div>
-
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v84';
+  var V = 'shell-v85';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
