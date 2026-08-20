@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v103                                      -->
+<!--  VERSION: shell-v104                                      -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v103">
+<meta name="rdc-version" content="shell-v104">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v103
+/* ============================================================ shell-v104
+
+   v104: THE COUNTDOWN WAS BEHIND THE CLOCK.
+
+   v100 put a countdown on the overlay and it has been there ever since,
+   on the clips and on the slide alike. At top:0 of a full-bleed overlay,
+   which is underneath the status bar and, on any recent iPhone, straight
+   through the Dynamic Island. A 3px line rendered behind the time and
+   the battery.
+
+   It sits below the safe-area inset now and it is 4px, which is the
+   difference between a line you have to look for and one you notice
+   without trying. The track is darker so the lime reads against it at a
+   glance rather than only when it is nearly full.
+
+   The bug is worth naming for what it is: env(safe-area-inset-top) was
+   applied to the label two lines below in the same block and not to the
+   bar. Every fixed element on a full-bleed surface needs it, and the one
+   that got missed was the one nobody could see was missing, because the
+   symptom of a countdown hidden under the clock is a countdown that
+   appears not to exist.
+
+   ============================================================ shell-v103
 
    v103: THE PITCH COMES BACK.
 
@@ -2054,16 +2076,21 @@ body.tour-locked .nav{pointer-events:none}
 /* \u2b50 HOW LONG. The overlay closes itself and without this the only
    thing to do is sit and wait to find out when. Tied to the clip's real
    duration once metadata lands, and to the close timer on the scene. */
-.cwp{position:absolute;top:0;left:0;right:0;height:3px;z-index:3;
-  background:rgba(255,255,255,.16)}
-.cwp i{display:block;height:100%;width:0;background:var(--lime)}
+/* \u2b50 BELOW THE INSET. At top:0 this rendered behind the status bar and
+   through the Dynamic Island, which is a countdown that looks like no
+   countdown at all. Every fixed element on a full-bleed surface needs
+   the inset; this was the one that got missed. */
+.cwp{position:absolute;top:env(safe-area-inset-top);left:0;right:0;height:4px;
+  z-index:3;background:rgba(255,255,255,.13)}
+.cwp i{display:block;height:100%;width:0;background:var(--lime);
+  box-shadow:0 0 10px rgba(141,198,63,.55)}
 /* A drawn scene that has not started animating looks exactly like a video
    that will not load. This says which it is before the question arises. */
-.cwkind{position:absolute;top:calc(15px + env(safe-area-inset-top));left:16px;
+.cwkind{position:absolute;top:calc(22px + env(safe-area-inset-top));left:16px;
   z-index:3;font:700 10px/1 'Open Sans',sans-serif;letter-spacing:.11em;
   text-transform:uppercase;color:rgba(255,255,255,.6);
   border:1px solid rgba(255,255,255,.24);border-radius:999px;padding:6px 10px}
-.cwx{position:absolute;top:calc(14px + env(safe-area-inset-top));right:16px;
+.cwx{position:absolute;top:calc(20px + env(safe-area-inset-top));right:16px;
   width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
   background:rgba(255,255,255,.09);color:#fff;font-size:22px;line-height:1;
   cursor:pointer;z-index:2}
@@ -2480,7 +2507,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v103';
+  var V = 'shell-v104';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
