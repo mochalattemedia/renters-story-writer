@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v82                                       -->
+<!--  VERSION: shell-v83                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,40 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v82">
+<meta name="rdc-version" content="shell-v83">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v82
+/* ============================================================ shell-v83
+
+   v83: A FORM OF THE LINK THAT HAS NO QUERY STRING AT ALL.
+
+   ?tour=investor kept arriving as plain /app. v81 fixed the ampersand,
+   and the query is still going missing, which points past truncation at
+   something replacing the address outright - a browser bar that
+   autocompletes to a previously visited /app when you press Go will do
+   exactly this, and it explains why the fourth attempt works.
+
+   So the audience can now ride in the fragment:
+
+     /app#investor
+     /app#renter
+
+   A fragment is not a query. It is not sent to the server, nothing
+   rewrites it, and there is no & in it to cut at. If a stored suggestion
+   still wins, the fragment at least survives being appended to it.
+
+   Both query forms still work. This is one more door, not a replacement.
+
+   AND THE LOGIN SHEET CARRIES THE VERSION. The intro screen has had a
+   stamp since v29, but the intro only shows once per device, so on any
+   phone that has already dismissed it there was nowhere to read the
+   build without starting a walkthrough. It now sits in the header of the
+   sign-in sheet, which is reachable from the You tab on every device.
+
+   ============================================================ shell-v82
 
    v82: IT ALWAYS STARTS AT THE BEGINNING.
 
@@ -485,6 +512,8 @@
 
    v59: ONE WALKTHROUGH, TWO AUDIENCES.
 
+   #investor          investor, no query string to lose
+   #renter            renter, no query string to lose
    ?tour=investor     investor
    ?tour=renter       renter
    ?tour=1            renter (older form, still works)
@@ -1333,6 +1362,10 @@ body.tour-running .body{padding-bottom:300px}
 .lg-head{flex:0 0 auto;display:flex;align-items:center;gap:12px;
   padding:calc(12px + env(safe-area-inset-top)) 18px 12px}
 .lg-head h3{margin:0;flex:1 1 auto;font-size:16px}
+/* The intro carries a stamp too, but the intro shows once per device.
+   This one is reachable from the You tab on any phone, at any time. */
+.lg-v{flex:0 0 auto;font-size:10.5px;font-weight:700;letter-spacing:.05em;
+  color:var(--slate);opacity:.75;padding:6px 2px}
 .lg-x{flex:0 0 auto;font-size:13px;font-weight:700;color:var(--slate);padding:6px 4px}
 .lg-wrap{flex:1 1 auto;position:relative;min-height:0;
   border-top:1px solid var(--line)}
@@ -1937,7 +1970,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v82';
+  var V = 'shell-v83';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2167,26 +2200,37 @@ body.tour-locked .nav{pointer-events:none}
      every parameter after it, which is why the audience now travels in
      the tour value rather than in a second parameter. */
   var TOUR_P = (function () {
+    var out = { tour: '', who: '', reset: '', hash: '' };
     try {
       var q = new URLSearchParams(location.search);
-      return {
-        tour:  (q.get('tour')  || '').toLowerCase(),
-        who:   (q.get('who')   || '').toLowerCase(),
-        reset: (q.get('reset') || '')
-      };
-    } catch (e) { return { tour: '', who: '', reset: '' }; }
+      out.tour  = (q.get('tour')  || '').toLowerCase();
+      out.who   = (q.get('who')   || '').toLowerCase();
+      out.reset = (q.get('reset') || '');
+    } catch (e) {}
+    /* \u2b50 A fragment is not a query. It never reaches the server, no
+       redirect rewrites it, and there is no & in it to be truncated at.
+       When ?tour=investor keeps arriving as plain /app, this is the door
+       that still opens. */
+    try {
+      out.hash = (location.hash || '').replace(/^#/, '').toLowerCase();
+    } catch (e) {}
+    return out;
   })();
 
   var TOUR_ON = (TOUR_P.tour === '1' ||
                  TOUR_P.tour === 'renter' ||
-                 TOUR_P.tour === 'investor');
+                 TOUR_P.tour === 'investor' ||
+                 TOUR_P.hash === 'tour' ||
+                 TOUR_P.hash === 'renter' ||
+                 TOUR_P.hash === 'investor');
 
   /* Who is holding the phone. Anything that is not one of the investor
      forms is treated as a renter, so a mistyped parameter shows the
      softer script rather than pitching the business at somebody looking
      for a flat. */
-  var TOUR_WHO = (TOUR_P.tour === 'investor' || TOUR_P.who === 'investor')
-    ? 'investor' : 'renter';
+  var TOUR_WHO = (TOUR_P.tour === 'investor' ||
+                  TOUR_P.who  === 'investor' ||
+                  TOUR_P.hash === 'investor') ? 'investor' : 'renter';
 
 
   function demoDate(daysFromNow, hh, mm) {
@@ -5070,6 +5114,16 @@ body.tour-locked .nav{pointer-events:none}
     }
   }
 
+  /* \u2b50 Build and audience in one string. Which of the two scripts is
+     running is the second thing anybody asks after which build it is,
+     and the two are easy to confuse from a screenshot. The audience is
+     only named when a walkthrough is actually running: on a plain visit
+     there is no audience, and printing "renter" there would be an answer
+     to a question nobody asked. */
+  function vStampText() {
+    return TOUR_ON ? (V + ' \u00b7 ' + TOUR_WHO) : V;
+  }
+
   function openWeb(kind) {
     var cfg = WEB[kind] || WEB.login;
 
@@ -5094,6 +5148,7 @@ body.tour-locked .nav{pointer-events:none}
        the title already says what the screen is. */
     $('sheetB').innerHTML =
       '<div class="lg-head"><h3>' + esc(cfg.title) + '</h3>' +
+        '<span class="lg-v">' + esc(vStampText()) + '</span>' +
         '<button type="button" class="lg-x" id="lgClose">Cancel</button></div>' +
       '<div class="lg-wrap">' +
         /* 🔴 NO allow-top-navigation, AND THAT IS THE WHOLE POINT. Without a
@@ -5532,7 +5587,8 @@ body.tour-locked .nav{pointer-events:none}
   function tourStart() {
     if (!DEMO) { trail('tour: not demo, standing down'); return; }
     trail('tour: start, TOUR_ON=' + TOUR_ON + ' who=' + TOUR_WHO +
-          ' raw=' + location.search);
+          ' search=' + (location.search || '(none)') +
+          ' hash=' + (location.hash || '(none)'));
     /* \u2b50 Always from the top. Six steps is not long enough to be worth
        resuming, and dropping somebody into the middle of it costs them
        the welcome, the audience stamp and any sense of the sequence. It
@@ -6153,7 +6209,7 @@ body.tour-locked .nav{pointer-events:none}
   (function () {
     var v = $('vstamp');
     if (!v) return;
-    v.textContent = V;
+    v.textContent = vStampText();
     v.addEventListener('click', showTrail);
   })();
 
