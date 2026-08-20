@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v97                                       -->
+<!--  VERSION: shell-v98                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,43 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v97">
+<meta name="rdc-version" content="shell-v98">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v97
+/* ============================================================ shell-v98
+
+   v98: THE BAR CAN GET OUT OF THE WAY.
+
+   v97 stopped the bar overlapping the deck. It did not make the card fit.
+   The matches card needs about 400px to draw itself - 112 of rent band,
+   an address, a bed and bath line, four requirement rows and a footer -
+   and a full bar on step five leaves about 390. Correct clearance and
+   still nowhere near enough room.
+
+   So there is a chevron on the bar now. Collapsed, it keeps the progress
+   line, the step label, the title and Next, and drops to about 130px,
+   which hands the deck 660 and lets the card draw at the size it was
+   designed at. Tapping it again brings the narration back.
+
+   It defaults open and it remembers the choice for the session. Auto-
+   collapsing on the iframe steps was the obvious move and the wrong one:
+   the first time somebody lands on a step with the narration already
+   hidden, the walkthrough looks broken rather than tidy.
+
+   The frame floor went from 380 to 470 as well, so the card renders whole
+   even when the bar is open and somebody scrolls to it, rather than being
+   clipped into a version of itself with no requirements on it.
+
+   AND THERE IS NO SEARCHING. "Searching and listing are free" sat on the
+   business panel of a product whose whole argument is that the renter
+   does not search. Six steps say so and then the money screen quietly
+   reverted to the model every other site runs. Free search is a thing
+   every listings site claims; having no search at all is not.
+
+   ============================================================ shell-v97
 
    v97: THE BAR IS MEASURED NOW, NOT GUESSED AT.
 
@@ -1501,8 +1531,12 @@ body.tour-running .body{padding-bottom:var(--tourpad,300px)}
 .empty p{font-size:13.5px;line-height:1.6;color:var(--ink-2);margin:0 0 16px}
 
 /* --------------------------------------------------------------- zone */
+/* 470, not 380. The matches card needs about 400 to draw itself and the
+   deck clips the middle out rather than scrolling when it gets less, so a
+   floor below that produces a card with no requirements on it - which is
+   the one thing that card exists to show. */
 .frame{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
-       background:var(--white);height:100%;min-height:380px}
+       background:var(--white);height:100%;min-height:470px}
 .frame iframe{width:100%;height:100%;border:0;display:block}
 .view.on#v-zone,.view.on#v-avail,.view.on#v-matches{height:100%;display:flex;flex-direction:column}
 
@@ -1817,7 +1851,21 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 .tour-bar i{display:block;height:100%;background:var(--lime);width:0;
   transition:width .45s var(--ease)}
 .tour-step{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-  color:var(--lime);margin:0 0 6px}
+  color:var(--lime);margin:0 0 6px;padding-right:44px}
+/* \u2b50 THE WAY TO GET THE BAR OUT OF THE WAY. The deck needs about 400px
+   to draw a card whole and a full bar leaves it 390. Collapsed this drops
+   the bar to roughly 130 and the card renders at the size it was drawn
+   for. Sized as a proper target rather than a chevron somebody has to
+   aim at. */
+.tour-fold{position:absolute;top:24px;right:14px;width:38px;height:38px;
+  border-radius:50%;border:1px solid rgba(255,255,255,.28);
+  background:rgba(255,255,255,.08);color:#fff;font-size:15px;line-height:1;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:transform .22s var(--ease)}
+body.tour-min .tour-fold{transform:rotate(180deg)}
+body.tour-min #tourBody,
+body.tour-min #tourClip,
+body.tour-min #tourReal{display:none}
 .tour h4{font-family:'Red Hat Display',sans-serif;font-weight:800;font-size:19px;
   color:#fff;margin:0 0 6px;line-height:1.25}
 .tour p{font-size:14px;line-height:1.5;color:rgba(255,255,255,.82);margin:0 0 14px}
@@ -2190,6 +2238,8 @@ body.tour-locked .nav{pointer-events:none}
 
   <div class="tour" id="tourBar">
     <div class="tour-bar"><i id="tourFill"></i></div>
+    <button type="button" class="tour-fold" id="tourFold"
+            aria-label="Collapse the narration">&#9660;</button>
     <p class="tour-step" id="tourStep"></p>
     <h4 id="tourTitle"></h4>
     <p id="tourBody"></p>
@@ -2291,7 +2341,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v97';
+  var V = 'shell-v98';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5730,11 +5780,11 @@ body.tour-locked .nav{pointer-events:none}
       'Renters.com is a marketplace where both sides are verified people. ' +
       'Not an aggregator, not a broker. We never list a place we have not ' +
       'been given directly.',
-      'Searching is free for you and it stays that way. You are never ' +
-      'charged to look, to tour, or to apply. Listing is free too. ' +
-      'Landlords pay either for a verified renter we introduce, or a ' +
-      'single flat fee once somebody actually moves in, and part of that ' +
-      'one goes back to the renter.',
+      'There is nothing for you to search and nothing for you to pay. ' +
+      'You are never charged to be matched, to tour, or to apply. ' +
+      'Listing is free too. Landlords pay either for a verified renter we ' +
+      'introduce, or a single flat fee once somebody actually moves in, ' +
+      'and part of that one goes back to the renter.',
       'Both are flat fees that do not move with the rent, which is what ' +
       'keeps us a marketing channel and not a brokerage. Later there will ' +
       'be things like co-signing and lease guarantees through licensed ' +
@@ -5860,7 +5910,8 @@ body.tour-locked .nav{pointer-events:none}
       'are far more qualified than the industry standard. Or they opt in ' +
       'to a one-time $650 marketing fee on move-in, of which $150 goes ' +
       'back to the renter.',
-      'Searching and listing are free. The renter never pays us.'
+      'There is nothing to search. Listing is free and the renter never ' +
+      'pays us.'
     ],
     /* Empty. The button below says where it goes; a sentence above it
        saying the same thing is a caption on a control. */
@@ -5939,6 +5990,7 @@ body.tour-locked .nav{pointer-events:none}
      can see. */
   function tourTeardown() {
     clipClose();
+    document.body.classList.remove('tour-min');
     document.body.style.removeProperty('--tourpad');
   }
 
@@ -6233,6 +6285,7 @@ body.tour-locked .nav{pointer-events:none}
 
     $('tourBar').classList.add('on');
     document.body.classList.add('tour-running');
+    document.body.classList[tourFolded ? 'add' : 'remove']('tour-min');
     tourPad();
   }
 
@@ -6246,6 +6299,21 @@ body.tour-locked .nav{pointer-events:none}
      to the height it is given and clips the middle when that is short, so
      a bar 110px taller than its reservation does not overlap the card, it
      empties it. */
+  /* Remembered for the session. Somebody who folds it away on step two
+     did not mean "just this once", and re-opening it under them on every
+     step is the same disrespect as never letting them close it. */
+  var tourFolded = false;
+
+  function tourFold() {
+    tourFolded = !tourFolded;
+    document.body.classList[tourFolded ? 'add' : 'remove']('tour-min');
+    $('tourFold').setAttribute('aria-label',
+      tourFolded ? 'Show the narration' : 'Collapse the narration');
+    tourPad();
+    trail('tour: narration ' + (tourFolded ? 'folded' : 'open'));
+    vibrate(4);
+  }
+
   function tourPad() {
     requestAnimationFrame(function () {
       var b = $('tourBar');
@@ -6506,6 +6574,7 @@ body.tour-locked .nav{pointer-events:none}
     tourShow();
   });
 
+  $('tourFold').addEventListener('click', tourFold);
   $('tourNext').addEventListener('click', tourNext);
   $('tourOut').addEventListener('click', tourOut);
   var K_INTRO = 'rdc_app_intro_seen';
