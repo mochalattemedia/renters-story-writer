@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v105                                      -->
+<!--  VERSION: shell-v106                                      -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,39 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v105">
+<meta name="rdc-version" content="shell-v106">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v105
+/* ============================================================ shell-v106
+
+   v106: /investors WILL NOT BE FRAMED, SO IT OPENS IN A TAB AND SAYS SO.
+
+   v103 put the pitch in the sheet on the reasoning that Cancel would come
+   back to the panel with all three routes intact. Tried it; the page does
+   not frame. A BD marketing page is entitled to refuse and this one does.
+
+   Back to a new tab, with the thing that was missing the first time: a
+   line under the button saying the app stays open here. That is the whole
+   reason the framed version was worth trying - so "read the model, then
+   go and use it" stays reachable - and one sentence buys the same thing
+   the frame was going to buy.
+
+   This is a useful answer to a question that was open anyway. If
+   /investors refuses the frame, /checkout/renters is on the same platform
+   and is the more important one to know about. Worth testing directly
+   rather than finding out during a conversion.
+
+   AND EIGHT SECONDS WAS TOO LONG TO WAIT FOR A REFUSAL. A frame blocked
+   by the server fires no load event, so the only signal is a timer, and
+   the timer was set at 8000. Eight seconds of blank white rectangle is
+   long enough that most people close the sheet before it resolves and
+   never learn there was a way through. 3500 is past a slow first paint
+   and well short of giving up.
+
+   ============================================================ shell-v105
 
    v105: A TRANSITION ON A HIDDEN ELEMENT IS NOT A TRANSITION.
 
@@ -1875,6 +1901,10 @@ body.tour-running .body{padding-bottom:var(--tourpad,300px)}
 .lg-x{flex:0 0 auto;font-size:13px;font-weight:700;color:var(--slate);padding:6px 4px}
 /* Quiet on purpose. It is only ever the right answer when the frame has
    already failed, and it should not compete with the page when it has not. */
+/* Quiet, directly under the button it is about. Somebody who reads the
+   pitch and thinks the demo is gone does not come back. */
+.biz-hint{margin:-6px 0 14px;text-align:center;font-size:12px;
+  color:var(--slate);line-height:1.5}
 .lg-tab{flex:0 0 auto;display:block;width:100%;border:0;background:none;
   text-align:center;font:600 12px/1 'Open Sans',sans-serif;color:var(--slate);
   text-decoration:underline;padding:0 18px 10px;cursor:pointer}
@@ -2529,7 +2559,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v105';
+  var V = 'shell-v106';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5512,12 +5542,9 @@ body.tour-locked .nav{pointer-events:none}
     password: { url: '/account/password', title: 'Change password', watch: false,
       lede: 'One password for the app and the website. There is only one ' +
             'account behind both.' },
-    /* watch:false. Nobody signs in from a public marketing page, and a
-       sheet watching for a session would close itself on arrival. */
-    pitch: { url: '/investors', title: 'The model and the numbers',
-      watch: false, tab: true,
-      lede: 'Where the money comes from, what we have, and what we are ' +
-            'short of.' }
+    /* No pitch route. /investors refuses to be framed, and a route that
+       opens a blank rectangle is worse than no route at all. It goes to a
+       tab, and the panel says so. */
   };
 
   var webPoll = null, webFirst = true, webOpen = false, webUncover = null;
@@ -5762,9 +5789,13 @@ body.tour-locked .nav{pointer-events:none}
 
     /* A frame refused by X-Frame-Options can load nothing and fire nothing.
        The app must not sit on "Opening…" forever waiting to find that out. */
+    /* 3500, not 8000. A frame the server refuses fires no load event, so a
+       timer is the only signal there is, and eight seconds of blank white
+       is long enough that most people close the sheet before it resolves
+       and never find out there was a way through. */
     setTimeout(function () {
       if (webOpen && webFirst) webBlocked();
-    }, 8000);
+    }, 3500);
 
     /* Only started when there is something to watch for. A poll on a sheet
        that has no success condition is a sheet that eventually closes on
@@ -6014,6 +6045,7 @@ body.tour-locked .nav{pointer-events:none}
     ],
     bizMore: 'The full picture, with the numbers, is on our investor page.',
     bizLink: 'Open the investor page',
+    bizLinkHint: 'Opens in a new tab. This one stays where it is.',
     bizDone: 'I am done'
   };
 
@@ -6142,6 +6174,7 @@ body.tour-locked .nav{pointer-events:none}
        saying the same thing is a caption on a control. */
     bizMore: '',
     bizLink: 'View the pitch',
+    bizLinkHint: 'Opens in a new tab. This one stays where it is.',
     bizDone: 'I am done',
 
     /* Empty. The button names the thing it does. */
@@ -6842,6 +6875,7 @@ body.tour-locked .nav{pointer-events:none}
         ? '<div class="tour-note"><p>' + esc2(c.bizMore) + '</p></div>'
         : '') +
       '<button class="cta" id="bizLink">' + esc2(c.bizLink) + '</button>' +
+      '<p class="biz-hint">' + esc2(c.bizLinkHint) + '</p>' +
       (TOUR_WHO === 'investor'
         ? (c.bizAsk
             ? '<div class="tour-note"><p>' + esc2(c.bizAsk) + '</p></div>'
@@ -6857,11 +6891,12 @@ body.tour-locked .nav{pointer-events:none}
         tourFeedback();
       });
     }
-    /* Framed, not a new tab. Cancel comes back to this panel with the app
-       still running underneath and all three routes where they were. */
+    /* A new tab, because the page will not frame. The line under the
+       button is what keeps the way back visible: without it somebody
+       reads the pitch and the demo is gone as far as they know. */
     $('bizLink').addEventListener('click', function () {
-      trail('tour: opened the investor page');
-      openWeb('pitch');
+      trail('tour: opened the investor page in a tab');
+      window.open('https://www.renters.com/investors', '_blank');
     });
     $('bizTry').addEventListener('click', tourTryIt);
     $('bizDone').addEventListener('click', function () {
