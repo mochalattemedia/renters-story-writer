@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v86                                       -->
+<!--  VERSION: shell-v87                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,36 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v86">
+<meta name="rdc-version" content="shell-v87">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v86
+/* ============================================================ shell-v87
+
+   v87: THE THIRD BUCKET FILLS, AND THE SCENE GETS A BEAT.
+
+   Deal breaker sat empty through the whole animation, which made a
+   three-bucket idea look like a two-bucket one at exactly the moment it
+   was being explained.
+
+   It fills from "I am looking for a house". That is an inference rather
+   than a quote, and it is the right kind: the inverse of a hard
+   requirement is what a deal breaker is. Somebody who must have a house
+   is telling you an apartment is out, and a filter cannot hold both ends
+   of that. It stays inside what the extraction can actually be built to
+   produce, which matters because this scene is the acceptance test.
+
+   Nothing else is inferred. Restaurants and parks stay nice-to-have on
+   the strength of one word, and the two things never said stay named as
+   missing rather than guessed at.
+
+   The scene now runs 13.6 seconds instead of 10.1. The last beat used to
+   land and the screen would close about three seconds later, which is
+   enough time to notice the panel and not enough to read it.
+
+   ============================================================ shell-v86
 
    v86: THE WELCOME IS HALF THE WORDS AT A SIZE YOU CAN READ.
 
@@ -1683,7 +1706,9 @@ body.tour-locked .nav{pointer-events:none}
 .xh .n{margin-left:auto;font-size:11px;font-weight:700;color:#6b7f93}
 .xh .n.full{color:var(--teal)}
 .x-nice .xh i{background:var(--lime)}
-.x-deal .xh i{background:#c4ccd6}
+.x-deal .xh i{background:#b23b3b}
+.x-deal .xchip{background:rgba(178,59,59,.10);color:#8e2f2f;
+  border-color:rgba(178,59,59,.30)}
 .xchips{display:flex;flex-wrap:wrap;gap:7px;min-height:32px;align-items:flex-start}
 .xchip{display:inline-flex;border-radius:999px;padding:6px 12px;font-size:13px;
   font-weight:700;white-space:nowrap;opacity:0;transform:translateY(8px) scale(.94);
@@ -1692,7 +1717,8 @@ body.tour-locked .nav{pointer-events:none}
 .xchip.on{opacity:1;transform:none}
 .x-nice .xchip{background:rgba(141,198,63,.16);color:#4c7016;
   border-color:rgba(141,198,63,.42)}
-.xnone{margin:0;font-size:12.5px;color:#6b7f93;font-style:italic}
+/* No .xnone. The deal breaker bucket fills now, so there is no empty
+   state left in this scene to style. */
 .xgap{background:var(--deepnavy,#081f38);border-radius:13px;padding:13px 14px;
   opacity:0;transform:translateY(6px);
   transition:opacity .45s var(--ease),transform .45s var(--ease)}
@@ -2045,7 +2071,7 @@ body.tour-locked .nav{pointer-events:none}
       </div>
       <div class="xc x-deal">
         <div class="xh"><i></i><h5>Deal breaker</h5></div>
-        <p class="xnone">Nothing ruled out yet.</p>
+        <div class="xchips" id="xDeal"></div>
       </div>
       <div class="xgap" id="xGap">
         <p class="xe">Still need</p>
@@ -2060,7 +2086,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v86';
+  var V = 'shell-v87';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5770,7 +5796,12 @@ body.tour-locked .nav{pointer-events:none}
     { at: 4200, src: 'rank',  why: true },
     { at: 5200, src: 'rest',  chip: 'Near restaurants',   into: 'xNice' },
     { at: 6000, src: 'parks', chip: 'Near parks',         into: 'xNice' },
-    { at: 7100, gap: true }
+    /* Inferred, not quoted, and lit from the same phrase that produced
+       the House must-have. The inverse of a hard requirement is what this
+       bucket is for, and it is the one inference the extraction should
+       be expected to make. */
+    { at: 7000, src: 'house', chip: 'No apartments',      into: 'xDeal' },
+    { at: 8100, gap: true }
   ];
   var xTimers = [];
 
@@ -5782,6 +5813,7 @@ body.tour-locked .nav{pointer-events:none}
     for (i = 0; i < lit.length; i++) lit[i].classList.remove('lit');
     $('xMust').innerHTML = '';
     $('xNice').innerHTML = '';
+    $('xDeal').innerHTML = '';
     $('xWhy').classList.remove('on');
     $('xGap').classList.remove('on');
     var c = $('xCap');
@@ -5835,9 +5867,10 @@ body.tour-locked .nav{pointer-events:none}
       miss.hidden = true;
       $('xPad').hidden = false;
       xPlay();
-      /* The last beat of X_PLAN lands at 7.1s. Three seconds to read it,
-         then the screen goes back to the narration. */
-      autoShut = setTimeout(clipClose, 10100);
+      /* The last beat of X_PLAN lands at 8.1s. Five and a half seconds to
+         read it before the screen goes back to the narration, because
+         three was long enough to notice the panel and not to read it. */
+      autoShut = setTimeout(clipClose, 13600);
     } else {
       $('xPad').hidden = true;
       miss.hidden = true;
