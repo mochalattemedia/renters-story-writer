@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v109                                      -->
+<!--  VERSION: shell-v114                                      -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,94 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v109">
+<meta name="rdc-version" content="shell-v114">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v109
+/* ============================================================ shell-v114
+
+   v114: DEAL BREAKERS ON THE INTRO TOO.
+
+   "What you would never accept" is a description of a deal breaker.
+   "Deal breakers" is what the bucket is called four screens later. A
+   reader who meets the description first and the label second has to
+   work out they are the same thing; a reader who meets the label twice
+   does not.
+
+   Two words as the app spells them, matching the walkthrough and the
+   editor. The intro line is now four nouns and nothing else.
+
+   ============================================================ shell-v113
+
+   v113: AND OFF THE INTRO SCREEN.
+
+   Same sentence, same problem, one surface earlier. The four nouns after
+   it were doing all the work anyway: rent, bedrooms, the dog, what you
+   would never accept tells somebody exactly what to say, and the simile
+   in front of them only tells them how to feel about saying it.
+
+   The phrase is now nowhere in the file outside a changelog entry
+   describing why it left.
+
+   ============================================================ shell-v112
+
+   v112: "THE WAY YOU WOULD TELL A FRIEND" IS OUT OF THE MIC CARD.
+
+   "Describe it out loud" is the instruction. "Say what would work there,
+   the way you would tell a friend" is the same instruction again with a
+   simile attached, sitting directly underneath it, on the largest and
+   most confident element on the screen. A button that says what to do
+   twice reads as a button that does not trust you the first time.
+
+   The line under the card already says speaking fills the form in, and
+   the form itself is right there for anybody who would rather tap. There
+   was nothing left for this sentence to tell anybody.
+
+   The other state stays. "It gets added to what you already said" is not
+   an instruction, it is the answer to the question somebody asks the
+   second time they press the button, and it is not obvious from anything
+   else on screen.
+
+   The span collapses when it is empty rather than holding a blank line,
+   so the idle card is genuinely shorter instead of shorter-looking with a
+   gap where a sentence used to be.
+
+   ============================================================ shell-v111
+
+   v111: THE LAST BEAT WAS OFF THE BOTTOM OF THE SCENE.
+
+   The extraction slide builds to one thing - the panel naming what was
+   never said - and that panel was arriving below the fold of a scrollable
+   box with nothing to say it was scrollable. It read as a sentence cut in
+   half, which is worse than not showing it at all: a demo that appears to
+   be broken at the exact moment it is making its best point.
+
+   Three things, because one alone would not have done it. The copy is
+   shorter, the box is taller, and the panel scrolls itself into view when
+   it arrives. That last one is the real fix; the other two just mean it
+   has less scrolling to do.
+
+   Smooth behaviour, and the scroll is on the scene rather than the page,
+   because the page is not what is overflowing. It also respects reduced
+   motion by jumping instead of gliding, which is what somebody who asked
+   for less movement asked for.
+
+   ============================================================ shell-v110
+
+   v110: INVESTOR SLIDE ONE SPLITS IN TWO.
+
+   The line was already right; it was in one box instead of two. Title
+   carries the action, body carries what happens to it, and the whole
+   slide is now six words over eight.
+
+   "It" has no antecedent in the title, which would matter on a page and
+   does not here: the map behind the bar is showing a drawn shape at the
+   moment somebody reads it, and the clip on this step opens with the
+   drawing. The screen is the antecedent.
+
+   ============================================================ shell-v109
 
    v109: THE RENTER SCRIPT GETS THE SAME PASS.
 
@@ -2222,7 +2303,7 @@ body.tour-locked .nav{pointer-events:none}
 /* SCENE: EXTRACTION. Live HTML, not footage. The sentence comes apart
    phrase by phrase and the chips land where the ranking words put them.
    This is the target the description function gets built against. */
-.xs{width:100%;max-width:400px;max-height:72dvh;overflow:auto;
+.xs{width:100%;max-width:400px;max-height:80dvh;overflow:auto;
   -webkit-overflow-scrolling:touch;background:#eef1f5;border-radius:16px;
   padding:14px;box-shadow:0 18px 50px rgba(0,0,0,.5)}
 .xs[hidden]{display:none}
@@ -2371,8 +2452,7 @@ body.tour-locked .nav{pointer-events:none}
 
   <div class="step"><span class="n">2</span><span class="c">
     <b>Describe your spot</b>
-    <p>Say it out loud, the way you would tell a friend. Rent, bedrooms, the dog,
-      what you would never accept.</p></span></div>
+    <p>Say it out loud. Rent, bedrooms, the dog, deal breakers.</p></span></div>
 
   <div class="step"><span class="n">3</span><span class="c">
     <b>Keep the ones worth your time</b>
@@ -2460,7 +2540,7 @@ body.tour-locked .nav{pointer-events:none}
       <button class="mic" id="mic">
         <span class="wave"><i></i><i></i><i></i><i></i><i></i></span>
         <b id="micB">Describe it out loud</b>
-        <span id="micS">Say what would work there, the way you would tell a friend.</span>
+        <span id="micS" hidden></span>
       </button>
 
       <div class="heard" id="heard">
@@ -2620,8 +2700,7 @@ body.tour-locked .nav{pointer-events:none}
       </div>
       <div class="xgap" id="xGap">
         <p class="xe">Still need</p>
-        <p>You did not mention a budget or how many bedrooms. Tap to add them,
-           or say another sentence.</p>
+        <p>You did not mention rent or bedrooms.</p>
       </div>
     </div></div>
 
@@ -2631,7 +2710,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v109';
+  var V = 'shell-v114';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -3507,9 +3586,14 @@ body.tour-locked .nav{pointer-events:none}
   function micIdle() {
     var has = ($('heardT').value || '').trim().length > 0;
     $('micB').textContent = has ? 'Say something else' : 'Describe it out loud';
-    $('micS').textContent = has
-      ? 'It gets added to what you already said.'
-      : 'Say what would work there, the way you would tell a friend.';
+    /* \u2b50 Nothing in the idle state. The bold line above already says what
+       to do and the line below the card already says what speaking does;
+       a third sentence saying it a third way is a button apologising for
+       itself. The second state stays, because "does this replace what I
+       just said" is a real question with a non-obvious answer. */
+    var sub = has ? 'It gets added to what you already said.' : '';
+    $('micS').textContent = sub;
+    $('micS').hidden = !sub;
   }
 
   function startListening() {
@@ -6163,8 +6247,8 @@ body.tour-locked .nav{pointer-events:none}
          it belongs on the two slides it is true about. */
       { view: 'zone', label: 'Zones',
         clip: 'tour-zone.mp4',
-        title: 'Where they would actually live',
-        body: 'They draw it. We turn it into neighborhoods and ZIP codes.' },
+        title: 'They draw it',
+        body: 'We turn it into neighborhoods and ZIP codes.' },
       { view: 'edit', label: 'Perfect spot',
         clip: 'x-extract',
         title: 'They say it, we sort it',
@@ -6403,6 +6487,11 @@ body.tour-locked .nav{pointer-events:none}
     $('xDeal').innerHTML = '';
     $('xWhy').classList.remove('on');
     $('xGap').classList.remove('on');
+    /* ⭐ And back to the top. The gap panel scrolls the scene down when it
+       arrives, so without this a second play opens on the last beat with
+       the sentence it was built from already off screen. */
+    var box = $('xScene');
+    if (box) box.scrollTop = 0;
     var c = $('xCap');
     c.textContent = '0 of 3';
     c.className = 'n';
@@ -6433,7 +6522,22 @@ body.tour-locked .nav{pointer-events:none}
     }
     if (s.chip) xChip(s.into, s.chip);
     if (s.why) $('xWhy').classList.add('on');
-    if (s.gap) $('xGap').classList.add('on');
+    if (s.gap) {
+      $('xGap').classList.add('on');
+      /* \u2b50 The slide builds to this panel, and it was arriving below the
+         fold of a scrollable box that gave no sign of being scrollable.
+         Scroll the scene, not the page: the page is not what overflows. */
+      var box = $('xScene'), gap = $('xGap');
+      if (box && gap) {
+        var still = window.matchMedia &&
+                    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var to = gap.offsetTop + gap.offsetHeight - box.clientHeight + 16;
+        if (to > 0) {
+          if (box.scrollTo) box.scrollTo({ top: to, behavior: still ? 'auto' : 'smooth' });
+          else box.scrollTop = to;
+        }
+      }
+    }
   }
 
   function xPlay() {
