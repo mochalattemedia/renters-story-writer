@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v92                                       -->
+<!--  VERSION: shell-v93                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,31 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v92">
+<meta name="rdc-version" content="shell-v93">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v92
+/* ============================================================ shell-v93
+
+   v93: NO SANDBOX NOTE ON THE INVESTOR WELCOME.
+
+   "A sandbox. The listings are invented; nothing else is." was the last
+   hedge standing, in a gold-bordered box, above the button, before
+   anybody had seen a screen. The inventory gap is named on the two steps
+   it belongs to, which is the right place for it: attached to the thing
+   it is true about, at the moment that thing is on screen.
+
+   The renter keeps a note, because theirs is not a hedge. "Nothing you
+   tap is saved" is a promise about their data and it belongs before they
+   start rather than after.
+
+   The painter skips the box entirely when there is no note, rather than
+   rendering an empty bordered div, which is what setting the string to
+   empty would have done on its own.
+
+   ============================================================ shell-v92
 
    v92: ONE GAP, NAMED ONCE, AND SIX LINES ANYBODY CAN READ AT A GLANCE.
 
@@ -2180,7 +2198,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v92';
+  var V = 'shell-v93';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5662,7 +5680,9 @@ body.tour-locked .nav{pointer-events:none}
       'Every other rental site starts with what is available and has the ' +
       'renter chase it around. We start with what the renter wants.'
     ],
-    welcomeNote: 'A sandbox. The listings are invented; nothing else is.',
+    /* No note. The one gap is named on the two steps it belongs to,
+       which is where somebody can see what it is about. */
+    welcomeNote: '',
     welcomeGo: 'Walk me through it',
     welcomeSkip: 'I will look around myself',
 
@@ -5828,7 +5848,11 @@ body.tour-locked .nav{pointer-events:none}
       '<span class="tour-mins">' + esc2(c.minutes) + '</span>' +
       '<h2>' + esc2(c.welcomeTitle) + '</h2>' +
       c.welcomeBody.map(function (t) { return '<p>' + esc2(t) + '</p>'; }).join('') +
-      '<div class="tour-note"><p>' + esc2(c.welcomeNote) + '</p></div>' +
+      /* An empty string means no box. Rendering a bordered panel around
+         nothing is worse than the note it replaced. */
+      (c.welcomeNote
+        ? '<div class="tour-note"><p>' + esc2(c.welcomeNote) + '</p></div>'
+        : '') +
       '<button class="cta" id="twGo">' + esc2(c.welcomeGo) + '</button>' +
       '<button class="cta ghost" id="twSkip">' + esc2(c.welcomeSkip) + '</button>' +
       /* Small, grey, last. It is for whoever is testing, not for the
