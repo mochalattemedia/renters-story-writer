@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v87                                       -->
+<!--  VERSION: shell-v90                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,67 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v87">
+<meta name="rdc-version" content="shell-v90">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v87
+/* ============================================================ shell-v90
+
+   v90: THE INVESTOR WELCOME, IN KENNY'S WORDS.
+
+   "That object is the asset" was a pronoun with nothing to point at once
+   the paragraph explaining what the object was got cut in v86, and asset
+   was carrying less than it looked like it was: abstract at the moment
+   the reader most needs something concrete, and close to filler in a
+   pitch, where every deck says the data is the asset.
+
+   Both halves are concrete now and it ends on the pivot rather than on a
+   claim about value. The balance-sheet framing is a thing to say out
+   loud, the same as the point about a radius being too loose. It does not
+   need to be printed on the first screen.
+
+   ============================================================ shell-v89
+
+   v89: ONE LINE PER STEP.
+
+   Every body in the navy bar was two sentences and several were three.
+   The bar is narration over a screen somebody is meant to be looking at,
+   and a reader who is still on the second sentence has stopped looking at
+   the screen. One short line each now, across both scripts.
+
+   THE RADIUS ARGUMENT IS GONE. "A radius around a pin crosses rivers and
+   catchments; a drawn shape does not" is a good sentence and it is an
+   argument, which is a thing to make in a meeting rather than in a caption
+   under a map that is already showing the shape. It says a drawn shape is
+   more precise and stops. Same on the renter side and on the intro screen,
+   which opened on two negations before it said anything.
+
+   Nothing was cut that the step needs. What went was the second half of
+   each pair, which in almost every case restated the first half with a
+   reason attached.
+
+   ============================================================ shell-v88
+
+   v88: THE SKIP LINK IS OUT OF THE BAR.
+
+   Three controls in a row where two would do. Skip sat next to Next
+   offering to end the thing the reader had just chosen to start, on every
+   step, in a bar that is already carrying a title, a body, a caveat and a
+   clip. Seven steps is not a length that needs an escape hatch on each
+   one.
+
+   The ways out that remain, and they are enough: Back from step one
+   reopens the welcome, where "I will look around myself" is a full-width
+   button rather than a link; the final step offers a proper exit; and the
+   You tab carries a permanent row to close or restart the walkthrough.
+
+   Rule 47 is satisfied because the way back was already there. This is
+   the first version in a while that removes a control rather than adding
+   one, and the bar reads better for it.
+
+   ============================================================ shell-v87
 
    v87: THE THIRD BUCKET FILLS, AND THE SCENE GETS A BEAT.
 
@@ -1612,10 +1666,9 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 .tour p{font-size:14px;line-height:1.5;color:rgba(255,255,255,.82);margin:0 0 14px}
 .tour-act{display:flex;gap:10px;align-items:center}
 .tour-act .cta{flex:1 1 auto;margin:0}
-.tour-skip{flex:0 0 auto;background:none;border:0;font-size:12.5px;font-weight:700;
-  color:rgba(255,255,255,.7);text-decoration:underline;padding:8px 2px}
-/* Plainly a way out, and plainly not the thing being recommended. Full
-   width so it cannot be mistaken for the small per-step Skip link. */
+/* No .tour-skip. The bar carries Back and Next; every other way out of
+   the walkthrough lives somewhere it can be read properly. */
+/* Plainly a way out, and plainly not the thing being recommended. */
 /* Square, quiet, and the same height as the green button so the row does
    not look assembled out of spare parts. */
 /* 🔑 Display only, and NAMED REGIONS ONLY. #tourBar is a child of .app, so
@@ -1824,7 +1877,7 @@ body.tour-locked .nav{pointer-events:none}
 
   <div class="step"><span class="n">1</span><span class="c">
     <b>Pick your zone</b>
-    <p>Draw the area you would really take a place in. Not a radius, not a city —
+    <p>Draw the area you would really take a place in —
       the streets you would actually live on.</p></span></div>
 
   <div class="step"><span class="n">2</span><span class="c">
@@ -1995,7 +2048,6 @@ body.tour-locked .nav{pointer-events:none}
     <div class="tour-act">
       <button type="button" class="tour-back" id="tourBack" aria-label="Back">&lsaquo;</button>
       <button class="cta" id="tourNext">Next</button>
-      <button type="button" class="tour-skip" id="tourSkip">Skip</button>
       <button type="button" class="tour-out" id="tourOut" hidden></button>
     </div>
   </div>
@@ -2086,7 +2138,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v87';
+  var V = 'shell-v90';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5447,37 +5499,35 @@ body.tour-locked .nav{pointer-events:none}
         clip: 'tour-zone.mp4',
         real: 'In your account: you draw these yourself, as many as you like.',
         title: 'Draw where you would actually live',
-        body: 'Not a city, not a radius around a pin. Stretch a shape over ' +
-              'the area you would actually take, then add another.' },
+        body: 'Stretch a shape over the area you would actually take, ' +
+              'then add another.' },
       { view: 'edit', label: 'Perfect spot',
         clip: 'x-extract', preview: true,
         real: 'In your account: speak it or tap it, and change it whenever.',
         title: 'Now describe the place itself',
-        body: 'Say it out loud. We pull out what matters and sort it into ' +
-              'must-have, nice-to-have and deal breaker.' },
+        body: 'Say it out loud. We sort it into must-have, nice-to-have ' +
+              'and deal breaker.' },
       { view: 'spots', label: 'Editing',
         real: 'In your account: this works from day one.',
         title: 'It changes when you change',
-        body: 'Budgets move and jobs move. Change a spot and the next ' +
-              'matches come back different.' },
+        body: 'Change a spot and the next matches come back different.' },
       { view: 'me', label: 'Verify',
         real: 'In your account: this works from day one.',
         title: 'Confirm once, carry it everywhere',
-        body: 'ID and a quick selfie, once. Landlords do the same, which ' +
-              'is why there are no fake listings here.' },
+        body: 'ID and a quick selfie, once. Landlords do the same.' },
       { view: 'matches', label: 'Swiping',
         clip: 'tour-swipe.mp4',
         real: 'Not live yet. We have no listings to match you against, so ' +
               'your account will be empty here until we do.',
         title: 'Left to pass, right to look closer',
-        body: 'No photos on the front, on purpose. You see what the ' +
-              'landlord requires and whether you already meet it.' },
+        body: 'You see what the landlord requires and whether you meet ' +
+              'it, before the photos.' },
       { view: 'showings', label: 'Showings',
         clip: 'tour-showing.mp4',
         real: 'Not live yet. It arrives with the listings.',
         title: 'Book it without the phone tag',
         body: 'Set the hours you are free once. No messages about ' +
-              'Tuesday, and both sides know who they are meeting.' }
+              'Tuesday.' }
     ],
 
     playTitle: 'Now try it yourself',
@@ -5567,8 +5617,8 @@ body.tour-locked .nav{pointer-events:none}
 
     welcomeTitle: 'What matters most is what nobody asks',
     welcomeBody: [
-      'Rental search starts with inventory and makes the renter chase it. ' +
-      'We start with what the renter needs. That object is the asset.'
+      'Every other rental site starts with what is available and has the ' +
+      'renter chase it around. We start with what the renter wants.'
     ],
     welcomeNote: 'A sandbox. The listings are invented; nothing else is.',
     welcomeGo: 'Walk me through it',
@@ -5581,40 +5631,36 @@ body.tour-locked .nav{pointer-events:none}
         clip: 'tour-zone.mp4',
         real: 'Live and collecting today.',
         title: 'Demand starts with a real area',
-        body: 'A renter\u2019s drawn zone, resolved to named neighborhoods ' +
-              'and ZIPs. A radius around a pin crosses rivers and ' +
-              'catchments; a drawn shape does not.' },
+        body: 'A drawn shape, resolved to real neighborhoods and ZIPs.' },
       { view: 'edit', label: 'Perfect spot',
         clip: 'x-extract', preview: true,
         real: 'Voice capture is live. The extraction shown here is the ' +
               'target we are building to.',
         title: 'Requirements, ranked by how hard they are',
-        body: 'Spoken plainly, then sorted. The word \u201cideally\u201d is ' +
-              'what demotes a requirement. That ranking is the part a ' +
+        body: 'Spoken plainly, then ranked. The ranking is the part a ' +
               'filter throws away.' },
       { view: 'spots', label: 'Editing',
         real: 'Live and collecting today.',
         title: 'Demand is not captured once',
-        body: 'Every edit is a fresh signal at the moment it changes. This ' +
-              'is a live object, not a form filled in and abandoned.' },
+        body: 'A live object, not a form filled in once and abandoned.' },
       { view: 'me', label: 'Verify',
         real: 'Live today, on both sides.',
         title: 'Both sides confirm identity',
-        body: 'This is the moat and the cost. It kills the fake listing ' +
-              'and it is why the leads are worth paying for.' },
+        body: 'The moat and the cost. It is why the leads are worth ' +
+              'paying for.' },
       { view: 'matches', label: 'Swiping',
         clip: 'tour-swipe.mp4',
         real: 'Built and working. What it lacks is inventory to run ' +
               'against, and that is the constraint we are working on now.',
         title: 'Requirements on the card, not photographs',
-        body: 'The renter sees what the landlord requires and whether they ' +
-              'meet it. Fewer wasted showings on both sides.' },
+        body: 'Requirements checked against the renter. Fewer wasted ' +
+              'showings on both sides.' },
       { view: 'showings', label: 'Showings',
         clip: 'tour-showing.mp4',
         real: 'Built and working. It goes live with the inventory.',
         title: 'Where the transaction becomes measurable',
-        body: 'A booked showing against declared availability is the event ' +
-              'that leads to a confirmed move-in, which is what we bill on.' }
+        body: 'A booked showing is the event that leads to a confirmed ' +
+              'move-in.' }
     ],
 
     playTitle: 'Now try it yourself',
@@ -5976,7 +6022,6 @@ body.tour-locked .nav{pointer-events:none}
     $('tourNext').textContent = isPlay ? TOUR_COPY.playNext : 'Next';
     /* 🔑 Nothing to skip past on the last step, and an exit here is an exit
        taken thirty seconds before the only question we needed answered. */
-    $('tourSkip').style.display = isPlay ? 'none' : '';
 
     /* ⭐ Only on the last step. Everywhere else the small Skip link is the
        right size for what it does. */
@@ -6271,16 +6316,6 @@ body.tour-locked .nav{pointer-events:none}
 
   $('tourNext').addEventListener('click', tourNext);
   $('tourOut').addEventListener('click', tourOut);
-  $('tourSkip').addEventListener('click', function () {
-    tourTeardown();
-    $('tourBar').classList.remove('on');
-    document.body.classList.remove('tour-running');
-    document.body.classList.remove('tour-locked');
-    tour.on = false; tourSave();
-    trail('tour: skipped mid-walkthrough');
-    toast('Walkthrough closed. Restart it from the You tab.');
-  });
-
   var K_INTRO = 'rdc_app_intro_seen';
 
   function introSeen() {
