@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v93                                       -->
+<!--  VERSION: shell-v94                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,34 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v93">
+<meta name="rdc-version" content="shell-v94">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v93
+/* ============================================================ shell-v94
+
+   v94: THE BANNER WAS SAYING SOMETHING FALSE.
+
+   "DEMO - invented data, nothing here is real" ran across the top of
+   every screen of the walkthrough. The listings are invented. The zone
+   picker, the extraction, the editing, the verification and the booking
+   are the product. A banner claiming none of it is real contradicts six
+   steps that carefully say which parts are live, and it is the loudest
+   thing on the screen while it does it.
+
+   It is gone from the walkthrough. The gap is named where it applies, on
+   the two steps it applies to, which is where somebody can see what is
+   being talked about.
+
+   IT STAYS ON ?demo=1, REWORDED. That path has demo data and no
+   narration at all - it exists for showing the app over somebody's
+   shoulder - so it is the one place nothing else says the listings are
+   made up. It now says that and only that, which has the advantage of
+   being true.
+
+   ============================================================ shell-v93
 
    v93: NO SANDBOX NOTE ON THE INVESTOR WELCOME.
 
@@ -2198,7 +2219,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v93';
+  var V = 'shell-v94';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -2511,14 +2532,24 @@ body.tour-locked .nav{pointer-events:none}
     ];
 
     var tag = document.createElement('div');
-    tag.textContent = 'DEMO — invented data, nothing here is real';
+    tag.textContent = 'DEMO — the listings are invented';
     tag.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:999;background:#e0a92e;' +
       'color:#4a3708;font:700 10.5px/1.4 Open Sans,sans-serif;letter-spacing:.09em;' +
       'text-transform:uppercase;text-align:center;padding:6px 8px;' +
       'padding-top:calc(6px + env(safe-area-inset-top))';
-    document.body.appendChild(tag);
-    document.querySelector('.app').style.paddingTop =
-      'calc(env(safe-area-inset-top) + 24px)';
+    /* \u2b50 NOT DURING THE WALKTHROUGH. Six steps say which parts are live
+       and which are waiting on inventory, one screen at a time, attached
+       to the screen in question. A banner over the top of all of them
+       saying none of it is real contradicts every one of those and is the
+       loudest thing on the page while it does it.
+
+       It stays on ?demo=1, where there is no narration to carry the point
+       and this is the only thing that would say it. */
+    if (!TOUR_ON) {
+      document.body.appendChild(tag);
+      document.querySelector('.app').style.paddingTop =
+        'calc(env(safe-area-inset-top) + 24px)';
+    }
   }
 
   /* 🔴 ONE PLACE SETS THE TOP-BAR AVATAR. It used to be a line inside
