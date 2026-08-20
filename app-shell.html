@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v90                                       -->
+<!--  VERSION: shell-v92                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,59 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v90">
+<meta name="rdc-version" content="shell-v92">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v90
+/* ============================================================ shell-v92
+
+   v92: ONE GAP, NAMED ONCE, AND SIX LINES ANYBODY CAN READ AT A GLANCE.
+
+   The extraction disclaimer is gone. Voice capture and sorting run today;
+   what is outstanding is accuracy, the walkthrough does not go public
+   until that is closed, and a caveat about something that will be true by
+   the time anybody reads it costs more than it protects.
+
+   Which leaves exactly one gap in the walkthrough, and it is the real
+   one: there is no inventory. Steps five and six say so in amber and
+   nothing else hedges. A demo that qualifies every screen teaches the
+   reader to discount all of it, including the parts that have earned
+   belief.
+
+   That takes the preview path out entirely - the gold row, the target
+   caption, the flag on two steps - rather than leaving it unused for
+   somebody to wire back up.
+
+   AND THE INVESTOR LINES ARE PLAIN NOW. They had drifted into the
+   register of a pitch deck: moat, live object, the ranking a filter
+   throws away. Every one of those is a real point and not one of them
+   can be taken in at a glance over the top of a screen somebody is
+   supposed to be watching. Six sentences, subject and verb, no term that
+   needs a second to unpack. The arguments underneath them are still
+   there to be made out loud, which is where arguments belong.
+
+   ============================================================ shell-v91
+
+   v91: "COLLECTING" WAS ASKING THE READER TO INFER THE OBJECT.
+
+   "Live and collecting today" sat under four investor steps. Collecting
+   what? The answer is demand data, and it is the right answer, but the
+   whole job of a status line is that nobody should have to work it out.
+   A line under a screen has one question to answer: is this real, and is
+   anybody on it.
+
+   "This feature is live today" answers exactly that and nothing else. It
+   also parallels the two amber lines properly - live today against built
+   and working - so the four green ones and the two amber ones are now
+   the same sentence with the status swapped, which is what makes a scan
+   down the walkthrough legible.
+
+   Verify keeps its own wording because "on both sides" is the whole claim
+   there; a verification that runs on one side is a different product.
+
+   ============================================================ shell-v90
 
    v90: THE INVESTOR WELCOME, IN KENNY'S WORDS.
 
@@ -1698,11 +1744,8 @@ body.tour-locked .nav{pointer-events:none}
 .tour-clip s{display:block;text-decoration:none;font-weight:400;font-size:11px;
   letter-spacing:.05em;text-transform:uppercase;color:rgba(255,255,255,.5);
   margin-top:2px}
-/* Gold for a target, lime for a capture. Same grammar as the caveat line
-   above it, so nobody has to read the words to know which they are on. */
-.tour-clip.prev{border-color:rgba(224,169,46,.55)}
-.tour-clip.prev s{color:#f6d68a}
-.tour-clip.prev .pl{background:var(--gold)}
+/* No .prev. There is one kind of clip row now, because there is one gap
+   in the walkthrough and it is named on the two steps it belongs to. */
 
 .cw{position:fixed;inset:0;z-index:1200;background:#081f38;
   display:none;flex-direction:column;align-items:center;justify-content:center;
@@ -1723,7 +1766,6 @@ body.tour-locked .nav{pointer-events:none}
 .cw .cwcap{position:absolute;left:0;right:0;
   bottom:calc(16px + env(safe-area-inset-bottom));margin:0;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
   font-weight:700;color:rgba(255,255,255,.55);text-align:center}
-.cw .cwcap.prev{color:#f6d68a}
 .cw .cwmiss{color:#fff;text-align:center;font-size:15px;line-height:1.6;max-width:300px}
 .cwx{position:absolute;top:calc(14px + env(safe-area-inset-top));right:16px;
   width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
@@ -2138,7 +2180,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v90';
+  var V = 'shell-v92';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5502,7 +5544,7 @@ body.tour-locked .nav{pointer-events:none}
         body: 'Stretch a shape over the area you would actually take, ' +
               'then add another.' },
       { view: 'edit', label: 'Perfect spot',
-        clip: 'x-extract', preview: true,
+        clip: 'x-extract',
         real: 'In your account: speak it or tap it, and change it whenever.',
         title: 'Now describe the place itself',
         body: 'Say it out loud. We sort it into must-have, nice-to-have ' +
@@ -5629,38 +5671,37 @@ body.tour-locked .nav{pointer-events:none}
     steps: [
       { view: 'zone', label: 'Zones',
         clip: 'tour-zone.mp4',
-        real: 'Live and collecting today.',
+        real: 'This feature is live today.',
         title: 'Demand starts with a real area',
-        body: 'A drawn shape, resolved to real neighborhoods and ZIPs.' },
+        body: 'The renter draws where they would live. We turn it into ' +
+              'real neighborhoods.' },
       { view: 'edit', label: 'Perfect spot',
-        clip: 'x-extract', preview: true,
-        real: 'Voice capture is live. The extraction shown here is the ' +
-              'target we are building to.',
+        clip: 'x-extract',
+        real: 'This feature is live today.',
         title: 'Requirements, ranked by how hard they are',
-        body: 'Spoken plainly, then ranked. The ranking is the part a ' +
-              'filter throws away.' },
+        body: 'They say what they want out loud. We sort it by what they ' +
+              'will not give up.' },
       { view: 'spots', label: 'Editing',
-        real: 'Live and collecting today.',
+        real: 'This feature is live today.',
         title: 'Demand is not captured once',
-        body: 'A live object, not a form filled in once and abandoned.' },
+        body: 'They change it whenever they like. We always know what ' +
+              'they want now.' },
       { view: 'me', label: 'Verify',
-        real: 'Live today, on both sides.',
+        real: 'This feature is live today, on both sides.',
         title: 'Both sides confirm identity',
-        body: 'The moat and the cost. It is why the leads are worth ' +
-              'paying for.' },
+        body: 'Renters and landlords both prove who they are.' },
       { view: 'matches', label: 'Swiping',
         clip: 'tour-swipe.mp4',
         real: 'Built and working. What it lacks is inventory to run ' +
               'against, and that is the constraint we are working on now.',
         title: 'Requirements on the card, not photographs',
-        body: 'Requirements checked against the renter. Fewer wasted ' +
-              'showings on both sides.' },
+        body: 'They see what the landlord requires before they see the ' +
+              'photos.' },
       { view: 'showings', label: 'Showings',
         clip: 'tour-showing.mp4',
         real: 'Built and working. It goes live with the inventory.',
         title: 'Where the transaction becomes measurable',
-        body: 'A booked showing is the event that leads to a confirmed ' +
-              'move-in.' }
+        body: 'They book a time. That is where a move-in starts.' }
     ],
 
     playTitle: 'Now try it yourself',
@@ -5752,8 +5793,7 @@ body.tour-locked .nav{pointer-events:none}
   (function bindClip() {
     var cb = $('tourClip');
     if (cb) cb.addEventListener('click', function () {
-      clipOpen(this.getAttribute('data-clip'),
-               this.getAttribute('data-prev') === '1');
+      clipOpen(this.getAttribute('data-clip'));
     });
     var x = $('cwx');
     if (x) x.addEventListener('click', clipClose);
@@ -5905,7 +5945,7 @@ body.tour-locked .nav{pointer-events:none}
     });
   }
 
-  function clipOpen(name, isPrev) {
+  function clipOpen(name) {
     var v = $('cwVid'), miss = $('cwMiss');
     if (name === 'x-extract') {
       v.style.display = 'none';
@@ -5925,9 +5965,9 @@ body.tour-locked .nav{pointer-events:none}
       v.play().catch(function () {});
     }
     var cap = $('cwCap');
-    cap.textContent = isPrev ? 'Target output \u00b7 not yet matched'
-                             : 'Recorded in the app';
-    cap.className = 'cwcap' + (isPrev ? ' prev' : '');
+    cap.textContent = (name === 'x-extract') ? 'Live in the app'
+                                             : 'Recorded in the app';
+    cap.className = 'cwcap';
     $('cw').classList.add('on');
     trail('clip open ' + name);
   }
@@ -6001,19 +6041,19 @@ body.tour-locked .nav{pointer-events:none}
 
     if (name) {
       cb.hidden = false;
-      cb.className = 'tour-clip' + (st.preview ? ' prev' : '');
+      cb.className = 'tour-clip';
       cb.setAttribute('data-clip', name);
-      cb.setAttribute('data-prev', st.preview ? '1' : '');
+      /* A capture is a recording; the extraction scene is the app drawing
+         itself. Calling that one a recording would be the only false word
+         left in the walkthrough. */
       $('tourClipLbl').textContent = 'Play it again';
-      $('tourClipCap').textContent = st.preview ? 'Target \u00b7 not yet matched'
-                                                : 'Recorded in the app';
+      $('tourClipCap').textContent = (name === 'x-extract')
+        ? 'Live in the app' : 'Recorded in the app';
       /* First arrival takes the screen. Every arrival after that does not,
          or Back becomes a thing people stop pressing. */
       if (!vSeen[name]) {
         vSeen[name] = 1;
-        autoOpen = setTimeout(function () {
-          clipOpen(name, st.preview === true);
-        }, 420);
+        autoOpen = setTimeout(function () { clipOpen(name); }, 420);
       }
     } else {
       cb.hidden = true;
