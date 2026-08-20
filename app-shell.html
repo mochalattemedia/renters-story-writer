@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v114                                      -->
+<!--  VERSION: shell-v116                                      -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,42 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v114">
+<meta name="rdc-version" content="shell-v116">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v114
+/* ============================================================ shell-v116
+
+   v116: TELL US WHAT YOU THINK, AND EXIT.
+
+   "Tell us where this falls down" was written to give somebody permission
+   to be blunt, and it does the opposite: it says the honest answer is a
+   complaint, so anybody who liked it has nothing to press. Half the
+   useful feedback is what worked, and the button was quietly filtering
+   it out. "Tell us what you think" asks the question without answering
+   it first.
+
+   "I am done" became "Exit" in all four places. Done is a claim about the
+   reader - finished, satisfied, through with it - and somebody leaving
+   halfway because they are on a train is not done with anything. Exit is
+   a door. It describes the button rather than the person pressing it.
+
+   ============================================================ shell-v115
+
+   v115: "THAT", NOT "IT".
+
+   Two "it"s in two sentences pointed at the same thing and read like they
+   might not. "That" reaches back to the drawing without ambiguity and
+   costs one letter.
+
+   Kept ZIP codes as two capitals. It is an initialism, the zone picker
+   says it that way in the panel under the map, and a slide that spells it
+   differently from the screen it is narrating is a small thing that makes
+   a reader look twice at the wrong moment.
+
+   ============================================================ shell-v114
 
    v114: DEAL BREAKERS ON THE INTRO TOO.
 
@@ -2710,7 +2739,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v114';
+  var V = 'shell-v116';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -6173,7 +6202,7 @@ body.tour-locked .nav{pointer-events:none}
     /* Renter script above. Investor keys below are folded over it. */
     bizOffer: 'Curious what we are building toward?',
     bizOfferGo: 'Show me',
-    bizOfferSkip: 'I am done',
+    bizOfferSkip: 'Exit',
     tryGo: 'Try the app yourself',
     bizTitle: 'What we are building toward',
     bizBody: [
@@ -6195,7 +6224,7 @@ body.tour-locked .nav{pointer-events:none}
     bizMore: 'The full picture, with the numbers, is on our investor page.',
     bizLink: 'Open the investor page',
     bizLinkHint: 'Opens in a new tab. This one stays where it is.',
-    bizDone: 'I am done'
+    bizDone: 'Exit'
   };
 
   var K_TOUR = 'rdc_tour_state';
@@ -6248,7 +6277,7 @@ body.tour-locked .nav{pointer-events:none}
       { view: 'zone', label: 'Zones',
         clip: 'tour-zone.mp4',
         title: 'They draw it',
-        body: 'We turn it into neighborhoods and ZIP codes.' },
+        body: 'We turn that into neighborhoods and ZIP codes.' },
       { view: 'edit', label: 'Perfect spot',
         clip: 'x-extract',
         title: 'They say it, we sort it',
@@ -6304,7 +6333,7 @@ body.tour-locked .nav{pointer-events:none}
 
     bizOffer: '',
     bizOfferGo: 'Now the model and the numbers',
-    bizOfferSkip: 'I am done',
+    bizOfferSkip: 'Exit',
     tryGo: 'Try the app yourself',
 
     bizTitle: 'Where this goes',
@@ -6321,11 +6350,11 @@ body.tour-locked .nav{pointer-events:none}
     bizMore: '',
     bizLink: 'View the pitch',
     bizLinkHint: 'Opens in a new tab. This one stays where it is.',
-    bizDone: 'I am done',
+    bizDone: 'Exit',
 
     /* Empty. The button names the thing it does. */
     bizAsk: '',
-    bizAskGo: 'Tell us where this falls down'
+    bizAskGo: 'Tell us what you think'
   };
 
   /* Folded once, at definition time, so nothing downstream has to know
