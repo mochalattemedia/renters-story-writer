@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v99                                       -->
+<!--  VERSION: shell-v102                                      -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,83 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v99">
+<meta name="rdc-version" content="shell-v102">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v99
+/* ============================================================ shell-v102
+
+   v102: THE END IS A JUNCTION, NOT A QUEUE.
+
+   v101 made the exit a chain: survey, then pitch, then nothing. Better
+   than the either-or it replaced, and still the wrong shape, because it
+   assumed the order somebody wants is the order we picked. Somebody may
+   want to answer, read the model, and then go back and use the thing.
+   Somebody else wants the model and nothing else.
+
+   Every exit screen now offers the same three: read the model, use the
+   app, or stop. Whichever you take, the other two are still there when
+   you come back, because the panels close rather than end.
+
+   TRY IT YOURSELF IS A REAL BUTTON NOW. Closing the panel already left
+   somebody in a working demo with every screen live - it was the same
+   action - but the button said "Close", so the only people who ever
+   found the free demo were the ones who pressed a dismissal and looked
+   at what happened. A button that does something useful should say the
+   useful thing, not the mechanical one.
+
+   ============================================================ shell-v101
+
+   v101: THE FEEDBACK AND THE PITCH STOPPED BEING A CHOICE.
+
+   An investor reaching the end landed on the business panel, and the
+   pitch button opens renters.com/investors in a new tab. They are gone.
+   The survey was on that same panel, below the button that takes them
+   away from it, which means in practice the two were alternatives and
+   the pitch won every time. Every investor who walked the whole thing
+   left without being asked a single question.
+
+   Both now, in order. The survey comes first at full height with a plain
+   way past it, and whichever they choose - answered or skipped - the
+   pitch is the next screen. Nothing is gated: skipping costs one tap and
+   the button says exactly where it goes.
+
+   This reverses v62, which put the model first on the reasoning that an
+   investor came for the model and should not have to answer three
+   questions to reach it. That reasoning was sound and the conclusion was
+   wrong, because it assumed the two screens were both reachable. They
+   were not. A skip solves the same problem without spending the only
+   moment an investor is ever going to be this easy to ask.
+
+   ============================================================ shell-v100
+
+   v100: HOW LONG, AND WHAT AM I EVEN LOOKING AT.
+
+   Three complaints, one cause: the full-screen overlay took the screen
+   and then told you nothing about itself.
+
+   A COUNTDOWN. It closes on its own and there was no way to know whether
+   that was in one second or ten, so the only sane thing to do was sit and
+   wait. A lime line across the top now empties as it runs. On a clip it
+   is tied to the actual duration once the metadata lands, not to a guess.
+   On the extraction scene it is tied to the timer that closes it.
+
+   SLIDE OR VIDEO, SAID OUT LOUD. Four of the six steps open a recording
+   and one opens a drawn scene. A drawn scene that takes half a second to
+   start animating looks exactly like a video that is failing to load, and
+   the reader has no way to tell which. There is a small label in the
+   corner now: VIDEO or SLIDE.
+
+   FOLDED BY DEFAULT. I argued against this in v98 on the grounds that
+   narration hidden on arrival reads as broken. The answer to that was not
+   to leave it open, it was to make the control say what it does, so the
+   button is a pill reading MORE rather than a chevron. Folded, the bar is
+   about 130px and the screen behind it is almost entirely the thing being
+   demonstrated, which is the point of the whole exercise.
+
+   ============================================================ shell-v99
 
    v99: 470 WAS STILL NOT ENOUGH, AND I SHOULD HAVE MEASURED THE DECK.
 
@@ -1874,18 +1944,20 @@ body.tour-running .toast{bottom:calc(248px + env(safe-area-inset-bottom))}
 .tour-bar i{display:block;height:100%;background:var(--lime);width:0;
   transition:width .45s var(--ease)}
 .tour-step{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-  color:var(--lime);margin:0 0 6px;padding-right:44px}
+  color:var(--lime);margin:0 0 6px;padding-right:82px}
 /* \u2b50 THE WAY TO GET THE BAR OUT OF THE WAY. The deck needs about 400px
    to draw a card whole and a full bar leaves it 390. Collapsed this drops
    the bar to roughly 130 and the card renders at the size it was drawn
    for. Sized as a proper target rather than a chevron somebody has to
    aim at. */
-.tour-fold{position:absolute;top:24px;right:14px;width:38px;height:38px;
-  border-radius:50%;border:1px solid rgba(255,255,255,.28);
-  background:rgba(255,255,255,.08);color:#fff;font-size:15px;line-height:1;
-  display:flex;align-items:center;justify-content:center;cursor:pointer;
-  transition:transform .22s var(--ease)}
-body.tour-min .tour-fold{transform:rotate(180deg)}
+/* \u2b50 A WORD, NOT A CHEVRON. This defaults to folded, and narration
+   hidden on arrival reads as broken unless the control says plainly what
+   pressing it does. */
+.tour-fold{position:absolute;top:22px;right:14px;height:32px;padding:0 13px;
+  border-radius:999px;border:1px solid rgba(255,255,255,.3);
+  background:rgba(255,255,255,.08);color:#fff;cursor:pointer;
+  font:700 10.5px/1 'Open Sans',sans-serif;letter-spacing:.1em;
+  text-transform:uppercase;display:flex;align-items:center}
 body.tour-min #tourBody,
 body.tour-min #tourClip,
 body.tour-min #tourReal{display:none}
@@ -1949,6 +2021,18 @@ body.tour-locked .nav{pointer-events:none}
   bottom:calc(16px + env(safe-area-inset-bottom));margin:0;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
   font-weight:700;color:rgba(255,255,255,.55);text-align:center}
 .cw .cwmiss{color:#fff;text-align:center;font-size:15px;line-height:1.6;max-width:300px}
+/* \u2b50 HOW LONG. The overlay closes itself and without this the only
+   thing to do is sit and wait to find out when. Tied to the clip's real
+   duration once metadata lands, and to the close timer on the scene. */
+.cwp{position:absolute;top:0;left:0;right:0;height:3px;z-index:3;
+  background:rgba(255,255,255,.16)}
+.cwp i{display:block;height:100%;width:0;background:var(--lime)}
+/* A drawn scene that has not started animating looks exactly like a video
+   that will not load. This says which it is before the question arises. */
+.cwkind{position:absolute;top:calc(15px + env(safe-area-inset-top));left:16px;
+  z-index:3;font:700 10px/1 'Open Sans',sans-serif;letter-spacing:.11em;
+  text-transform:uppercase;color:rgba(255,255,255,.6);
+  border:1px solid rgba(255,255,255,.24);border-radius:999px;padding:6px 10px}
 .cwx{position:absolute;top:calc(14px + env(safe-area-inset-top));right:16px;
   width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
   background:rgba(255,255,255,.09);color:#fff;font-size:22px;line-height:1;
@@ -2262,7 +2346,7 @@ body.tour-locked .nav{pointer-events:none}
   <div class="tour" id="tourBar">
     <div class="tour-bar"><i id="tourFill"></i></div>
     <button type="button" class="tour-fold" id="tourFold"
-            aria-label="Collapse the narration">&#9660;</button>
+            aria-label="Show the narration">More</button>
     <p class="tour-step" id="tourStep"></p>
     <h4 id="tourTitle"></h4>
     <p id="tourBody"></p>
@@ -2318,6 +2402,8 @@ body.tour-locked .nav{pointer-events:none}
      become a containing block for it, and no future edit inside .app can
      quietly start clipping it. -->
   <div class="cw" id="cw">
+    <div class="cwp"><i id="cwpFill"></i></div>
+    <span class="cwkind" id="cwKind"></span>
     <button type="button" class="cwx" id="cwx" aria-label="Close">&times;</button>
     <!-- No loop. This one closes itself on "ended", and a looping
          clip never fires it. -->
@@ -2364,7 +2450,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v99';
+  var V = 'shell-v102';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5790,6 +5876,10 @@ body.tour-locked .nav{pointer-events:none}
     fbQ2: 'What would make a match worth swiping right on?',
     fbQ3: 'What felt confusing, missing or annoying?',
     fbSend: 'Send it',
+    fbSkip: 'Skip this',
+    fbSkipTitle: 'No problem',
+    fbSkipBody: 'The walkthrough is done. Have a look around, or read how ' +
+      'the money works.',
     fbThanksTitle: 'Thank you \u2014 that is genuinely useful',
     fbThanksBody: 'This shapes what gets built next. If you want to talk it ' +
                   'through properly, reply to the message that sent you here.',
@@ -5797,7 +5887,8 @@ body.tour-locked .nav{pointer-events:none}
     /* Renter script above. Investor keys below are folded over it. */
     bizOffer: 'Curious what we are building toward?',
     bizOfferGo: 'Show me',
-    bizOfferSkip: 'No thanks, I am done',
+    bizOfferSkip: 'I am done',
+    tryGo: 'Try the app yourself',
     bizTitle: 'What we are building toward',
     bizBody: [
       'Renters.com is a marketplace where both sides are verified people. ' +
@@ -5817,7 +5908,7 @@ body.tour-locked .nav{pointer-events:none}
     ],
     bizMore: 'The full picture, with the numbers, is on our investor page.',
     bizLink: 'Open the investor page',
-    bizDone: 'Close'
+    bizDone: 'I am done'
   };
 
   var K_TOUR = 'rdc_tour_state';
@@ -5919,13 +6010,18 @@ body.tour-locked .nav{pointer-events:none}
     fbQ2: 'What is the hardest question you would ask us?',
     fbQ3: 'What did we not show you that you wanted to see?',
     fbSend: 'Send it',
+    fbSkip: 'Skip to the pitch',
+    fbSkipTitle: 'No problem',
+    fbSkipBody: 'The walkthrough is done. The model is below, and the app ' +
+      'is still there to use.',
     fbThanksTitle: 'Thank you, that is useful',
     fbThanksBody: 'If you want to go deeper, reply to the message that ' +
                   'sent you here.',
 
-    bizOffer: 'Want the model and the numbers?',
-    bizOfferGo: 'Show me',
-    bizOfferSkip: 'No thanks',
+    bizOffer: '',
+    bizOfferGo: 'Now the model and the numbers',
+    bizOfferSkip: 'I am done',
+    tryGo: 'Try the app yourself',
 
     bizTitle: 'Where this goes',
     bizBody: [
@@ -5940,7 +6036,7 @@ body.tour-locked .nav{pointer-events:none}
        saying the same thing is a caption on a control. */
     bizMore: '',
     bizLink: 'View the pitch',
-    bizDone: 'Close',
+    bizDone: 'I am done',
 
     /* Empty. The button names the thing it does. */
     bizAsk: '',
@@ -5993,6 +6089,11 @@ body.tour-locked .nav{pointer-events:none}
       if (e.target === this) clipClose();
     });
     var v = $('cwVid');
+    if (v) v.addEventListener('loadedmetadata', function () {
+      /* The real length, not a guess. A clip re-cut to a different length
+         needs no edit here. */
+      if (this.duration && isFinite(this.duration)) cwRun(this.duration * 1000);
+    });
     if (v) v.addEventListener('ended', function () {
       trail('clip finished');
       clipClose();
@@ -6144,6 +6245,28 @@ body.tour-locked .nav{pointer-events:none}
     });
   }
 
+  /* Width driven by a CSS transition rather than a timer, so it cannot
+     drift away from the thing it is describing and costs nothing while it
+     runs. The reflow read between the two writes is what makes the reset
+     take; without it the browser collapses both into one style change and
+     the bar never moves. */
+  function cwRun(ms) {
+    var f = $('cwpFill');
+    if (!f) return;
+    f.style.transition = 'none';
+    f.style.width = '0%';
+    void f.offsetWidth;
+    f.style.transition = 'width ' + Math.round(ms) + 'ms linear';
+    f.style.width = '100%';
+  }
+
+  function cwStop() {
+    var f = $('cwpFill');
+    if (!f) return;
+    f.style.transition = 'none';
+    f.style.width = '0%';
+  }
+
   function clipOpen(name) {
     var v = $('cwVid'), miss = $('cwMiss');
     if (name === 'x-extract') {
@@ -6151,6 +6274,8 @@ body.tour-locked .nav{pointer-events:none}
       v.removeAttribute('src');
       miss.hidden = true;
       $('xPad').hidden = false;
+      $('cwKind').textContent = 'Slide';
+      cwRun(13600);
       xPlay();
       /* The last beat of X_PLAN lands at 8.1s. Five and a half seconds to
          read it before the screen goes back to the narration, because
@@ -6160,6 +6285,8 @@ body.tour-locked .nav{pointer-events:none}
       $('xPad').hidden = true;
       miss.hidden = true;
       v.style.display = '';
+      $('cwKind').textContent = 'Video';
+      cwStop();                /* starts when the duration is known */
       v.src = NET + '/' + name;
       v.play().catch(function () {});
     }
@@ -6184,6 +6311,7 @@ body.tour-locked .nav{pointer-events:none}
 
   function clipClose() {
     autoClear();
+    cwStop();
     var v = $('cwVid');
     try { v.pause(); } catch (e) {}
     v.removeAttribute('src');
@@ -6309,6 +6437,7 @@ body.tour-locked .nav{pointer-events:none}
     $('tourBar').classList.add('on');
     document.body.classList.add('tour-running');
     document.body.classList[tourFolded ? 'add' : 'remove']('tour-min');
+    tourFoldPaint();
     tourPad();
   }
 
@@ -6325,13 +6454,23 @@ body.tour-locked .nav{pointer-events:none}
   /* Remembered for the session. Somebody who folds it away on step two
      did not mean "just this once", and re-opening it under them on every
      step is the same disrespect as never letting them close it. */
-  var tourFolded = false;
+  /* \u2b50 FOLDED ON ARRIVAL. Every step is narrating a screen, and a bar
+     that eats half of it is arguing with itself. The word on the button
+     is what makes this legible rather than broken. */
+  var tourFolded = true;
+
+  function tourFoldPaint() {
+    var b = $('tourFold');
+    if (!b) return;
+    b.textContent = tourFolded ? 'More' : 'Less';
+    b.setAttribute('aria-label',
+      tourFolded ? 'Show the narration' : 'Hide the narration');
+  }
 
   function tourFold() {
     tourFolded = !tourFolded;
     document.body.classList[tourFolded ? 'add' : 'remove']('tour-min');
-    $('tourFold').setAttribute('aria-label',
-      tourFolded ? 'Show the narration' : 'Collapse the narration');
+    tourFoldPaint();
     tourPad();
     trail('tour: narration ' + (tourFolded ? 'folded' : 'open'));
     vibrate(4);
@@ -6370,14 +6509,12 @@ body.tour-locked .nav{pointer-events:none}
     document.body.classList.remove('tour-running');
     document.body.classList.remove('tour-locked');
     vibrate(5);
-    if (TOUR_WHO === 'investor') {
-      trail('tour: investor declined the account, to the model');
-      tour.done = true; tourSave();
-      tourBiz();
-    } else {
-      trail('tour: renter declined the account, to the survey');
-      tourFeedback();
-    }
+    /* \u2b50 BOTH, IN ORDER, FOR EVERYBODY. The pitch button opens another
+       site in a new tab, so a panel carrying both the pitch and the
+       survey was never offering two things - it was offering the pitch
+       and losing the survey. Ask first, skip freely, pitch after. */
+    trail('tour: declined the account, to the survey');
+    tourFeedback();
   }
 
   /* 🔑 The walkthrough is a demo, and the demo has to offer a way out of
@@ -6438,7 +6575,8 @@ body.tour-locked .nav{pointer-events:none}
         '<textarea id="fbWorth" rows="3"></textarea></div>' +
       '<div class="fb-q"><label>' + esc2(c.fbQ3) + '</label>' +
         '<textarea id="fbFriction" rows="3"></textarea></div>' +
-      '<button class="cta" id="fbSend">' + esc2(c.fbSend) + '</button>';
+      '<button class="cta" id="fbSend">' + esc2(c.fbSend) + '</button>' +
+      '<button class="cta ghost" id="fbSkip">' + esc2(c.fbSkip) + '</button>';
 
     $('fbUse').querySelectorAll('button').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -6458,6 +6596,16 @@ body.tour-locked .nav{pointer-events:none}
       answers.worth = $('fbWorth').value || '';
       answers.friction = $('fbFriction').value || '';
       tourSendFeedback(answers);
+    });
+
+    /* Nothing is gated. Skipping goes exactly where answering goes, and
+       the button says so rather than pretending to be a way out. */
+    /* Skipping goes where answering goes: the junction, with all three
+       routes on it. Nothing is gated behind the questions. */
+    $('fbSkip').addEventListener('click', function () {
+      trail('tour: survey skipped');
+      tour.done = true; tourSave();
+      tourFeedbackThanks(true);
     });
 
     $('tFeedback').classList.add('on');
@@ -6511,21 +6659,48 @@ body.tour-locked .nav{pointer-events:none}
     toast('That did not send. Your answers are safe on this phone.');
   }
 
-  function tourFeedbackThanks() {
+  /* \u2b50 THE SAME THING "CLOSE" ALWAYS DID, SAID HONESTLY. Every screen
+     behind these panels is live demo data, so dismissing them has always
+     dropped somebody into a working app. Only the people who pressed a
+     dismissal and then looked at what happened ever found that out. */
+  function tourTryIt() {
+    $('tFeedback').classList.remove('on');
+    $('tBiz').classList.remove('on');
+    document.body.classList.remove('tour-running');
+    document.body.classList.remove('tour-locked');
+    document.body.classList.remove('tour-min');
+    document.body.style.removeProperty('--tourpad');
+    tour.done = true; tourSave();
+    trail('tour: went to free play from an exit screen');
+    go('spots');
+    toast('The demo is yours. Nothing here is saved.');
+    vibrate(5);
+  }
+
+  /* skipped=true means nobody answered anything, so thanking them for it
+     would be the kind of small lie that makes everything around it
+     suspect. Same three routes either way. */
+  function tourFeedbackThanks(skipped) {
     tour.done = true; tourSave();
 
     var c = TOUR_COPY;
     $('tFeedback').firstChild.innerHTML =
-      '<h2>' + esc2(c.fbThanksTitle) + '</h2>' +
-      '<p>' + esc2(c.fbThanksBody) + '</p>' +
-      '<div class="tour-note"><p>' + esc2(c.bizOffer) + '</p></div>' +
+      '<h2>' + esc2(skipped ? c.fbSkipTitle : c.fbThanksTitle) + '</h2>' +
+      '<p>' + esc2(skipped ? c.fbSkipBody : c.fbThanksBody) + '</p>' +
+      /* An empty offer means no box. On the investor side the button is
+         the whole sentence. */
+      (c.bizOffer
+        ? '<div class="tour-note"><p>' + esc2(c.bizOffer) + '</p></div>'
+        : '') +
       '<button class="cta" id="fbBiz">' + esc2(c.bizOfferGo) + '</button>' +
+      '<button class="cta ghost" id="fbTry">' + esc2(c.tryGo) + '</button>' +
       '<button class="cta ghost" id="fbDone">' + esc2(c.bizOfferSkip) + '</button>';
 
     $('fbBiz').addEventListener('click', function () {
       $('tFeedback').classList.remove('on');
       tourBiz();
     });
+    $('fbTry').addEventListener('click', tourTryIt);
     $('fbDone').addEventListener('click', function () {
       $('tFeedback').classList.remove('on');
     });
@@ -6554,6 +6729,7 @@ body.tour-locked .nav{pointer-events:none}
             : '') +
           '<button class="cta ghost" id="bizAsk">' + esc2(c.bizAskGo) + '</button>'
         : '') +
+      '<button class="cta ghost" id="bizTry">' + esc2(c.tryGo) + '</button>' +
       '<button class="cta ghost" id="bizDone">' + esc2(c.bizDone) + '</button>';
     if ($('bizAsk')) {
       $('bizAsk').addEventListener('click', function () {
@@ -6566,6 +6742,7 @@ body.tour-locked .nav{pointer-events:none}
       trail('tour: opened the investor page');
       window.open('https://www.renters.com/investors', '_blank');
     });
+    $('bizTry').addEventListener('click', tourTryIt);
     $('bizDone').addEventListener('click', function () {
       $('tBiz').classList.remove('on');
     });
