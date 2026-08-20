@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v76                                       -->
+<!--  VERSION: shell-v77                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,48 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v76">
+<meta name="rdc-version" content="shell-v77">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v76
+/* ============================================================ shell-v77
+
+   v77: REAL FOOTAGE REPLACES THE DIAGRAM, AND THE EXTRACTION RUNS LIVE.
+
+   I was wrong in v76 and wrong out loud. I grepped app-shell.html for
+   gesture handlers, found none, and said the app had no swipe. The
+   swipe is in app-deck.html - pointerdown, pointermove, pointerup, md-v13
+   - a file I never opened. Checking one file and making a claim about the
+   system is how that happens. Screen recordings settled it.
+
+   So the drawn zone diagram from v76 is gone. Three steps now carry real
+   captures from the app: zone (drawing a shape that resolves into named
+   neighborhoods), swiping (pass stamp, undo, counter stepping down), and
+   showings (availability grid to a booked slot).
+
+   THE CLIP IS A TAP, NOT AN INLINE LOOP. The captures are portrait, near
+   1320x1580. Inline at full aspect that is over 400px of bar and the
+   narration ends up shoved off screen. Each step with footage gets a
+   compact row instead; tapping opens the clip full-size over a backdrop.
+
+   STEP 2 IS NOT A VIDEO. The extraction scene is live HTML and runs
+   right here: the spoken sentence comes apart phrase by phrase, chips
+   land in must-have and nice-to-have, and the word "ideally" lights gold
+   as the ranking signal that demoted the last two. Nothing to film,
+   nothing to upload, and it stays sharp at any screen size.
+
+   It is also labelled as a target rather than a capture, in gold rather
+   than lime, because the description function does not hit this yet.
+   The scene is the acceptance test it gets built against.
+
+   AND THE INVESTOR CAVEATS GOT MORE ACCURATE, NOT LESS. v76 had steps 5
+   and 6 reading "Where we are building toward". The footage proves both
+   are built and working; what they lack is inventory. Understating a
+   working feature is its own kind of wrong.
+
+   ============================================================ shell-v76
 
    v76: THE WALKTHROUGH SHOWS THE MECHANIC, NOT JUST THE SCREEN.
 
@@ -912,7 +947,7 @@ a{color:var(--teal)}
 .body.tight{overflow:hidden;padding-bottom:12px}
 /* While the walkthrough is running the bar is a fixed slab across the
    bottom. Without this the last card on every screen sits underneath it. */
-body.tour-running .body{padding-bottom:330px}
+body.tour-running .body{padding-bottom:300px}
 .view{display:none}
 .view.on{display:block}
 
@@ -1326,63 +1361,89 @@ body.tour-locked .nav{pointer-events:none}
   color:rgba(255,255,255,.7);border-left:2px solid rgba(255,255,255,.28);padding:2px 0 2px 10px}
 .tour-real.warn{color:#f6d68a;border-left-color:var(--gold)}
 .tour-real[hidden]{display:none}
-/* ⭐ AN ILLUSTRATION, NOT A SCREENSHOT, AND IT SAYS SO ON ITS FACE.
-   These are drawn diagrams of the mechanic each step describes. They are
-   deliberately abstract - no chrome, no fake listing, nothing that could
-   be mistaken for a capture of a finished screen - and the caption under
-   them carries the word so nobody has to infer it. */
-.tour-anim{width:100%;margin:0 0 12px}
-.tour-anim[hidden]{display:none}
-.tour-anim .scene{display:none;width:100%;height:96px;border-radius:12px;
-  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);
-  overflow:hidden}
-.tour-anim .scene.on{display:block}
-.tour-anim svg{display:block;width:100%;height:100%}
-.tour-cap{margin:6px 0 0;font-size:10.5px;letter-spacing:.06em;
-  text-transform:uppercase;font-weight:700;color:rgba(255,255,255,.42)}
 
-/* SCENE: ZONE. A shape traced over an abstract street grid, then filled.
-   Static fallback is the finished shape, so a phone with Reduce Motion on
-   still sees what the step means rather than an empty box. */
-.zn-shape{fill:var(--teal);fill-opacity:.34;stroke:var(--lime);stroke-width:2.5;
-  stroke-linejoin:round;stroke-dasharray:340;stroke-dashoffset:0}
-.zn-pen{fill:var(--lime);opacity:0}
-.zn-pill{fill:var(--lime)}
-.zn-txt{fill:#0d2d4e}
-.zn-tag{opacity:0}
-@media (prefers-reduced-motion:no-preference){
-  .zn-shape{animation:znDraw 6.4s var(--ease) infinite}
-  .zn-pen{animation:znPen 6.4s linear infinite}
-  .zn-tag{animation:znTag 6.4s var(--ease) infinite}
-}
-@keyframes znDraw{
-  0%{stroke-dashoffset:340;fill-opacity:0;stroke-opacity:1}
-  4%{stroke-dashoffset:340;fill-opacity:0;stroke-opacity:1}
-  46%{stroke-dashoffset:0;fill-opacity:0;stroke-opacity:1}
-  57%{stroke-dashoffset:0;fill-opacity:.34;stroke-opacity:1}
-  90%{stroke-dashoffset:0;fill-opacity:.34;stroke-opacity:1}
-  97%{stroke-dashoffset:0;fill-opacity:0;stroke-opacity:0}
-  100%{stroke-dashoffset:340;fill-opacity:0;stroke-opacity:0}
-}
-@keyframes znPen{
-  0%{opacity:0;transform:translate(60px,20px)}
-  4%{opacity:1;transform:translate(60px,20px)}
-  15.3%{opacity:1;transform:translate(150px,14px)}
-  22.4%{opacity:1;transform:translate(200px,40px)}
-  28.3%{opacity:1;transform:translate(170px,76px)}
-  39%{opacity:1;transform:translate(85px,70px)}
-  46%{opacity:1;transform:translate(60px,20px)}
-  51%{opacity:0;transform:translate(60px,20px)}
-  100%{opacity:0;transform:translate(60px,20px)}
-}
-@keyframes znTag{
-  0%{opacity:0;transform:translateY(5px)}
-  57%{opacity:0;transform:translateY(5px)}
-  65%{opacity:1;transform:translateY(0)}
-  90%{opacity:1;transform:translateY(0)}
-  96%{opacity:0;transform:translateY(0)}
-  100%{opacity:0;transform:translateY(5px)}
-}
+/* ⭐ A TAP, NOT AN INLINE LOOP. The captures are portrait phone video,
+   near 1320x1580. Inline at full aspect that is 400px of bar and the
+   narration gets pushed off the screen it is narrating. */
+.tour-clip{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 12px;
+  border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.07);
+  border-radius:11px;padding:11px 13px;color:#fff;cursor:pointer;
+  font:700 13.5px/1.3 'Open Sans',sans-serif;text-align:left}
+.tour-clip[hidden]{display:none}
+.tour-clip .pl{width:26px;height:26px;border-radius:50%;background:var(--lime);
+  flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+.tour-clip .pl b{display:block;width:0;height:0;margin-left:2px;
+  border-left:8px solid var(--navy);border-top:5px solid transparent;
+  border-bottom:5px solid transparent}
+.tour-clip s{display:block;text-decoration:none;font-weight:400;font-size:11px;
+  letter-spacing:.05em;text-transform:uppercase;color:rgba(255,255,255,.5);
+  margin-top:2px}
+/* Gold for a target, lime for a capture. Same grammar as the caveat line
+   above it, so nobody has to read the words to know which they are on. */
+.tour-clip.prev{border-color:rgba(224,169,46,.55)}
+.tour-clip.prev s{color:#f6d68a}
+.tour-clip.prev .pl{background:var(--gold)}
+
+.cw{position:fixed;inset:0;z-index:1200;background:rgba(8,31,56,.94);
+  display:none;flex-direction:column;align-items:center;justify-content:center;
+  padding:calc(64px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom))}
+.cw.on{display:flex}
+.cw video{max-width:100%;max-height:72vh;border-radius:14px;display:block;
+  background:#000;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+.cw .cwcap{margin:13px 0 0;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+  font-weight:700;color:rgba(255,255,255,.55);text-align:center}
+.cw .cwcap.prev{color:#f6d68a}
+.cw .cwmiss{color:#fff;text-align:center;font-size:15px;line-height:1.6;max-width:300px}
+.cwx{position:absolute;top:calc(14px + env(safe-area-inset-top));right:16px;
+  width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
+  background:rgba(255,255,255,.09);color:#fff;font-size:22px;line-height:1;
+  cursor:pointer;z-index:2}
+
+/* SCENE: EXTRACTION. Live HTML, not footage. The sentence comes apart
+   phrase by phrase and the chips land where the ranking words put them.
+   This is the target the description function gets built against. */
+.xs{width:100%;max-width:400px;max-height:72vh;overflow:auto;
+  -webkit-overflow-scrolling:touch;background:#eef1f5;border-radius:16px;
+  padding:14px;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+.xs[hidden]{display:none}
+.xs .xc{background:#fff;border:1px solid #e3e8ee;border-radius:13px;
+  padding:13px 14px;margin:0 0 11px}
+.xs .xe{margin:0 0 9px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  font-weight:700;color:#6b7f93}
+.xs .xt{margin:0;font-size:14.5px;line-height:1.72;color:var(--navy)}
+.xsrc{border-radius:4px;padding:1px 3px;margin:0 -3px;background:transparent;
+  transition:background .32s var(--ease),color .32s var(--ease)}
+.xsrc.lit{background:rgba(58,158,143,.20)}
+.xsrc.rank{font-weight:700}
+.xsrc.rank.lit{background:rgba(224,169,46,.28);color:#7a5a08}
+.xwhy{margin:11px 0 0;padding:9px 11px;border-radius:8px;background:#fdf6e6;
+  border-left:3px solid var(--gold);opacity:0;transform:translateY(5px);
+  transition:opacity .4s var(--ease),transform .4s var(--ease)}
+.xwhy.on{opacity:1;transform:none}
+.xwhy p{margin:0;font-size:12.5px;line-height:1.55;color:#6a5314}
+.xh{display:flex;align-items:baseline;gap:7px;margin:0 0 9px}
+.xh h5{margin:0;font-family:'Red Hat Display',sans-serif;font-size:14px;
+  font-weight:700;color:var(--navy)}
+.xh i{width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:var(--teal)}
+.xh .n{margin-left:auto;font-size:11px;font-weight:700;color:#6b7f93}
+.xh .n.full{color:var(--teal)}
+.x-nice .xh i{background:var(--lime)}
+.x-deal .xh i{background:#c4ccd6}
+.xchips{display:flex;flex-wrap:wrap;gap:7px;min-height:32px;align-items:flex-start}
+.xchip{display:inline-flex;border-radius:999px;padding:6px 12px;font-size:13px;
+  font-weight:700;white-space:nowrap;opacity:0;transform:translateY(8px) scale(.94);
+  transition:opacity .34s var(--ease),transform .34s var(--ease);
+  background:rgba(58,158,143,.13);color:#1e6d61;border:1px solid rgba(58,158,143,.32)}
+.xchip.on{opacity:1;transform:none}
+.x-nice .xchip{background:rgba(141,198,63,.16);color:#4c7016;
+  border-color:rgba(141,198,63,.42)}
+.xnone{margin:0;font-size:12.5px;color:#6b7f93;font-style:italic}
+.xgap{background:var(--deepnavy,#081f38);border-radius:13px;padding:13px 14px;
+  opacity:0;transform:translateY(6px);
+  transition:opacity .45s var(--ease),transform .45s var(--ease)}
+.xgap.on{opacity:1;transform:none}
+.xgap .xe{color:rgba(255,255,255,.5)}
+.xgap p{margin:0;color:#fff;font-size:13.5px;line-height:1.55}
 .tour-back{flex:0 0 auto;width:46px;background:none;border:1px solid rgba(255,255,255,.32);
   border-radius:999px;color:#fff;font-size:26px;line-height:1;font-weight:700;
   padding:11px 0;cursor:pointer}
@@ -1639,36 +1700,10 @@ body.tour-locked .nav{pointer-events:none}
     <p class="tour-step" id="tourStep"></p>
     <h4 id="tourTitle"></h4>
     <p id="tourBody"></p>
-    <div class="tour-anim" id="tourAnim" hidden>
-      <div class="scene" data-scene="zone">
-        <svg viewBox="0 0 340 96" preserveAspectRatio="xMidYMid meet"
-             aria-hidden="true" focusable="false">
-          <g fill="rgba(255,255,255,.07)">
-            <rect x="24" y="12" width="46" height="26" rx="3"/>
-            <rect x="80" y="8" width="58" height="22" rx="3"/>
-            <rect x="152" y="16" width="40" height="30" rx="3"/>
-            <rect x="202" y="10" width="50" height="24" rx="3"/>
-            <rect x="264" y="18" width="52" height="30" rx="3"/>
-            <rect x="30" y="54" width="54" height="30" rx="3"/>
-            <rect x="96" y="58" width="42" height="26" rx="3"/>
-            <rect x="152" y="56" width="60" height="30" rx="3"/>
-            <rect x="224" y="54" width="38" height="28" rx="3"/>
-            <rect x="274" y="60" width="42" height="24" rx="3"/>
-          </g>
-          <g stroke="rgba(255,255,255,.10)" stroke-width="3" fill="none">
-            <path d="M0 48H340"/><path d="M146 0V96"/><path d="M258 0V96"/>
-          </g>
-          <path class="zn-shape" d="M60 20L150 14L200 40L170 76L85 70Z"/>
-          <circle class="zn-pen" r="6"/>
-          <g class="zn-tag">
-            <rect class="zn-pill" x="206" y="60" width="104" height="22" rx="11"/>
-            <text class="zn-txt" x="258" y="75" text-anchor="middle" font-size="12"
-                  font-weight="700" font-family="'Open Sans',sans-serif">Zone saved</text>
-          </g>
-        </svg>
-      </div>
-      <p class="tour-cap" id="tourCap"></p>
-    </div>
+    <button type="button" class="tour-clip" id="tourClip" hidden>
+      <span class="pl"><b></b></span>
+      <span><span id="tourClipLbl"></span><s id="tourClipCap"></s></span>
+    </button>
     <p class="tour-real" id="tourReal" hidden></p>
     <div class="tour-act">
       <button type="button" class="tour-back" id="tourBack" aria-label="Back">&lsaquo;</button>
@@ -1676,6 +1711,50 @@ body.tour-locked .nav{pointer-events:none}
       <button type="button" class="tour-skip" id="tourSkip">Skip</button>
       <button type="button" class="tour-out" id="tourOut" hidden></button>
     </div>
+  </div>
+
+  <!-- ⭐ Sibling of #tourBar, not a child of it, so the bar's transform
+       never becomes a containing block for a position:fixed overlay. -->
+  <div class="cw" id="cw">
+    <button type="button" class="cwx" id="cwx" aria-label="Close">&times;</button>
+    <video id="cwVid" muted playsinline loop preload="none"></video>
+    <p class="cwmiss" id="cwMiss" hidden></p>
+
+    <div class="xs" id="xScene" hidden>
+      <div class="xc">
+        <p class="xe">What we heard &middot; tap to fix anything</p>
+        <p class="xt">Hi I&rsquo;m looking to move in <span class="xsrc" data-x="move">September 1</span>
+          I&rsquo;m looking for <span class="xsrc" data-x="house">a house</span> with
+          <span class="xsrc" data-x="yard">a yard</span> and
+          <span class="xsrc" data-x="park">off street parking</span>
+          <span class="xsrc rank" data-x="rank">ideally</span> near
+          <span class="xsrc" data-x="rest">good restaurants</span> and
+          <span class="xsrc" data-x="parks">parks</span></p>
+        <div class="xwhy" id="xWhy">
+          <p><b>&ldquo;Ideally&rdquo;</b> is a ranking word. Everything after it went
+             to nice-to-have. Nobody sorted this by hand.</p>
+        </div>
+      </div>
+      <div class="xc">
+        <div class="xh"><i></i><h5>Must have</h5><span class="n" id="xCap">0 of 3</span></div>
+        <div class="xchips" id="xMust"></div>
+      </div>
+      <div class="xc x-nice">
+        <div class="xh"><i></i><h5>Nice to have</h5></div>
+        <div class="xchips" id="xNice"></div>
+      </div>
+      <div class="xc x-deal">
+        <div class="xh"><i></i><h5>Deal breaker</h5></div>
+        <p class="xnone">Nothing ruled out yet.</p>
+      </div>
+      <div class="xgap" id="xGap">
+        <p class="xe">Still need</p>
+        <p>You did not mention a budget or how many bedrooms. Tap to add them,
+           or say another sentence.</p>
+      </div>
+    </div>
+
+    <p class="cwcap" id="cwCap"></p>
   </div>
 
   <nav class="nav" id="nav">
@@ -1716,7 +1795,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v76';
+  var V = 'shell-v77';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
@@ -5051,16 +5130,17 @@ body.tour-locked .nav{pointer-events:none}
        to find anything themselves. */
     steps: [
       { view: 'zone', label: 'Zones',
-        anim: 'zone', animCap: 'Illustration',
+        clip: 'tour-zone.mp4',
         real: 'In your account: you draw these yourself, as many as you like.',
         title: 'Draw where you would actually live',
         body: 'Not a city, not a radius around a pin. Stretch a shape over ' +
               'the area you would actually take, then add another.' },
       { view: 'edit', label: 'Perfect spot',
+        clip: 'x-extract', preview: true,
         real: 'In your account: speak it or tap it, and change it whenever.',
         title: 'Now describe the place itself',
-        body: 'Rent, beds, a washer, dogs allowed. Speak it or tap it, then ' +
-              'sort it into must-have, nice-to-have and deal breaker.' },
+        body: 'Say it out loud. We pull out what matters and sort it into ' +
+              'must-have, nice-to-have and deal breaker.' },
       { view: 'spots', label: 'Editing',
         real: 'In your account: this works from day one.',
         title: 'It changes when you change',
@@ -5072,12 +5152,14 @@ body.tour-locked .nav{pointer-events:none}
         body: 'ID and a quick selfie, once. Landlords do the same, which ' +
               'is why there are no fake listings here.' },
       { view: 'matches', label: 'Swiping',
+        clip: 'tour-swipe.mp4',
         real: 'Not live yet. We have no listings to match you against, so ' +
               'your account will be empty here until we do.',
         title: 'Left to pass, right to look closer',
         body: 'No photos on the front, on purpose. You see what the ' +
               'landlord requires and whether you already meet it.' },
       { view: 'showings', label: 'Showings',
+        clip: 'tour-showing.mp4',
         real: 'Not live yet. It arrives with the listings.',
         title: 'Book it without the phone tag',
         body: 'Set the hours you are free once. No messages about ' +
@@ -5178,9 +5260,9 @@ body.tour-locked .nav{pointer-events:none}
       'What follows is the product as built. The listings in it are ' +
       'invented, standing in for supply we onboard directly from property ' +
       'managers, one company at a time. Everything else is real.',
-      'Some of it is drawn rather than filmed. Where you see an ' +
-      'illustration, that is the mechanic as designed and where we are ' +
-      'building toward. Every step tells you which one you are looking at.'
+      'Three steps carry a recording made in the app. One carries a ' +
+      'target we are building the extraction to hit, and it says so in ' +
+      'gold rather than green. Every step tells you which it is.'
     ],
     welcomeNote: 'Nothing you do here is written to our systems. It lives ' +
       'on this phone.',
@@ -5191,16 +5273,20 @@ body.tour-locked .nav{pointer-events:none}
        built the way it is, not what to tap. */
     steps: [
       { view: 'zone', label: 'Zones',
-        anim: 'zone', animCap: 'Illustration',
+        clip: 'tour-zone.mp4',
         real: 'Live and collecting today.',
         title: 'Demand starts with a real area',
-        body: 'This is a renter\u2019s drawn zone. A radius around a pin ' +
-              'crosses rivers and catchments; a drawn shape does not.' },
+        body: 'A renter\u2019s drawn zone, resolved to named neighborhoods ' +
+              'and ZIPs. A radius around a pin crosses rivers and ' +
+              'catchments; a drawn shape does not.' },
       { view: 'edit', label: 'Perfect spot',
-        real: 'Live and collecting today.',
+        clip: 'x-extract', preview: true,
+        real: 'Voice capture is live. The extraction shown here is the ' +
+              'target we are building to.',
         title: 'Requirements, ranked by how hard they are',
-        body: 'The same renter\u2019s criteria. Must-have, nice-to-have, ' +
-              'deal breaker - the ranking a filter throws away.' },
+        body: 'Spoken plainly, then sorted. The word \u201cideally\u201d is ' +
+              'what demotes a requirement. That ranking is the part a ' +
+              'filter throws away.' },
       { view: 'spots', label: 'Editing',
         real: 'Live and collecting today.',
         title: 'Demand is not captured once',
@@ -5212,14 +5298,15 @@ body.tour-locked .nav{pointer-events:none}
         body: 'This is the moat and the cost. It kills the fake listing ' +
               'and it is why the leads are worth paying for.' },
       { view: 'matches', label: 'Swiping',
-        real: 'Where we are building toward. The screen is built; it ' +
-              'needs inventory to run against, and that is the constraint ' +
-              'we are working on now.',
+        clip: 'tour-swipe.mp4',
+        real: 'Built and working. What it lacks is inventory to run ' +
+              'against, and that is the constraint we are working on now.',
         title: 'Requirements on the card, not photographs',
         body: 'The renter sees what the landlord requires and whether they ' +
               'meet it. Fewer wasted showings on both sides.' },
       { view: 'showings', label: 'Showings',
-        real: 'Where we are building toward. It arrives with the inventory.',
+        clip: 'tour-showing.mp4',
+        real: 'Built and working. It goes live with the inventory.',
         title: 'Where the transaction becomes measurable',
         body: 'A booked showing against declared availability is the event ' +
               'that leads to a confirmed move-in, which is what we bill on.' }
@@ -5307,6 +5394,32 @@ body.tour-locked .nav{pointer-events:none}
     $('tWelcome').classList.add('on');
   }
 
+  /* Bound once. The video element is reused for every capture, so the
+     error handler has to be attached to the element, not to a src. */
+  (function bindClip() {
+    var cb = $('tourClip');
+    if (cb) cb.addEventListener('click', function () {
+      clipOpen(this.getAttribute('data-clip'),
+               this.getAttribute('data-prev') === '1');
+    });
+    var x = $('cwx');
+    if (x) x.addEventListener('click', clipClose);
+    var w = $('cw');
+    if (w) w.addEventListener('click', function (e) {
+      if (e.target === this) clipClose();
+    });
+    var v = $('cwVid');
+    if (v) v.addEventListener('error', function () {
+      if (!this.getAttribute('src')) return;   /* removeAttribute fires this */
+      this.style.display = 'none';
+      var m = $('cwMiss');
+      m.hidden = false;
+      m.textContent = 'That clip is not uploaded yet. Drop it in the repo ' +
+                      'root and it plays here.';
+      trail('clip missing');
+    });
+  })();
+
   function tourPaintWelcome() {
     var c = TOUR_COPY;
     $('tWelcome').firstChild.innerHTML =
@@ -5358,7 +5471,110 @@ body.tour-locked .nav{pointer-events:none}
   /* The bar narrates and the app moves underneath it. The renter is never
      asked to go and find a tab - a walkthrough that says "now tap Showings"
      is a manual, and half the people reading it tap the wrong thing. */
+  /* ============================================================ CLIPS
+
+     Three steps open a real capture off the Netlify host, one opens a
+     scene rendered right here. A missing file says so rather than
+     sitting on a black rectangle. */
+  var X_PLAN = [
+    { at:  500, src: 'move' },
+    { at: 1400, src: 'house', chip: 'House',              into: 'xMust' },
+    { at: 2300, src: 'yard',  chip: 'Yard',               into: 'xMust' },
+    { at: 3200, src: 'park',  chip: 'Off-street parking', into: 'xMust' },
+    { at: 4200, src: 'rank',  why: true },
+    { at: 5200, src: 'rest',  chip: 'Near restaurants',   into: 'xNice' },
+    { at: 6000, src: 'parks', chip: 'Near parks',         into: 'xNice' },
+    { at: 7100, gap: true }
+  ];
+  var xTimers = [];
+
+  function xReset() {
+    var i;
+    for (i = 0; i < xTimers.length; i++) clearTimeout(xTimers[i]);
+    xTimers = [];
+    var lit = document.querySelectorAll('.xsrc.lit');
+    for (i = 0; i < lit.length; i++) lit[i].classList.remove('lit');
+    $('xMust').innerHTML = '';
+    $('xNice').innerHTML = '';
+    $('xWhy').classList.remove('on');
+    $('xGap').classList.remove('on');
+    var c = $('xCap');
+    c.textContent = '0 of 3';
+    c.className = 'n';
+  }
+
+  function xChip(into, label) {
+    var el = document.createElement('span');
+    el.className = 'xchip';
+    el.textContent = label;
+    $(into).appendChild(el);
+    /* Two frames. One rAF can land in the same style recalculation as the
+       append and the transition simply never runs. */
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { el.classList.add('on'); });
+    });
+    if (into === 'xMust') {
+      var n = $('xMust').children.length;
+      var c = $('xCap');
+      c.textContent = n + ' of 3';
+      c.className = 'n' + (n >= 3 ? ' full' : '');
+    }
+  }
+
+  function xStep(s) {
+    if (s.src) {
+      var el = document.querySelector('[data-x="' + s.src + '"]');
+      if (el) el.classList.add('lit');
+    }
+    if (s.chip) xChip(s.into, s.chip);
+    if (s.why) $('xWhy').classList.add('on');
+    if (s.gap) $('xGap').classList.add('on');
+  }
+
+  function xPlay() {
+    xReset();
+    var still = window.matchMedia &&
+                window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (still) { X_PLAN.forEach(xStep); return; }
+    X_PLAN.forEach(function (s) {
+      xTimers.push(setTimeout(function () { xStep(s); }, s.at));
+    });
+  }
+
+  function clipOpen(name, isPrev) {
+    var v = $('cwVid'), miss = $('cwMiss'), sc = $('xScene');
+    if (name === 'x-extract') {
+      v.style.display = 'none';
+      v.removeAttribute('src');
+      miss.hidden = true;
+      sc.hidden = false;
+      xPlay();
+    } else {
+      sc.hidden = true;
+      miss.hidden = true;
+      v.style.display = '';
+      v.src = NET + '/' + name;
+      v.play().catch(function () {});
+    }
+    var cap = $('cwCap');
+    cap.textContent = isPrev ? 'Target output \u00b7 not yet matched'
+                             : 'Recorded in the app';
+    cap.className = 'cwcap' + (isPrev ? ' prev' : '');
+    $('cw').classList.add('on');
+    trail('clip open ' + name);
+  }
+
+  function clipClose() {
+    var v = $('cwVid');
+    try { v.pause(); } catch (e) {}
+    v.removeAttribute('src');
+    $('xScene').hidden = true;
+    xReset();
+    $('cw').classList.remove('on');
+  }
+
   function tourShow() {
+    clipClose();                       /* never leave a clip running behind */
     var steps = TOUR_COPY.steps;
     var total = steps.length + 1;              /* + the free-play step */
     var i = tour.i;
@@ -5389,22 +5605,24 @@ body.tour-locked .nav{pointer-events:none}
       /* Amber when the answer is "not yet", so a claim and a caveat never
          look like the same sentence. */
       rl.className = 'tour-real' +
-        (/^(Not live|Built, not|Where we are building)/.test(st.real)
+        (/^(Not live|Built and working|Voice capture)/.test(st.real)
           ? ' warn' : '');
     }
-    /* ⭐ The scene is chosen by name, not by index, so a step can be
-       reordered without silently picking up somebody else's diagram.
-       No scene named means no box - a step with nothing to draw shows
-       nothing rather than an empty frame. */
-    var an = $('tourAnim');
-    var sc = an.getElementsByClassName('scene');
-    var want = (!isPlay && st.anim) ? st.anim : '';
-    for (var q = 0; q < sc.length; q++) {
-      if (sc[q].getAttribute('data-scene') === want) sc[q].classList.add('on');
-      else sc[q].classList.remove('on');
+    /* ⭐ A step with nothing to show gets no row at all. An empty frame
+       reads as a thing that failed to load. */
+    var cb = $('tourClip');
+    if (!isPlay && st.clip) {
+      cb.hidden = false;
+      cb.className = 'tour-clip' + (st.preview ? ' prev' : '');
+      cb.setAttribute('data-clip', st.clip);
+      cb.setAttribute('data-prev', st.preview ? '1' : '');
+      $('tourClipLbl').textContent = st.preview ? 'See how it will work'
+                                                : 'See it in motion';
+      $('tourClipCap').textContent = st.preview ? 'Target \u00b7 not yet matched'
+                                                : 'Recorded in the app';
+    } else {
+      cb.hidden = true;
     }
-    an.hidden = !want;
-    $('tourCap').textContent = want ? (st.animCap || 'Illustration') : '';
 
     $('tourNext').textContent = isPlay ? TOUR_COPY.playNext : 'Next';
     /* 🔑 Nothing to skip past on the last step, and an exit here is an exit
