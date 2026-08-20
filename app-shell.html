@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- ========================================================= -->
 <!--  app-shell.html                                           -->
-<!--  VERSION: shell-v98                                       -->
+<!--  VERSION: shell-v99                                       -->
 <!--  renters.com/app - the app shell. Four tabs.              -->
 <!-- ========================================================= -->
 <html lang="en">
@@ -9,13 +9,34 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#f4f6f7">
-<meta name="rdc-version" content="shell-v98">
+<meta name="rdc-version" content="shell-v99">
 <title>Renters.com</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700;900&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
-/* ============================================================ shell-v98
+/* ============================================================ shell-v99
+
+   v99: 470 WAS STILL NOT ENOUGH, AND I SHOULD HAVE MEASURED THE DECK.
+
+   v98 raised the frame floor to 470 on the reasoning that the card needs
+   about 400. The card does. The frame is not the card. app-deck spends
+   roughly 200px of whatever it is given on its own header, the pass and
+   like pads and the swipe hint before the card gets any, so 470 left the
+   card 270 and it clipped after the first requirement row. One tick
+   showing out of four, on the screen whose entire argument is the ticks.
+
+   Measured off the two screenshots this time rather than reasoned about:
+   the card renders close to square, so at 317pt of width it wants about
+   320 of height, and 320 plus the deck's own 200 is 520. 560 with room
+   to spare.
+
+   The lesson is the same one as the tour bar two versions ago. A number
+   standing in for the height of something in another file is a guess, and
+   guesses about layout should be checked against a picture of the thing
+   rather than against an argument about it.
+
+   ============================================================ shell-v98
 
    v98: THE BAR CAN GET OUT OF THE WAY.
 
@@ -1531,12 +1552,14 @@ body.tour-running .body{padding-bottom:var(--tourpad,300px)}
 .empty p{font-size:13.5px;line-height:1.6;color:var(--ink-2);margin:0 0 16px}
 
 /* --------------------------------------------------------------- zone */
-/* 470, not 380. The matches card needs about 400 to draw itself and the
-   deck clips the middle out rather than scrolling when it gets less, so a
-   floor below that produces a card with no requirements on it - which is
-   the one thing that card exists to show. */
+/* 560. The card wants about 320 and app-deck spends roughly 200 on its
+   own header, the pass and like pads and the swipe hint before the card
+   sees any of it. Below this the deck clips its middle out rather than
+   scrolling, which produces a card with no requirements on it - the one
+   thing that card exists to show. Folding the bar is what makes the room
+   for this; with the bar open the view scrolls. */
 .frame{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
-       background:var(--white);height:100%;min-height:470px}
+       background:var(--white);height:100%;min-height:560px}
 .frame iframe{width:100%;height:100%;border:0;display:block}
 .view.on#v-zone,.view.on#v-avail,.view.on#v-matches{height:100%;display:flex;flex-direction:column}
 
@@ -2341,7 +2364,7 @@ body.tour-locked .nav{pointer-events:none}
 <script>
 (function () {
   'use strict';
-  var V = 'shell-v98';
+  var V = 'shell-v99';
 
   var NET    = 'https://renters-story-writer.netlify.app';
   var FN     = NET + '/.netlify/functions/';
