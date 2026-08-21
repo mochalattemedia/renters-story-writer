@@ -5,7 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>My Areas - Renters.com</title>
-<!-- zone-picker.html  zp-v14
+<!-- zone-picker.html  zp-v15
+     zp-v15: zip codes come from a local table, not from Google. Drawing a
+     zone used to fire one reverse-geocode per grid point - a 9x9 lattice
+     clipped to the polygon, so up to 82 network round trips, staggered by
+     120ms each and finished only when the last one came back. That is
+     where "Working out your ZIP codes" was spending twenty seconds, and
+     it was 82 billable Geocoding calls every time anybody saved a zone.
+
+     zip-centroids.json is 42,249 US zips with their centres, 337KB
+     gzipped, fetched once per session and cached by the browser after
+     that. Resolving a zone is now a bounds filter followed by
+     containsLocation on what survives it: no network, no cost, works
+     offline, returns in a frame.
+
+     WHAT CHANGED ABOUT THE ANSWER. A grid sample found zips the polygon
+     passed over; a centroid test finds zips whose centre is inside it.
+     For a hand-drawn neighbourhood zone those agree nearly always, and
+     where they differ the centroid answer is the more defensible one:
+     "this zip is in your zone" is a claim about the zip, not about the
+     nine points we happened to sample.
+
+     Geocoding stays as the fallback, unchanged, for a zone that matches
+     no centroid at all - a shape smaller than a single zip. That case
+     was always rare and is now the only one that costs anything.
+
      zp-v14: tighter chrome padding and a taller clamp, so the map itself
      gets the width and height on a phone rather than the frame around it.
      zp-v13: the toolbar sticks to the top when embedded, so Draw Zone
@@ -510,7 +534,89 @@ function autoNameZone(polygon, zoneIndex) {
   });
 }
 
+/* ============================================================ ZIP TABLE
+
+   Fetched once, held for the session. 42,249 entries as [zip, lat, lng],
+   which is the smallest shape that still reads as data rather than as a
+   packed buffer somebody has to decode to debug.
+
+   A promise, not a boolean, because two zones drawn quickly would
+   otherwise both see "not loaded" and both start a fetch. */
+var ZIP_URL = 'https://renters-story-writer.netlify.app/zip-centroids.json';
+var zipTable = null;
+var zipTableP = null;
+
+function loadZipTable() {
+  if (zipTable) return Promise.resolve(zipTable);
+  if (zipTableP) return zipTableP;
+  zipTableP = fetch(ZIP_URL)
+    .then(function (r) {
+      if (!r.ok) throw new Error('zip table ' + r.status);
+      return r.json();
+    })
+    .then(function (d) {
+      if (!d || !Array.isArray(d.z)) throw new Error('zip table shape');
+      zipTable = d.z;
+      console.log('[zone-picker] zip table ' + zipTable.length + ' entries');
+      return zipTable;
+    })
+    .catch(function (e) {
+      /* Cleared, so a later zone tries again rather than inheriting a
+         rejected promise forever. */
+      zipTableP = null;
+      console.warn('[zone-picker] zip table failed, geocoding instead', e);
+      throw e;
+    });
+  return zipTableP;
+}
+
+/* Bounds first. Testing 42,249 points against a polygon is wasteful when
+   a rectangle comparison throws away all but a few dozen of them. */
+function zipsInPolygon(polygon) {
+  if (!zipTable) return null;
+  var path = polygon.getPath();
+  var b = new google.maps.LatLngBounds();
+  path.forEach(function (p) { b.extend(p); });
+  var ne = b.getNorthEast(), sw = b.getSouthWest();
+  var n = ne.lat(), s2 = sw.lat(), e = ne.lng(), w = sw.lng();
+
+  var found = [];
+  for (var i = 0; i < zipTable.length; i++) {
+    var row = zipTable[i], la = row[1], ln = row[2];
+    if (la < s2 || la > n || ln < w || ln > e) continue;
+    if (google.maps.geometry.poly.containsLocation(
+          new google.maps.LatLng(la, ln), polygon)) {
+      found.push(row[0]);
+    }
+  }
+  return found;
+}
+
 function getZipCodesForPolygon(polygon, zoneIndex) {
+  /* \u2b50 THE TABLE FIRST, THE NETWORK ONLY IF IT FAILS. A zone used to
+     cost up to 82 reverse-geocodes and twenty seconds of somebody
+     watching a disabled button. This returns in a frame and costs
+     nothing. */
+  loadZipTable().then(function () {
+    var zips = zipsInPolygon(polygon);
+    if (zips && zips.length) {
+      zones[zoneIndex].zips = zips;
+      zones[zoneIndex].loading = false;
+      renderZoneList();
+      setStatus(zones[zoneIndex].name + ' saved \u2014 ' + zips.length +
+        ' zip code' + (zips.length !== 1 ? 's' : '') + ' identified.');
+      return;
+    }
+    /* No centroid inside the shape means a zone smaller than one zip.
+       Rare, and the only case left that spends money. */
+    console.log('[zone-picker] no centroid inside zone, geocoding');
+    geocodePolygonZips(polygon, zoneIndex);
+  }).catch(function () {
+    geocodePolygonZips(polygon, zoneIndex);
+  });
+}
+
+function geocodePolygonZips(polygon, zoneIndex) {
   var path = polygon.getPath();
   var bounds = new google.maps.LatLngBounds();
   path.forEach(function(point) { bounds.extend(point); });
