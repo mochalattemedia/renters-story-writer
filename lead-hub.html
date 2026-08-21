@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- ============================================================
-     lead-hub.html   ·   VERSION: lh-v12
+     lead-hub.html   ·   VERSION: lh-v13
      Served at /lead-hub.html. Open with ?key=RDC_ADMIN_KEY.
 
      THE VERSION LIVES HERE, AT THE TOP OF THE FILE, and it also
@@ -10,6 +10,12 @@
      ⚠️ Placed after <!DOCTYPE html> and never before it - a
      comment ahead of the doctype can drop older browsers into
      quirks mode, which would break the flex layout silently.
+     lh-v13: five states, five distinct hues. "Get Matched, joined" was
+     the SAME NAVY as a live listing - demand and supply sharing a colour
+     on a map built to tell them apart. Navy is supply now and nothing
+     else; joined goes purple, no-account goes lighter so it recedes, and
+     paused brightens. Off-palette on purpose: this is an operator tool
+     and unmistakable beats on-brand.
      lh-v12: the member id shows on every queue row alongside the name.
      It was only ever a FALLBACK - "Member #4710" appears when contact is
      missing, so the id disappeared the moment a name arrived. An operator
@@ -179,9 +185,9 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
   <div id="grid" style="display:none;overflow:auto;background:#fbfcfd;"></div>
   <div style="position:absolute;left:14px;bottom:14px;z-index:500;background:#fff;border:1px solid #dde3ea;border-radius:9px;padding:9px 12px;font-size:11.5px;line-height:1.9;box-shadow:0 2px 10px rgba(0,0,0,.09)">
     <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3a9e8f;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Running perfect spot</div>
-    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#BA7517;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Paused</div>
-    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#0d2d4e;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Get Matched, joined</div>
-    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9aa8b8;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Get Matched, no account</div>
+    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#e08a00;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Paused</div>
+    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#7b3fa0;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Get Matched, joined</div>
+    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#b6c2cf;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Get Matched, no account</div>
     <div><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#0d2d4e;vertical-align:0"></span> Live listing</div>
   </div>
   <div class="side">
@@ -213,7 +219,7 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 <script>
 
 
-var HUB_VERSION = "lh-v12";
+var HUB_VERSION = "lh-v13";
 var DEM = "/.netlify/functions/alerts-prefs";
 var IDX = "/.netlify/functions/lead-index";
 var PRV = "/.netlify/functions/provider-index";
@@ -318,9 +324,18 @@ function workable(l){
 
 /* Colour says whether it can be acted on. A request nobody can be
    introduced to is not workable however good it looks. */
+/* lh-v13: FIVE STATES, FIVE DISTINCT HUES.
+   🔴 "Get Matched, joined" was #0d2d4e - THE SAME NAVY AS A LIVE LISTING.
+   On a map whose entire job is showing demand against supply, the two
+   sides shared a colour. Navy is now supply and nothing else.
+   Joined goes PURPLE: far from teal, far from amber, far from navy, and
+   readable next to grey. Off the brand palette on purpose - this is an
+   operator tool and being unmistakable beats being on-brand.
+   No account goes LIGHTER, because it should recede. It is the least
+   actionable thing on the screen and should look it. */
 function colour(l){
-  if (l.kind === "lead") return l.isMember ? "#0d2d4e" : "#9aa8b8";
-  return l.enabled ? "#3a9e8f" : "#BA7517";
+  if (l.kind === "lead") return l.isMember ? "#7b3fa0" : "#b6c2cf";
+  return l.enabled ? "#3a9e8f" : "#e08a00";
 }
 
 function visible(){
@@ -360,7 +375,10 @@ function drawMap(list){
        whose entire purpose is reading demand against supply, the supply
        side has to be legible on hover too - and a fraction bigger, because
        4px is not a target. */
-    var lm = L.circleMarker([x.lat,x.lon],{radius:5,color:"#fff",weight:1.5,fillColor:"#0d2d4e",fillOpacity:.8})
+    /* Navy, small, solid - and now the ONLY navy on the map. Shape does
+       half the work here: supply is small and solid, demand is larger and
+       ringed, so the two never read as the same thing even at a glance. */
+    var lm = L.circleMarker([x.lat,x.lon],{radius:5,color:"#fff",weight:1.5,fillColor:"#0d2d4e",fillOpacity:.9})
       .bindPopup("<b>"+esc(x.title||("Listing #"+x.id))+"</b>"+
         esc(x.location||"")+(x.rent?"<br>$"+x.rent.toLocaleString()+" a month":"")+
         (x.beds?" &middot; "+esc(x.beds)+" bed":"")+
