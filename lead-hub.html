@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- ============================================================
-     lead-hub.html   ·   VERSION: lh-v14
+     lead-hub.html   ·   VERSION: lh-v17
      Served at /lead-hub.html. Open with ?key=RDC_ADMIN_KEY.
 
      THE VERSION LIVES HERE, AT THE TOP OF THE FILE, and it also
@@ -10,6 +10,19 @@
      ⚠️ Placed after <!DOCTYPE html> and never before it - a
      comment ahead of the doctype can drop older browsers into
      quirks mode, which would break the flex layout silently.
+     lh-v17: 🔴 THE TABLE VIEW BUTTON HAD NO CLICK HANDLER. Shipped in
+     lh-v9 with the button, the container, drawGrid() and the render
+     switch all in place - and nothing bound to the click, so it did
+     nothing at all for five versions. A missing handler fails silently
+     and looks exactly like a button whose work failed.
+     lh-v16: the counter reads "Account, no spots" - the account is the
+     thing that separates this group from the one beside it, so the label
+     should name it. "Joined" described the act; "Account" describes the
+     state, and the state is what an operator is looking for.
+     lh-v15: the counter reads "Joined, no spots". Shorter than "built
+     nothing" and it fits the header row; "spots" is safe here in a way it
+     was not in the legend, because the counter sits beside Spots and
+     Running and takes its meaning from them.
      lh-v14: the operator-only block shows its title and the words, and
      drops the explanatory sentence. The label is what stops somebody
      pasting the text into an email; the paragraph under it was the same
@@ -178,7 +191,7 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
   <div class="counts">
     <div class="count">Spots<b id="cAll">—</b></div>
     <div class="count">Running<b id="cCon">—</b></div>
-    <div class="count">Joined, built nothing<b id="cGap">—</b></div>
+    <div class="count">Account, no spots<b id="cGap">—</b></div>
     <div class="count">No account<b id="cCold">—</b></div>
     <div class="count">Showing<b id="cShow">—</b></div>
     <div class="count">Listings<b id="cLst">—</b></div>
@@ -224,7 +237,7 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 <script>
 
 
-var HUB_VERSION = "lh-v14";
+var HUB_VERSION = "lh-v17";
 var DEM = "/.netlify/functions/alerts-prefs";
 var IDX = "/.netlify/functions/lead-index";
 var PRV = "/.netlify/functions/provider-index";
@@ -1051,6 +1064,21 @@ function load(){
   el(id).addEventListener("input", function(){ sel=null; render(); });
 });
 el("bRefresh").onclick = function(){ load(); };
+
+/* 🔴 lh-v17: THE TABLE VIEW BUTTON HAD NO HANDLER. lh-v9 rendered the
+   button, added #grid, wrote drawGrid() and taught render() to switch
+   between them - and the one line that binds the click never landed,
+   because the string it was meant to attach to did not match. Every part
+   of the feature existed except the part that starts it, and it failed
+   the way a missing handler always does: SILENTLY. A button that does
+   nothing looks identical to a button whose work failed.
+   📌 A FEATURE IS NOT SHIPPED UNTIL ITS ENTRY POINT IS VERIFIED. Every
+   other piece here was checked by grep; the handler was not. */
+el("bView").onclick = function(){
+  gridOn = !gridOn;
+  sel = null;
+  render();
+};
 /* On screen as well as in the console. A version you have to open
    DevTools to read is a version nobody checks, and "is the new file
    actually live" has cost this project more time than any single bug.
