@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- ============================================================
-     lead-hub.html   ·   VERSION: lh-v7
+     lead-hub.html   ·   VERSION: lh-v12
      Served at /lead-hub.html. Open with ?key=RDC_ADMIN_KEY.
 
      THE VERSION LIVES HERE, AT THE TOP OF THE FILE, and it also
@@ -10,6 +10,47 @@
      ⚠️ Placed after <!DOCTYPE html> and never before it - a
      comment ahead of the doctype can drop older browsers into
      quirks mode, which would break the flex layout silently.
+     lh-v12: the member id shows on every queue row alongside the name.
+     It was only ever a FALLBACK - "Member #4710" appears when contact is
+     missing, so the id disappeared the moment a name arrived. An operator
+     cross-referencing against BD or a previous conversation needs the
+     number, not instead of the name but with it.
+     lh-v11: THE JOIN RUNS BOTH WAYS AND CARRIES A COUNT. A Get Matched
+     row now says whether they joined AND how many perfect spots they
+     built - which splits "joined" into somebody who stopped at signup and
+     somebody who went all the way. Only the first is a nudge, and the
+     header counter now means JOINED AND BUILT NOTHING rather than joined.
+     A perfect spot row says whether that member also has a Get Matched
+     record, because that form holds income band, co-signer and their own
+     description - things a spot deliberately does not ask for.
+     ⚠️ The key is still EMAIL. lead-index exposes no user id on a lead,
+     so anyone who signed up with a different address reads as "no
+     account". This undercounts conversion, which is the safe direction.
+     lh-v10: the two Get Matched labels are now parallel - "joined" and
+     "no account" - so the only thing that separates them is the only
+     thing that matters. "Joined, no spot yet" carried the Perfect Spot
+     vocabulary into a legend read by anyone, and a label that needs the
+     glossary is a label that is not working.
+     lh-v9: HOVER PREVIEWS AND A TABLE VIEW.
+     Reading the map meant clicking every dot and losing the one before
+     it; both spots and listings now preview on hover. And a TABLE VIEW
+     pairs every listing with every perfect spot inside 40 miles, naming
+     what lines up - rent, beds, type - scored against EACH OPTION
+     SEPARATELY and keeping the best, because a renter open to a house at
+     2000 or a condo at 1000 is not "matched at 2000".
+     🔴 It decides nothing. Green means those two agree on that point. A
+     person still makes the call, which is the right division of labour
+     until a matcher exists and is trusted.
+     lh-v8: THE FUNNEL, NOT JUST THE END OF IT. Legacy Get Matched
+     requests are back on the map in TWO new colours - navy for someone
+     who joined and never built a spot, grey for someone who asked and
+     left. lh-v4 removed them because every one rendered amber "no
+     consent", a distinction describing a retired model. The distinction
+     is real now and it names who to talk to.
+     ⚠️ The join is EMAIL and it is only as good as the contact data:
+     contact lands in the demand index only on a save made since ap-v11,
+     so members who have not saved since read as "no account". The joined
+     count is a FLOOR, not a truth, until that backfill runs.
      lh-v7: version block moved to the top of the file.
      lh-v6: version renders in the header, not just the console.
 
@@ -61,6 +102,21 @@
 body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:100vh;overflow:hidden}
 .top{height:54px;background:#0d2d4e;color:#fff;display:flex;align-items:center;padding:0 16px;gap:16px}
 .brand{font-size:15px;font-weight:800}
+.rdc-tip{font:12px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;max-width:230px;
+  border:0;border-radius:8px;padding:8px 10px;box-shadow:0 4px 14px rgba(13,45,78,.18)}
+.rdc-tip b{font-size:12.5px}
+#grid table{border-collapse:collapse;width:100%;font-size:12px}
+#grid th{position:sticky;top:0;background:#0d2d4e;color:#fff;font-weight:700;text-align:left;
+  padding:8px 10px;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;z-index:2}
+#grid td{padding:8px 10px;border-bottom:1px solid #eef2f5;vertical-align:top}
+#grid tr.lst td{background:#eef3fb;font-weight:700;border-top:2px solid #cddcf0}
+#grid tr:hover td{background:#f6fbfa}
+#grid tr.lst:hover td{background:#e6eefa}
+.mk{display:inline-block;font-size:10.5px;font-weight:700;border-radius:5px;padding:2px 6px;margin-right:4px}
+.mk.y{background:#eafaf1;color:#1e8449}
+.mk.n{background:#fdecea;color:#b03a2e}
+.mk.s{background:#fef5e7;color:#9c640c}
+.mk.u{background:#eef2f5;color:#8593a4}
 .brand span{color:#8dc63f}
 .counts{display:flex;gap:15px;margin-left:auto;align-items:center}
 .count{font-size:11px;color:#b8c6d4;line-height:1.25}
@@ -106,25 +162,36 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 <body>
 <div class="top">
   <div class="brand">RENTERS<span>.</span> Perfect Spots<span id="hubVer" style="color:#7d93ab;font-weight:400;font-size:11px;margin-left:7px"></span></div>
+  <button class="tbtn" id="bView">Table view</button>
   <button class="tbtn" id="bRefresh">Refresh</button>
   <div class="counts">
     <div class="count">Spots<b id="cAll">—</b></div>
     <div class="count">Running<b id="cCon">—</b></div>
+    <div class="count">Joined, built nothing<b id="cGap">—</b></div>
+    <div class="count">No account<b id="cCold">—</b></div>
     <div class="count">Showing<b id="cShow">—</b></div>
     <div class="count">Listings<b id="cLst">—</b></div>
-    <div class="count">Renters<b id="cBuilt" style="font-size:11px;font-weight:400">—</b></div>
   </div>
 </div>
 
 <div class="shell">
   <div id="map" style="position:relative"></div>
+  <div id="grid" style="display:none;overflow:auto;background:#fbfcfd;"></div>
   <div style="position:absolute;left:14px;bottom:14px;z-index:500;background:#fff;border:1px solid #dde3ea;border-radius:9px;padding:9px 12px;font-size:11.5px;line-height:1.9;box-shadow:0 2px 10px rgba(0,0,0,.09)">
     <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3a9e8f;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Running perfect spot</div>
     <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#BA7517;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Paused</div>
+    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#0d2d4e;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Get Matched, joined</div>
+    <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#9aa8b8;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Get Matched, no account</div>
     <div><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#0d2d4e;vertical-align:0"></span> Live listing</div>
   </div>
   <div class="side">
     <div class="filters">
+      <select id="fKind">
+        <option value="">Everything</option>
+        <option value="spot">Perfect spots</option>
+        <option value="member">Get Matched &middot; joined</option>
+        <option value="lead">Get Matched &middot; no account</option>
+      </select>
       <select id="fConsent">
         <option value="">Any status</option>
         <option value="1">Running</option>
@@ -146,8 +213,9 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 <script>
 
 
-var HUB_VERSION = "lh-v7";
+var HUB_VERSION = "lh-v12";
 var DEM = "/.netlify/functions/alerts-prefs";
+var IDX = "/.netlify/functions/lead-index";
 var PRV = "/.netlify/functions/provider-index";
 /* The admin key travels in the URL: hub.html?key=XXXX. Kept out of the
    source so the page can be public while the data behind it is not. It is
@@ -161,6 +229,8 @@ if (new URLSearchParams(location.search).get("key")) {
 function k(u){ return KEY ? (u + (u.indexOf("?") === -1 ? "?" : "&") + "key=" + encodeURIComponent(KEY)) : u; }
 var PROVIDERS = [], LISTINGS = [], sel = null;
 var DEMAND = [], demandErr = null, memberCount = 0;
+var gridOn = false;
+var LEADS = [], leadsErr = null, builtAt = null;
 
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 function el(id){return document.getElementById(id);}
@@ -172,23 +242,100 @@ var map = L.map("map",{zoomControl:true}).setView([39.5,-98.35],4);
 L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",{attribution:"&copy; OpenStreetMap, &copy; CARTO",maxZoom:19}).addTo(map);
 var layer = L.layerGroup().addTo(map);
 
-function allRows(){ return DEMAND; }
+/* ---- lh-v8: THE FUNNEL, NOT JUST THE END OF IT ----------------------
+   Three things live on this map now, and the distinction between them is
+   the point:
+
+     PERFECT SPOT      a member who built the real object - zone plus
+                       priced options. Teal running, amber paused.
+     GET MATCHED, MEMBER   they submitted the external form AND have an
+                       account, but never built a spot. NAVY.
+                       ⭐ THIS IS THE ACTIONABLE ONE. They are already
+                       through the hardest step and stopped one short.
+     GET MATCHED, NO ACCOUNT   they asked and left. GREY, low priority,
+                       and honest about it.
+
+   lh-v4 removed the legacy leads because every one of them rendered amber
+   "no consent" - a distinction that described a retired model and made
+   the screen mostly noise. They come back HERE because the distinction is
+   now real and tells you who to talk to.
+
+   ⚠️ THE JOIN IS EMAIL, AND IT IS ONLY AS GOOD AS THE CONTACT DATA.
+   Contact only lands in the demand index on a save made since ap-v11, so
+   members who have not saved since then have NO EMAIL STORED and their
+   leads will read as "no account". The count is a FLOOR, not a truth,
+   until that backfill runs. Better to under-claim conversion than to
+   invent it. */
+/* lh-v11: not just WHETHER they joined - what they did afterwards.
+   Keyed by email, holding the member id and HOW MANY perfect spots they
+   have built. That splits "joined" into two very different people:
+   somebody who made an account and stopped, and somebody who went all the
+   way through. Only the first is a nudge.
+
+   ⚠️ EMAIL IS THE WEAKEST USABLE KEY AND IT IS THE ONLY ONE WE HAVE.
+   lead-index does not expose a user id on the lead record, so anyone who
+   signed up with a different address than they used on the form reads as
+   "no account". A user-id join would survive that; finding BD's field
+   name for it is a probe nobody has run. Until then this UNDERCOUNTS
+   conversion, which is the safe direction to be wrong in. */
+function memberIndex(){
+  var idx = {};
+  DEMAND.forEach(function(r){
+    var em = String(r.email || "").toLowerCase().trim();
+    if (!em) return;
+    if (!idx[em]) idx[em] = { memberId: r.memberId, spots: 0, running: 0 };
+    idx[em].spots++;
+    if (r.enabled) idx[em].running++;
+  });
+  return idx;
+}
+
+/* The link read the other way: does the member behind this perfect spot
+   also have a Get Matched request on file? Useful because that form asks
+   things a spot never does - income band, co-signer, obstacles - and an
+   operator about to make an introduction wants to know it exists. */
+function leadForSpot(sp){
+  var em = String(sp.email || "").toLowerCase().trim();
+  if (!em) return null;
+  for (var i = 0; i < LEADS.length; i++) {
+    if (String(LEADS[i].email || "").toLowerCase().trim() === em) return LEADS[i];
+  }
+  return null;
+}
+
+function allRows(){ return DEMAND.concat(LEADS); }
 
 /* RUNNING IS THE CONSENT. A renter who builds a housing request and
    leaves it running is asking to be introduced; pausing withdraws it.
    There is no separate flag to check and nothing to chase - which is the
    whole reason the old model was retired at 102 requests and 0 consents. */
-function workable(l){ return !!l.enabled; }
+function workable(l){
+  /* A perfect spot is workable when it is running. A legacy request is
+     never "running" - it is a historical submission with no on/off state -
+     so it is workable only in the sense that a person can be contacted. */
+  return l.kind === "lead" ? true : !!l.enabled;
+}
 
 /* Colour says whether it can be acted on. A request nobody can be
    introduced to is not workable however good it looks. */
-function colour(l){ return workable(l) ? "#3a9e8f" : "#BA7517"; }
+function colour(l){
+  if (l.kind === "lead") return l.isMember ? "#0d2d4e" : "#9aa8b8";
+  return l.enabled ? "#3a9e8f" : "#BA7517";
+}
 
 function visible(){
   var c = el("fConsent").value, z = el("fZone").value, q = el("fText").value.toLowerCase().trim();
+  var kind = el("fKind") ? el("fKind").value : "";
   return allRows().filter(function(l){
-    if (c === "1" && !l.enabled) return false;
-    if (c === "0" && l.enabled) return false;
+    if (kind === "spot" && l.kind === "lead") return false;
+    if (kind === "member" && !(l.kind === "lead" && l.isMember)) return false;
+    if (kind === "lead" && !(l.kind === "lead" && !l.isMember)) return false;
+    /* Running / paused is a PERFECT SPOT idea. A legacy request has no
+       such state, so the status filter narrows the spots and leaves the
+       requests alone rather than pretending they failed a test they were
+       never given. */
+    if (c === "1" && l.kind !== "lead" && !l.enabled) return false;
+    if (c === "0" && l.kind !== "lead" && l.enabled) return false;
     /* A request with zips but no polygon cannot be placed on the map.
        Being able to isolate those is how you find the ones worth asking
        to redraw. */
@@ -209,12 +356,24 @@ function drawMap(list){
   LISTINGS.forEach(function(x){
     if (!x.lat || !x.lon || !x.live) return;
     var own = PROVIDERS.filter(function(p){return String(p.id)===String(x.ownerId);})[0];
-    L.circleMarker([x.lat,x.lon],{radius:4,color:"#0d2d4e",weight:1,fillColor:"#0d2d4e",fillOpacity:.55})
+    /* lh-v9: listings were a 4px dot with nothing but a click. On a map
+       whose entire purpose is reading demand against supply, the supply
+       side has to be legible on hover too - and a fraction bigger, because
+       4px is not a target. */
+    var lm = L.circleMarker([x.lat,x.lon],{radius:5,color:"#fff",weight:1.5,fillColor:"#0d2d4e",fillOpacity:.8})
       .bindPopup("<b>"+esc(x.title||("Listing #"+x.id))+"</b>"+
         esc(x.location||"")+(x.rent?"<br>$"+x.rent.toLocaleString()+" a month":"")+
         (x.beds?" &middot; "+esc(x.beds)+" bed":"")+
         (own?"<br>"+esc(own.name||own.company||("Member #"+x.ownerId)):""))
       .addTo(layer);
+    lm.bindTooltip(
+      "<b>"+esc(x.title||("Listing #"+x.id))+"</b><br>"+
+      esc(x.location||"")+
+      (x.rent?"<br>$"+x.rent.toLocaleString()+" a month":"")+
+      (x.beds?" &middot; "+esc(x.beds)+" bed":"")+
+      (own?"<br>"+esc(own.name||own.company||("Member #"+x.ownerId)):""),
+      { direction:"top", offset:[0,-4], opacity:0.97, className:"rdc-tip" }
+    );
   });
   list.forEach(function(l){
     if (!l.lat || !l.lon) return;
@@ -222,6 +381,24 @@ function drawMap(list){
     var m = L.circleMarker([l.lat,l.lon],{radius:sel===l.id?11:8,color:"#fff",weight:2,fillColor:colour(l),fillOpacity:.95}).addTo(layer);
     m.bindPopup("<b>"+esc(l.name)+"</b>"+esc(l.title||"")+"<br>"+esc(l.location)+"<br>"+
       esc(l.budget||"no ceiling given")+"<br>"+(l.enabled?"Running":"Paused"));
+
+    /* lh-v9: HOVER, NOT CLICK. Reading the map meant clicking every dot
+       and losing the one before it. A tooltip on hover lets an operator
+       sweep a metro and see who is in it without committing to any of
+       them - which is how you actually scan a map. Click still opens the
+       full packet. */
+    m.bindTooltip(
+      "<b>"+esc(l.name)+"</b><br>"+
+      esc(l.kind === "lead" ? l.location : (l.title || l.location))+"<br>"+
+      esc(l.budget || "no budget given")+
+      (l.kind === "lead"
+        ? "<br>"+(l.isMember
+            ? "Get Matched, joined &middot; "+l.spotCount+" perfect spot"+(l.spotCount===1?"":"s")
+            : "Get Matched, no account")
+        : "<br>"+((l.options||[]).length)+" option"+(((l.options||[]).length)===1?"":"s")+
+          " &middot; "+(l.enabled?"running":"paused")),
+      { direction: "top", offset: [0, -6], opacity: 0.97, className: "rdc-tip" }
+    );
     m.on("click",function(){ sel=l.id; render(); });
   });
   LISTINGS.forEach(function(x){ if (x.lat && x.lon && x.live) pts.push([x.lat,x.lon]); });
@@ -236,10 +413,28 @@ function drawQueue(list){
       "<span class='dot' style='background:"+colour(l)+"'></span>"+
       "<div style='min-width:0'><div class='nm'>"+esc(l.name)+"</div>"+
       "<div class='meta'>"+
-        esc(l.title||l.location)+" &middot; "+esc(l.budget||"no ceiling")+"<br>"+
-        esc(l.location)+" &middot; "+ago(l.submitted)+
+        /* lh-v12: THE MEMBER ID IS ALWAYS ON THE ROW. The name only ever
+           REPLACED it - "Member #4710" is the fallback when contact is
+           missing, so the moment contact lands the id vanishes from the
+           list. That makes the queue unscannable by id, which is how an
+           operator cross-references against BD, the dashboard, or a
+           previous conversation. Both, always. */
+        (l.kind === "lead"
+          ? (l.memberId ? "<span style='color:#0d2d4e;font-weight:700'>#"+esc(l.memberId)+"</span> &middot; " : "")
+          : (l.memberId ? "<span style='color:#0d2d4e;font-weight:700'>#"+esc(l.memberId)+"</span> &middot; " : ""))+
+        (l.kind==="lead"
+          ? esc(l.location)+" &middot; "+esc(l.budget||"no budget given")+"<br>"+
+            esc(l.timing||"no timing")+" &middot; "+ago(l.submitted)
+          : esc(l.title||l.location)+" &middot; "+esc(l.budget||"no ceiling")+"<br>"+
+            esc(l.location)+" &middot; "+ago(l.submitted))+
       "</div></div>"+
-      "<span class='tag "+(l.enabled?"ok":"no")+"'>"+(l.enabled?"running":"paused")+"</span></div>";
+      (l.kind==="lead"
+        ? "<span class='tag "+(l.isMember?"ok":"no")+"'>"+
+            (l.isMember
+              ? (l.spotCount ? "joined &middot; "+l.spotCount+" spot"+(l.spotCount===1?"":"s") : "joined &middot; 0 spots")
+              : "no account")+"</span>"
+        : "<span class='tag "+(l.enabled?"ok":"no")+"'>"+(l.enabled?"running":"paused")+"</span>")+
+      "</div>";
   }).join("");
   Array.prototype.forEach.call(q.querySelectorAll(".row"),function(r){
     r.onclick=function(){ sel=r.getAttribute("data-i"); render(); };
@@ -310,6 +505,20 @@ function drawSearchDetail(l, d){
       }).join("")+
     "</div>"+
 
+    (function(){
+      var lead = leadForSpot(l);
+      if (!lead) return "";
+      /* The Get Matched form asks for things a perfect spot deliberately
+         does not - income band, co-signer, obstacles - and an operator
+         about to make an introduction should know that record exists
+         rather than rediscovering it later. */
+      return "<div class='ops' style='background:#eef3fb;border-color:#cddcf0;color:#1c3a63'>" +
+        "<b>Also has a Get Matched request &mdash; #" + esc(lead.leadId) + "</b>" +
+        "Submitted " + esc(ago(lead.submitted)) + ". It holds income band, co-signer and their own " +
+        "description - none of which a perfect spot captures, and none of which travels to a landlord." +
+        "</div>";
+    })()+
+
     (c.notes ? "<div class='ops'><b>Operator only &mdash; never sent to a landlord</b>"+esc(c.notes)+
       "<br>Free text can name a child's school or a credit position. It is here for matching and concierge, and it does not travel.</div>" : "")+
 
@@ -330,26 +539,196 @@ function drawSearchDetail(l, d){
     "<div class='msg' id='dmsg'></div>";
 }
 
+function drawLeadDetail(l, d){
+  function kv(k,v){ return v ? "<dt>"+k+"</dt><dd>"+esc(v)+"</dd>" : ""; }
+  d.innerHTML =
+    "<div class='dh'><h2>"+esc(l.name)+"</h2>"+
+      "<span class='tag "+(l.isMember?"ok":"no")+"'>"+(l.isMember?"joined":"no account")+"</span>"+
+      "<span class='tag' style='margin-left:auto'>Get Matched &middot; #"+esc(l.leadId)+"</span></div>"+
+
+    (!l.isMember
+      ? "<div class='ops' style='background:#f4f6f8;border-color:#e2e8ee;color:#5b6b82'>" +
+        "<b>Asked, never joined</b>" +
+        "A Get Matched submission with no account behind it. Nothing here is matchable - there is no zone " +
+        "and no priced option, only what the form captured." +
+        "</div>"
+      : (l.spotCount
+        ? "<div class='ops' style='background:#eafaf1;border-color:#bfe6d1;color:#14614a'>" +
+          "<b>Fully converted &mdash; member #"+esc(l.memberId)+"</b>" +
+          "They joined and built "+l.spotCount+" perfect spot"+(l.spotCount===1?"":"s")+
+          (l.runningCount ? ", "+l.runningCount+" running" : ", none running") +
+          ". Their spots carry the zone and the priced options; this form record is older context, " +
+          "and it holds things a spot does not ask for." +
+          "</div>"
+        : "<div class='ops' style='background:#eef3fb;border-color:#cddcf0;color:#1c3a63'>" +
+          "<b>Joined, built nothing &mdash; member #"+esc(l.memberId)+"</b>" +
+          "They came through the external form and created an account, then stopped one step short. " +
+          "⭐ This is the shortest distance between where they are and something matchable." +
+          "</div>"))+
+
+    "<dl class='kv'>"+
+      kv("Email", l.email)+
+      kv("Phone", l.phone)+
+      kv("Looking in", l.location)+
+      kv("Zip codes", (l.searchZips||[]).length ? l.searchZips.join(", ") : null)+
+      kv("Budget", l.budget)+
+      kv("Timing", l.timing)+
+      kv("Type", l.propertyType)+
+      kv("Household", l.householdText)+
+      kv("Pets", l.pets + (l.petDetails ? " - " + l.petDetails : ""))+
+      kv("Co-signer", l.cosigner)+
+      kv("Submitted", ago(l.submitted))+
+    "</dl>"+
+
+    /* 🔴 OPERATOR ONLY. Income, income source and the renter's free text
+       exist on a legacy lead and must NEVER travel to a landlord - the
+       same rule the perfect spot packet follows. Shown here because the
+       operator needs them to judge whether an introduction makes sense,
+       and walled off visually so nobody copies them by accident. */
+    ((l.description || l.obstacles || l.income || l.incomeSource)
+      ? "<div class='ops'><b>Operator only &mdash; never sent to a landlord</b>"+
+          (l.income ? "Income: "+esc(l.income)+(l.incomeSource ? " ("+esc(l.incomeSource)+")" : "")+"<br>" : "")+
+          (l.description ? esc(l.description)+"<br>" : "")+
+          (l.obstacles ? esc(l.obstacles) : "")+
+        "</div>"
+      : "")+
+    "<div class='msg' id='dmsg'></div>";
+}
+
 function drawDetail(){
   var d = el("detail");
   if (!sel) { d.innerHTML="<div class='empty'>Select a perfect spot.</div>"; return; }
   var l = allRows().filter(function(x){return x.id===sel;})[0];
   if (!l) { d.innerHTML="<div class='empty'>Select a perfect spot.</div>"; return; }
+  if (l.kind === "lead") { drawLeadDetail(l, d); return; }
   drawSearchDetail(l, d);
+}
+
+/* ---- lh-v9: THE TABLE. A MANUAL MATCHER. ----------------------------
+   The map answers "where is the demand". It cannot answer "which of these
+   42 listings should I put in front of which renter", because that needs
+   two records side by side with their differences named.
+   Every row here is a PAIR: one listing, one perfect spot within 40 miles,
+   with the distance and what lines up. Grouped under the listing, because
+   the operator's question starts from supply - they have a vacancy and
+   want to know who wants it.
+
+   🔴 IT DECIDES NOTHING. Green means "these two agree on this", not "send
+   it". A person still makes the call, which is the correct division of
+   labour until a matcher exists and is trusted. */
+function mark(v, yes, no, unknown){
+  if (v === true) return "<span class='mk y'>"+yes+"</span>";
+  if (v === "stretch") return "<span class='mk s'>"+yes+" (stretch)</span>";
+  if (v === false) return "<span class='mk n'>"+no+"</span>";
+  return "<span class='mk u'>"+unknown+"</span>";
+}
+
+function drawGrid(){
+  var g = el("grid");
+  var spots = DEMAND.filter(function(r){ return r.lat && r.lon; });
+  var live = LISTINGS.filter(function(x){ return x.lat && x.lon && x.live; });
+
+  if (!live.length) { g.innerHTML = "<div class='empty'>No live listings to match against.</div>"; return; }
+  if (!spots.length) { g.innerHTML = "<div class='empty'>No perfect spots with a drawn zone yet. Only a drawn zone can be placed on a map, so only those can be paired with a listing.</div>"; return; }
+
+  var rows = 0;
+  var html = "<table><thead><tr>" +
+    "<th>Listing / renter</th><th>Where</th><th>Distance</th>" +
+    "<th>Rent</th><th>Beds</th><th>Type</th><th>Their ask</th>" +
+    "</tr></thead><tbody>";
+
+  live.sort(function(a,b){ return String(a.title||"").localeCompare(String(b.title||"")); });
+
+  live.forEach(function(x){
+    var own = PROVIDERS.filter(function(p){return String(p.id)===String(x.ownerId);})[0];
+
+    var pairs = spots.map(function(sp){
+      var pts = searchPoints(sp);
+      if (!pts.length) return null;
+      var d = Math.min.apply(null, pts.map(function(p){ return miles(p.lat,p.lon,x.lat,x.lon); }));
+      if (d >= 40) return null;
+      return { sp: sp, d: d, sc: scorePair(x, sp) };
+    }).filter(Boolean).sort(function(a,b){
+      /* Anything that fails on price sinks, however close it is. Distance
+         is a convenience; a ceiling is a wall. */
+      var ah = a.sc && a.sc.hard ? 1 : 0, bh = b.sc && b.sc.hard ? 1 : 0;
+      if (ah !== bh) return ah - bh;
+      var ai = a.sc ? a.sc.hits : 0, bi = b.sc ? b.sc.hits : 0;
+      if (ai !== bi) return bi - ai;
+      return a.d - b.d;
+    });
+
+    html += "<tr class='lst'><td>" + esc(x.title || ("Listing #" + x.id)) + "</td>" +
+      "<td>" + esc(x.location || "") + "</td><td></td>" +
+      "<td>" + (x.rent ? "$" + Number(x.rent).toLocaleString() : "&mdash;") + "</td>" +
+      "<td>" + esc(x.beds || "&mdash;") + "</td>" +
+      "<td>" + esc(x.propertyType || x.type || "&mdash;") + "</td>" +
+      "<td>" + (own ? esc(own.name || own.company || ("Member #" + x.ownerId)) : "") + "</td></tr>";
+
+    if (!pairs.length) {
+      html += "<tr><td colspan='7' style='color:#8593a4'>No perfect spot within 40 miles. " +
+        "A supply and demand gap, not a bad listing.</td></tr>";
+      return;
+    }
+
+    pairs.forEach(function(pr){
+      var sc = pr.sc || {};
+      var o = sc.option || {};
+      rows++;
+      html += "<tr data-goto='" + esc(pr.sp.id) + "' style='cursor:pointer'>" +
+        "<td style='padding-left:22px'>" + esc(pr.sp.name) +
+          "<div style='font-size:11px;color:#7b8a99'>" + esc(pr.sp.title || "") + "</div></td>" +
+        "<td>" + esc(pr.sp.location || "") + "</td>" +
+        "<td>" + pr.d.toFixed(1) + " mi</td>" +
+        "<td>" + mark(sc.rent, "fits", "over", "no ceiling") + "</td>" +
+        "<td>" + mark(sc.beds, "fits", "no", "any") + "</td>" +
+        "<td>" + mark(sc.type, "fits", "no", "any") + "</td>" +
+        "<td>" + esc(o.rent_max ? "up to $" + Number(o.rent_max).toLocaleString() : "no ceiling") +
+          ((pr.sp.options || []).length > 1 ? " <span style='color:#8593a4'>(best of " + pr.sp.options.length + ")</span>" : "") +
+        "</td></tr>";
+    });
+  });
+
+  html += "</tbody></table>";
+  g.innerHTML =
+    "<div style='padding:9px 12px;font-size:11.5px;color:#5b6b7d;background:#fff;border-bottom:1px solid #eef2f5'>" +
+      "<b>" + rows + "</b> listing-and-renter pairs within 40 miles. " +
+      "Green means those two agree on that point &mdash; it is a reading aid, not a decision." +
+    "</div>" + html;
+
+  var tr = g.querySelectorAll("tr[data-goto]");
+  for (var i = 0; i < tr.length; i++) {
+    tr[i].onclick = function(){
+      sel = this.getAttribute("data-goto");
+      gridOn = false;
+      render();
+    };
+  }
 }
 
 function render(){
   var list = visible();
-  drawMap(list); drawQueue(list); drawDetail();
-  el("cAll").textContent = allRows().length;
+  el("map").style.display = gridOn ? "none" : "";
+  el("grid").style.display = gridOn ? "block" : "none";
+  var vb = el("bView");
+  if (vb) vb.textContent = gridOn ? "Map view" : "Table view";
+  if (gridOn) drawGrid(); else drawMap(list);
+  drawQueue(list); drawDetail();
+  el("cAll").textContent = DEMAND.length;
   /* The number that answers "how much demand can we act on right now".
      The old consent count could never answer it, because it only ever
      described the half nobody completed. */
   el("cCon").textContent = allRows().filter(workable).length;
   el("cShow").textContent = list.length;
   el("cLst").textContent = LISTINGS.filter(function(x){return x.live;}).length;
-  /* Renters, not requests. One person can be running several. */
-  el("cBuilt").textContent = memberCount || "—";
+  /* ⭐ THE NUMBER THAT SHOULD DRIVE A DAY'S WORK. Everyone who came
+     through the form, made an account, and stopped before building
+     anything matchable. They are one conversation from being real demand. */
+  /* ⭐ Joined and built NOTHING. A member with spots is not a gap, they
+     are a success, and counting them here would hide the number that
+     should drive a day's work. */
+  el("cGap").textContent = LEADS.filter(function(x){return x.isMember && !x.spotCount;}).length;
+  el("cCold").textContent = LEADS.filter(function(x){return !x.isMember;}).length;
 }
 
 function miles(a,b,c,d){var R=3958.8,p=Math.PI/180;
@@ -367,6 +746,75 @@ function searchPoints(l){
   if (l.searchGeo && l.searchGeo.length) return l.searchGeo;
   if (l.lat && l.lon) return [{ lat: l.lat, lon: l.lon }];
   return [];
+}
+
+/* ---- lh-v9: SCORING A PAIR ------------------------------------------
+   What actually lines up between one listing and one perfect spot, said
+   out loud rather than left for the operator to work out by eye.
+
+   ⚠️ IT SCORES AGAINST EACH OPTION SEPARATELY AND KEEPS THE BEST. That is
+   the whole point of the options model: a renter open to a house at 2000
+   OR a condo at 1000 is not "matched at 2000" - the condo has to clear the
+   condo ceiling. Averaging or flattening them would reintroduce exactly
+   the bug schema v4 exists to prevent.
+
+   🔴 NOTHING HERE DECIDES ANYTHING. It is a reading aid for a person
+   making the call. A pair with three green marks is worth looking at, not
+   worth sending unseen. */
+function bedsOverlap(listingBeds, wanted){
+  if (!wanted || !wanted.length) return null;          // they did not say
+  var n = String(listingBeds == null ? "" : listingBeds).replace(/[^0-9]/g, "");
+  if (!n) return null;                                  // the listing does not say
+  n = Number(n);
+  var keys = [];
+  if (n === 0) keys.push("studio");
+  if (n === 1) keys.push("1");
+  if (n === 2) keys.push("2");
+  if (n === 3) keys.push("3");
+  if (n >= 4) keys.push("4plus");
+  for (var i = 0; i < keys.length; i++) if (wanted.indexOf(keys[i]) !== -1) return true;
+  return false;
+}
+
+function typeOverlap(listingType, wanted){
+  if (!wanted || !wanted.length) return null;
+  var t = String(listingType || "").toLowerCase();
+  if (!t) return null;
+  for (var i = 0; i < wanted.length; i++) {
+    if (t.indexOf(String(wanted[i]).toLowerCase()) !== -1) return true;
+  }
+  return false;
+}
+
+function scorePair(listing, spot){
+  var best = null;
+  (spot.options || []).forEach(function(o){
+    var rent = null;
+    if (o.rent_max && listing.rent) {
+      rent = Number(listing.rent) <= Number(o.rent_max);
+      /* A stretch is the renter's own stated flex, not ours to assume. */
+      if (!rent && o.rent_stretch && Number(listing.rent) <= Number(o.rent_max) + Number(o.rent_stretch)) {
+        rent = "stretch";
+      }
+    }
+    var beds = bedsOverlap(listing.beds, o.beds);
+    var type = typeOverlap(listing.propertyType || listing.type, o.unit_types);
+
+    var hits = 0, known = 0;
+    [rent, beds, type].forEach(function(v){
+      if (v === null) return;
+      known++;
+      if (v === true || v === "stretch") hits++;
+    });
+    var cand = { option: o, rent: rent, beds: beds, type: type, hits: hits, known: known,
+                 hard: rent === false };
+    if (!best) { best = cand; return; }
+    /* Prefer a pair that fails nothing, then one that matches more of
+       what is known. */
+    if (best.hard && !cand.hard) { best = cand; return; }
+    if (!cand.hard && cand.hits > best.hits) best = cand;
+  });
+  return best;
 }
 
 function nearbyFor(l){
@@ -462,6 +910,65 @@ function searchesToRows(members){
   return out;
 }
 
+/* Legacy Get Matched requests, shaped to sit alongside a perfect spot so
+   one renderer draws both. Everything a lead does not have is left null
+   rather than faked. */
+function leadsToRows(leads, idx){
+  return (leads || []).map(function(l){
+    var geo = (l.searchGeo && l.searchGeo.length) ? l.searchGeo[0] : null;
+    var em = String(l.email || "").toLowerCase().trim();
+    var hit = em ? idx[em] : null;
+    return {
+      kind: "lead",
+      id: "l:" + l.id,
+      leadId: l.id,
+      name: l.name || ("Lead #" + l.id),
+      email: l.email || "",
+      phone: l.phone || "",
+      isMember: !!hit,
+      memberId: hit ? hit.memberId : "",
+      spotCount: hit ? hit.spots : 0,
+      runningCount: hit ? hit.running : 0,
+      title: "",
+      enabled: false,
+      submitted: l.submitted || null,
+      /* Where they are LOOKING if the notes carried it, otherwise where
+         they are - which is the old behaviour and correct for anyone
+         searching locally. */
+      lat: geo ? geo.lat : (l.lat || null),
+      lon: geo ? geo.lon : (l.lon || null),
+      location: l.location || "no location given",
+      budget: l.budget || "",
+      timing: l.timing || "",
+      searchZips: l.searchZips || [],
+      searchAreas: l.searchAreas || [],
+      propertyType: l.propertyType || "",
+      household: null,
+      householdText: l.household || "",
+      pets: l.pets || "",
+      petDetails: l.petDetails || "",
+      cosigner: l.cosigner || "",
+      description: l.description || "",
+      obstacles: l.obstacles || "",
+      /* Operator-only. Never rendered into a packet. */
+      income: l.income || "",
+      incomeSource: l.incomeSource || ""
+    };
+  });
+}
+
+function loadLeads(){
+  return fetch(k(IDX))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d || !d.ok) { leadsErr = (d && d.error) || "could not read requests"; LEADS = []; return; }
+      leadsErr = null;
+      builtAt = d.builtAt || null;
+      LEADS = leadsToRows(d.leads || [], memberIndex());
+    })
+    .catch(function(e){ leadsErr = String(e); LEADS = []; });
+}
+
 function loadDemand(){
   return fetch(k(DEM + "?demand=1"))
     .then(function(r){ return r.json(); })
@@ -487,14 +994,18 @@ function loadProviders(){
 function load(){
   var b = el("bRefresh");
   b.disabled = true; b.textContent = "Loading…";
-  Promise.all([loadDemand(), loadProviders()])
+  /* Demand FIRST, then leads - the member-email set is built from the
+     demand index, so a parallel load would classify every lead as
+     "no account". */
+  loadDemand()
+    .then(function(){ return Promise.all([loadLeads(), loadProviders()]); })
     .then(function(){
       render();
       /* An empty hub has two very different causes and the operator has
          to be able to tell them apart: nobody has built a request yet,
          or the read failed. Saying "no requests" when the endpoint 403'd
          is how a broken pipe goes unnoticed for a week. */
-      if (!DEMAND.length) {
+      if (!DEMAND.length && !LEADS.length) {
         el("queue").innerHTML = demandErr
           ? "<div class='empty'>Could not read perfect spots.<br><br>" + esc(demandErr) +
             "<br><br>Check the key on this page matches RDC_ADMIN_KEY in Netlify.</div>"
@@ -505,7 +1016,7 @@ function load(){
     .finally(function(){ b.disabled=false; b.textContent="Refresh"; });
 }
 
-["fConsent","fZone","fText"].forEach(function(id){
+["fKind","fConsent","fZone","fText"].forEach(function(id){
   el(id).addEventListener("input", function(){ sel=null; render(); });
 });
 el("bRefresh").onclick = function(){ load(); };
@@ -519,5 +1030,3 @@ load();
 </script>
 </body>
 </html>
-
-
