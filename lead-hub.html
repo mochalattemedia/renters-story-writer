@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- ============================================================
-     lead-hub.html   ·   VERSION: lh-v17
+     lead-hub.html   ·   VERSION: lh-v18
      Served at /lead-hub.html. Open with ?key=RDC_ADMIN_KEY.
 
      THE VERSION LIVES HERE, AT THE TOP OF THE FILE, and it also
@@ -10,6 +10,13 @@
      ⚠️ Placed after <!DOCTYPE html> and never before it - a
      comment ahead of the doctype can drop older browsers into
      quirks mode, which would break the flex layout silently.
+     lh-v18: the amber blocks name their field instead of warning about
+     sending. "Anything else that matters" on a perfect spot, "From their
+     Get Matched form" on a legacy request. Nothing on this screen sends
+     anything - there is no send button here - so the warning answered a
+     question nobody asked.
+     ⚠️ The rule is unchanged: notes and income stay out of the packet,
+     enforced in the store. A caption was never what protected them.
      lh-v17: 🔴 THE TABLE VIEW BUTTON HAD NO CLICK HANDLER. Shipped in
      lh-v9 with the button, the container, drawGrid() and the render
      switch all in place - and nothing bound to the click, so it did
@@ -237,7 +244,7 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 <script>
 
 
-var HUB_VERSION = "lh-v17";
+var HUB_VERSION = "lh-v18";
 var DEM = "/.netlify/functions/alerts-prefs";
 var IDX = "/.netlify/functions/lead-index";
 var PRV = "/.netlify/functions/provider-index";
@@ -564,7 +571,14 @@ function drawSearchDetail(l, d){
        sensitive - a warning that judges its own content is a warning that
        eventually misses. This field is unbounded and renters have written
        credit positions and children's schools in it. */
-    (c.notes ? "<div class='ops'><b>Operator only &mdash; never sent to a landlord</b>"+esc(c.notes)+"</div>" : "")+
+    /* lh-v18: the label names the field, not the policy. Nothing on this
+       screen is sent anywhere - the hub has no send button - so a warning
+       against sending it was answering a question nobody was asking.
+       ⚠️ THE RULE HAS NOT CHANGED, only the caption: notes stays out of
+       the packet, because renters write credit positions and children's
+       schools in it. That is enforced in the store, which is where it
+       belongs - a caption was never what was protecting it. */
+    (c.notes ? "<div class='ops'><b>Anything else that matters</b>"+esc(c.notes)+"</div>" : "")+
 
     (function(){
       var nb = nearbyFor(l);
@@ -630,7 +644,7 @@ function drawLeadDetail(l, d){
        operator needs them to judge whether an introduction makes sense,
        and walled off visually so nobody copies them by accident. */
     ((l.description || l.obstacles || l.income || l.incomeSource)
-      ? "<div class='ops'><b>Operator only &mdash; never sent to a landlord</b>"+
+      ? "<div class='ops'><b>From their Get Matched form</b>"+
           (l.income ? "Income: "+esc(l.income)+(l.incomeSource ? " ("+esc(l.incomeSource)+")" : "")+"<br>" : "")+
           (l.description ? esc(l.description)+"<br>" : "")+
           (l.obstacles ? esc(l.obstacles) : "")+
