@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- ============================================================
-     lead-hub.html   ·   VERSION: lh-v13
+     lead-hub.html   ·   VERSION: lh-v14
      Served at /lead-hub.html. Open with ?key=RDC_ADMIN_KEY.
 
      THE VERSION LIVES HERE, AT THE TOP OF THE FILE, and it also
@@ -10,6 +10,11 @@
      ⚠️ Placed after <!DOCTYPE html> and never before it - a
      comment ahead of the doctype can drop older browsers into
      quirks mode, which would break the flex layout silently.
+     lh-v14: the operator-only block shows its title and the words, and
+     drops the explanatory sentence. The label is what stops somebody
+     pasting the text into an email; the paragraph under it was the same
+     caution repeated on every record. The warning itself stays FIXED,
+     never conditional on how sensitive the content looks.
      lh-v13: five states, five distinct hues. "Get Matched, joined" was
      the SAME NAVY as a live listing - demand and supply sharing a colour
      on a map built to tell them apart. Navy is supply now and nothing
@@ -219,7 +224,7 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 <script>
 
 
-var HUB_VERSION = "lh-v13";
+var HUB_VERSION = "lh-v14";
 var DEM = "/.netlify/functions/alerts-prefs";
 var IDX = "/.netlify/functions/lead-index";
 var PRV = "/.netlify/functions/provider-index";
@@ -537,8 +542,16 @@ function drawSearchDetail(l, d){
         "</div>";
     })()+
 
-    (c.notes ? "<div class='ops'><b>Operator only &mdash; never sent to a landlord</b>"+esc(c.notes)+
-      "<br>Free text can name a child's school or a credit position. It is here for matching and concierge, and it does not travel.</div>" : "")+
+    /* lh-v14: the title carries the warning, the body carries the words.
+       The explanatory sentence was right and it was also three lines of
+       the same caution on every record, most of which say something like
+       "washer and dryer hook ups". The LABEL is what stops somebody
+       pasting this into an email, and the label is enough.
+       ⚠️ It stays FIXED rather than firing only on content that looks
+       sensitive - a warning that judges its own content is a warning that
+       eventually misses. This field is unbounded and renters have written
+       credit positions and children's schools in it. */
+    (c.notes ? "<div class='ops'><b>Operator only &mdash; never sent to a landlord</b>"+esc(c.notes)+"</div>" : "")+
 
     (function(){
       var nb = nearbyFor(l);
