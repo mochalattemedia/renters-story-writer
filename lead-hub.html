@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- ============================================================
-     lead-hub.html   ·   VERSION: lh-v18
+     lead-hub.html   ·   VERSION: lh-v19
      Served at /lead-hub.html. Open with ?key=RDC_ADMIN_KEY.
 
      THE VERSION LIVES HERE, AT THE TOP OF THE FILE, and it also
@@ -10,6 +10,14 @@
      ⚠️ Placed after <!DOCTYPE html> and never before it - a
      comment ahead of the doctype can drop older browsers into
      quirks mode, which would break the flex layout silently.
+     lh-v19: the table reads properly. "Their ask" held the OWNER on a
+     listing row and the BUDGET on a renter row - one column, two
+     meanings - and is now "Owner / their ceiling". BD type slugs
+     ("accessory_unit_", "house_") render as words. The map legend hides
+     in table view, where it was floating over the rows explaining colours
+     that are not on screen. And the intro line states the shape: shaded
+     rows are the property, renters sit underneath, and their rent/beds/
+     type marks say whether THAT renter agrees with THIS listing.
      lh-v18: the amber blocks name their field instead of warning about
      sending. "Anything else that matters" on a perfect spot, "From their
      Get Matched form" on a legacy request. Nothing on this screen sends
@@ -208,7 +216,7 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 <div class="shell">
   <div id="map" style="position:relative"></div>
   <div id="grid" style="display:none;overflow:auto;background:#fbfcfd;"></div>
-  <div style="position:absolute;left:14px;bottom:14px;z-index:500;background:#fff;border:1px solid #dde3ea;border-radius:9px;padding:9px 12px;font-size:11.5px;line-height:1.9;box-shadow:0 2px 10px rgba(0,0,0,.09)">
+  <div id="legend" style="position:absolute;left:14px;bottom:14px;z-index:500;background:#fff;border:1px solid #dde3ea;border-radius:9px;padding:9px 12px;font-size:11.5px;line-height:1.9;box-shadow:0 2px 10px rgba(0,0,0,.09)">
     <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3a9e8f;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Running perfect spot</div>
     <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#e08a00;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Paused</div>
     <div><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#7b3fa0;border:2px solid #fff;box-shadow:0 0 0 1px #cfd8e0;vertical-align:-1px"></span> Get Matched, joined</div>
@@ -244,7 +252,7 @@ body{font-family:'Open Sans',sans-serif;background:#eef2f5;color:#0d2d4e;height:
 <script>
 
 
-var HUB_VERSION = "lh-v18";
+var HUB_VERSION = "lh-v19";
 var DEM = "/.netlify/functions/alerts-prefs";
 var IDX = "/.netlify/functions/lead-index";
 var PRV = "/.netlify/functions/provider-index";
@@ -674,6 +682,18 @@ function drawDetail(){
    🔴 IT DECIDES NOTHING. Green means "these two agree on this", not "send
    it". A person still makes the call, which is the correct division of
    labour until a matcher exists and is trusted. */
+/* lh-v19: BD hands back slugs - "accessory_unit_", "something_else_",
+   "house_" - trailing underscore and all. They were rendering raw, which
+   makes an operator tool look like a database dump and makes a column of
+   types hard to scan. */
+function pretty(v){
+  var t = String(v == null ? "" : v).trim();
+  if (!t) return "";
+  while (t.length && t.charAt(t.length - 1) === "_") t = t.slice(0, t.length - 1);
+  t = t.split("_").join(" ").trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 function mark(v, yes, no, unknown){
   if (v === true) return "<span class='mk y'>"+yes+"</span>";
   if (v === "stretch") return "<span class='mk s'>"+yes+" (stretch)</span>";
@@ -692,7 +712,11 @@ function drawGrid(){
   var rows = 0;
   var html = "<table><thead><tr>" +
     "<th>Listing / renter</th><th>Where</th><th>Distance</th>" +
-    "<th>Rent</th><th>Beds</th><th>Type</th><th>Their ask</th>" +
+    /* Rent, beds and type are FACTS on a listing row and FIT MARKS on a
+       renter row underneath it. That is the whole shape of the table -
+       the property, then who agrees with it - and the intro line says so
+       rather than leaving it to be worked out. */
+    "<th>Rent</th><th>Beds</th><th>Type</th><th>Owner / their ceiling</th>" +
     "</tr></thead><tbody>";
 
   live.sort(function(a,b){ return String(a.title||"").localeCompare(String(b.title||"")); });
@@ -751,7 +775,9 @@ function drawGrid(){
   g.innerHTML =
     "<div style='padding:9px 12px;font-size:11.5px;color:#5b6b7d;background:#fff;border-bottom:1px solid #eef2f5'>" +
       "<b>" + rows + "</b> listing-and-renter pairs within 40 miles. " +
-      "Green means those two agree on that point &mdash; it is a reading aid, not a decision." +
+      "Shaded rows are the property; renters sit underneath the listing they match. " +
+      "On a renter row, rent, beds and type say whether THAT renter agrees with THIS listing &mdash; " +
+      "a reading aid, not a decision." +
     "</div>" + html;
 
   var tr = g.querySelectorAll("tr[data-goto]");
@@ -768,6 +794,11 @@ function render(){
   var list = visible();
   el("map").style.display = gridOn ? "none" : "";
   el("grid").style.display = gridOn ? "block" : "none";
+  /* The legend explains map colours and has no business floating over a
+     table. It is positioned against the page, not the map, so it does not
+     leave on its own. */
+  var lg = document.getElementById("legend");
+  if (lg) lg.style.display = gridOn ? "none" : "";
   var vb = el("bView");
   if (vb) vb.textContent = gridOn ? "Map view" : "Table view";
   if (gridOn) drawGrid(); else drawMap(list);
