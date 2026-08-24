@@ -1,18 +1,28 @@
-// pg-webhook.js — pgw-v3
+
+// pg-webhook.js — pgw-v4
 // PandaGuarantee webhook receiver. 2xx within 10s or Panda retries for 24h.
 //
-// pgw-v1 -> v2: signature verification rejected every delivery (400). v1
-//   assumed Panda-Signature was a bare hex digest. v2 accepts every common
-//   format and logs which one matched.
-// pgw-v2 -> v3: v2 CRASHED (502). It called hmac.copy() — .copy() exists on
-//   crypto.Hash, NOT on crypto.Hmac. Threw before any try/catch, so Netlify
-//   returned a bare 502. v3 computes each digest independently and wraps the
-//   whole handler so a throw is logged and answered, never silent.
-//   node --check does not catch this class of bug; only running it does.
+// pgw-v1 -> v2: v1 assumed Panda-Signature was a bare hex digest. Every
+//   delivery 400'd. v2 tried several formats and logged which matched.
+// pgw-v2 -> v3: v2 called hmac.copy() — .copy() is on crypto.Hash, NOT on
+//   crypto.Hmac. Threw at module scope, bare 502. Also a TRUNCATED PASTE
+//   ("Unexpected end of input") cost a round; hit ?version=1 BEFORE replaying.
+// pgw-v3 -> v4: ⭐ THE ACTUAL SCHEME. Header is Stripe-style
+//   t=<unix>,v1=<hex>. The v1 value CHANGED ON EVERY RETRY while the body
+//   stayed 750 bytes — so the signature is not over the body alone. The
+//   TIMESTAMP IS AN INPUT, not metadata:
+//       signed_payload = t + "." + raw_body
+//       v1             = HMAC-SHA256(signed_payload, secret)
+//   v1-v3 all skipped t= as a value to ignore. That was the bug.
+//   Timestamp is also checked against a tolerance window to blunt replay.
 
 const crypto = require('crypto');
 
-const FN_VERSION = 'pgw-v3';
+const FN_VERSION = 'pgw-v4';
+
+// Reject signatures older than this. Panda retries for 24h, and a replayed
+// delivery from the portal carries a fresh t, so 15 min is generous.
+const TOLERANCE_SECONDS = 900;
 
 const STATUS_MAP = {
   'pre_approval_invite.sent':      { stage: 'invited',      badge: null },
@@ -48,30 +58,51 @@ exports.handler = async (event) => {
       return { statusCode: 400, body: 'missing_signature' };
     }
 
-    // Hash the RAW bytes. Parsing then re-stringifying changes key order and
-    // whitespace and the HMAC will never match.
+    // RAW bytes. Parsing then re-stringifying changes key order and whitespace
+    // and the HMAC can never match.
     const raw = event.isBase64Encoded
       ? Buffer.from(event.body, 'base64')
       : Buffer.from(event.body || '', 'utf8');
 
-    // Two independent HMAC instances. Hmac has no .copy() — that was the v2 bug.
-    const digestHex = crypto.createHmac('sha256', secret).update(raw).digest('hex');
-    const digestB64 = crypto.createHmac('sha256', secret).update(raw).digest('base64');
+    const parsed = parseSignature(sigHeader);
 
-    const match = verify(sigHeader, digestHex, digestB64);
+    if (!parsed.t || !parsed.sigs.length) {
+      console.warn('pg_webhook_unparsable_signature', FN_VERSION, String(sigHeader).slice(0, 160));
+      return { statusCode: 400, body: 'bad_signature' };
+    }
 
-    if (!match) {
+    // signed_payload = timestamp + "." + body
+    const signedPayload = Buffer.concat([
+      Buffer.from(String(parsed.t) + '.', 'utf8'),
+      raw,
+    ]);
+
+    const expected = crypto.createHmac('sha256', secret).update(signedPayload).digest('hex');
+
+    let matched = false;
+    for (let i = 0; i < parsed.sigs.length; i++) {
+      if (eq(parsed.sigs[i], expected)) { matched = true; break; }
+    }
+
+    if (!matched) {
       console.warn(
         'pg_webhook_bad_signature', FN_VERSION,
         'header', String(sigHeader).slice(0, 160),
         'bodyBytes', raw.length,
-        'expectedHex', digestHex.slice(0, 16) + '...',
-        'expectedB64', digestB64.slice(0, 16) + '...'
+        'expected', expected.slice(0, 16) + '...'
       );
       return { statusCode: 400, body: 'bad_signature' };
     }
 
-    console.log('pg_webhook_sig_ok', FN_VERSION, 'format', match);
+    // Signature is valid. Now check freshness — a valid but ancient signature
+    // is a replay, not a delivery.
+    const age = Math.floor(Date.now() / 1000) - Number(parsed.t);
+    if (Math.abs(age) > TOLERANCE_SECONDS) {
+      console.warn('pg_webhook_stale_signature', FN_VERSION, 'ageSeconds', age);
+      return { statusCode: 400, body: 'stale_signature' };
+    }
+
+    console.log('pg_webhook_sig_ok', FN_VERSION, 'ageSeconds', age);
 
     let evt;
     try { evt = JSON.parse(raw.toString('utf8')); }
@@ -87,41 +118,25 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: 'ok' };
 
   } catch (e) {
-    // Nothing escapes. An uncaught throw becomes a bare 502 with no body,
-    // which is exactly what v2 did and what cost the diagnosis.
+    // Nothing escapes. An uncaught throw becomes a bare 502 with no body.
     console.error('pg_webhook_fatal', FN_VERSION, e && e.message, e && e.stack);
     return { statusCode: 500, body: JSON.stringify({ error: 'server_error', detail: String((e && e.message) || e) }) };
   }
 };
 
-// Returns a label naming which format matched, or null.
-function verify(header, hex, b64) {
-  const h = String(header).trim();
-
-  if (eq(h, hex)) return 'bare_hex';
-  if (eq(h, b64)) return 'bare_base64';
-
-  if (h.toLowerCase().indexOf('sha256=') === 0) {
-    const v = h.slice(7).trim();
-    if (eq(v, hex)) return 'sha256_prefix_hex';
-    if (eq(v, b64)) return 'sha256_prefix_base64';
+// t=1787606608,v1=6a75bb...  (may carry more than one v1 during a secret rotation)
+function parseSignature(header) {
+  const out = { t: null, sigs: [] };
+  const parts = String(header).trim().split(',');
+  for (let i = 0; i < parts.length; i++) {
+    const kv = parts[i].split('=');
+    if (kv.length < 2) continue;
+    const key = kv[0].trim().toLowerCase();
+    const val = kv.slice(1).join('=').trim();
+    if (key === 't') { out.t = val; }
+    else if (key === 'v1') { out.sigs.push(val); }
   }
-
-  // Stripe-style: t=1756049608,v1=abc123 (may carry several v1 values)
-  if (h.indexOf('=') !== -1) {
-    const parts = h.split(',');
-    for (let i = 0; i < parts.length; i++) {
-      const kv = parts[i].split('=');
-      if (kv.length < 2) continue;
-      const key = kv[0].trim().toLowerCase();
-      const val = kv.slice(1).join('=').trim();
-      if (key === 't') continue;
-      if (eq(val, hex)) return 'kv_' + key + '_hex';
-      if (eq(val, b64)) return 'kv_' + key + '_base64';
-    }
-  }
-
-  return null;
+  return out;
 }
 
 function eq(a, b) {
