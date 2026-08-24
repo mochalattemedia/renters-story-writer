@@ -112,4 +112,56 @@ function verify(header, hex, b64) {
     const parts = h.split(',');
     for (let i = 0; i < parts.length; i++) {
       const kv = parts[i].split('=');
-      if (kv.length
+      if (kv.length < 2) continue;
+      const key = kv[0].trim().toLowerCase();
+      const val = kv.slice(1).join('=').trim();
+      if (key === 't') continue;
+      if (eq(val, hex)) return 'kv_' + key + '_hex';
+      if (eq(val, b64)) return 'kv_' + key + '_base64';
+    }
+  }
+
+  return null;
+}
+
+function eq(a, b) {
+  const ab = Buffer.from(String(a), 'utf8');
+  const bb = Buffer.from(String(b), 'utf8');
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
+async function route(evt) {
+  const obj = (evt && evt.data && evt.data.object) || {};
+  const mapped = STATUS_MAP[evt.type];
+
+  if (!mapped) {
+    console.log('pg_event_unhandled', evt.type, evt.id);
+    return;
+  }
+
+  const record = {
+    _v: FN_VERSION,
+    provider: 'panda',
+    stage: mapped.stage,
+    badge: mapped.badge,
+    external_id: obj.id || null,
+    status: obj.status || null,
+    status_label: obj.status_label || null,
+    property_assigned: obj.property_assigned === true,
+    property_id: obj.property_id || null,
+    landlord_id: obj.landlord_id || null,
+    premium_cents: (obj.premium_amount === undefined ? null : obj.premium_amount),
+    bond_number: (obj.bond && obj.bond.number) || null,
+    issued_at: (obj.bond && obj.bond.issued_at) || null,
+    event_id: evt.id,
+    event_created: evt.created,
+    updated_at: new Date().toISOString(),
+  };
+
+  console.log('pg_state', JSON.stringify(record));
+
+  // TODO: upsert to BD member record. Guard on event_created — webhooks arrive
+  // out of order and retry for 24h, so an older event must never overwrite a
+  // newer stage. Dedupe on event_id.
+}
