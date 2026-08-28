@@ -1,6 +1,38 @@
 // ============================================================
 //  send-listing-draft-email.js
-//  FN_VERSION: slde-v28  (2026-07-17)
+//  FN_VERSION: slde-v30  (2026-08-28)
+//    slde-v30 THE SUGGESTION TONE SAYS WHY IT IS WORTH DOING, AND STOPS
+//             REASSURING. v29 opened with "your listing is live and there is
+//             nothing you have to do", which comforts someone who was not
+//             worried and reads as condescending. Gone.
+//             It now names the payoff, which is the only reason a landlord
+//             would act: matching pairs on SPECS - budget, timing, type, area,
+//             pets - and gets a renter to the listing. What decides whether
+//             they pursue it is what they then see. A structurally perfect
+//             match with weak photos fails anyway, and it fails INVISIBLY:
+//             it shows up as a low conversion rate rather than as a bad match.
+//             So the claim is deliberately about matching WELL rather than
+//             about the algorithm reading photos, because it does not.
+//             Saying "improves your ranking in our algorithm" would be false.
+//  FN_VERSION: slde-v29  (2026-08-28)
+//    slde-v29 TWO TONES. The email asserted "we have set your listing back to
+//             draft" in every case, which is false for a PUBLISHED listing and
+//             wrong for "these photos could use updating". A new `tone` field
+//             picks the framing:
+//               "draft"  (default) unchanged - blocking, listing is not live
+//               "improve"          a suggestion - listing stays live, nothing
+//                                  is blocked, no set-it-back-to-live step
+//             The gap list, the callouts and the note render identically in
+//             both; only the framing sentences, the heading, the subject and
+//             the closing line change.
+//             WHY IT MATTERS: publication is no longer the goal - matching is.
+//             A live listing with weak photos is one we would still rather not
+//             introduce a renter to, but telling its owner it has been set to
+//             draft is simply untrue.
+//             `note` was already threaded through and needed no change; it is
+//             now the main path for a judgement only a person can make, e.g.
+//             construction equipment visible in a photo, which no scanner
+//             flags because the photo is present.
 //
 //  Emails a LANDLORD when a listing is set back to draft for not meeting the
 //  photo standard, AND keeps a per-listing "what's missing" status so the
@@ -42,7 +74,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v28";
+const FN_VERSION = "slde-v30";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -412,7 +444,10 @@ function pickedItems(reasons, missing) {
   if (missing && String(missing).trim()) picked.push(String(missing).trim());
   return picked;
 }
-function buildEmail({ name, listingUrl, listingPicked, profilePicked, note }) {
+function buildEmail({ name, listingUrl, listingPicked, profilePicked, note, tone }) {
+  // "improve" = a suggestion on a listing that stays live. Anything else keeps
+  // the original blocking wording, so every existing caller is unaffected.
+  const improve = String(tone || "") === "improve";
   const greet = esc(cleanName(name));
   const url = listingUrl || EDIT_URL;
   listingPicked = listingPicked || [];
@@ -427,7 +462,19 @@ function buildEmail({ name, listingUrl, listingPicked, profilePicked, note }) {
   }
   // The opening line follows what's actually checked — photos, profile, or both.
   var reasonHtml, reasonText;
-  if (hasPhotos && hasProfile) { reasonHtml = "We&rsquo;ve set your listing back to draft because a few things still need attention before it can go live. It&rsquo;s a quick fix, not a rejection."; }
+  if (improve) {
+    // NAME THE PAYOFF, DO NOT REASSURE. We match on specs - budget, timing,
+    // property type, area, pets - which is what gets a renter to the listing.
+    // What decides whether they pursue it is what they see when they arrive.
+    // A good match that looks unconvincing does not convert, and nobody ever
+    // finds out why. That is the landlord's own interest, so say it.
+    var payoff = "When you get a chance, please update the following on your listing. We match renters to your place on the details, but what they see when they get there is what decides whether they pursue it.";
+    if (hasPhotos && hasProfile) { reasonHtml = payoff; }
+    else if (hasPhotos) { reasonHtml = "When you get a chance, please update the photos below. We match renters to your place on the details, but the photos are what decide whether they pursue it."; }
+    else if (hasProfile) { reasonHtml = "When you get a chance, please complete the profile details below. Renters look at who they would be renting from before they get in touch."; }
+    else { reasonHtml = "When you get a chance, please take a look at the note below."; }
+  }
+  else if (hasPhotos && hasProfile) { reasonHtml = "We&rsquo;ve set your listing back to draft because a few things still need attention before it can go live. It&rsquo;s a quick fix, not a rejection."; }
   else if (hasPhotos) { reasonHtml = "We&rsquo;ve set your listing back to draft because the photos don&rsquo;t yet meet our community standard. It&rsquo;s a quick fix, not a rejection."; }
   else if (hasProfile) { reasonHtml = "We&rsquo;ve set your listing back to draft because your profile needs a couple of updates before it can go live. It&rsquo;s a quick fix, not a rejection."; }
   else { reasonHtml = "We&rsquo;ve set your listing back to draft because it needs a couple of updates before it can go live. It&rsquo;s a quick fix, not a rejection."; }
@@ -435,12 +482,14 @@ function buildEmail({ name, listingUrl, listingPicked, profilePicked, note }) {
 
   var specificHtml = "", specificText = "";
   if (hasPhotos) {
-    specificHtml += callout("On your listing, we still need:", listingPicked, "#7c2d12", "#fff7ed", "#fed7aa");
-    specificText += "On your listing, we still need:\n" + listingPicked.map(function (i) { return "- " + i; }).join("\n") + "\n\n";
+    var lHead = improve ? "On your listing:" : "On your listing, we still need:";
+    specificHtml += callout(lHead, listingPicked, "#7c2d12", "#fff7ed", "#fed7aa");
+    specificText += lHead + "\n" + listingPicked.map(function (i) { return "- " + i; }).join("\n") + "\n\n";
   }
   if (hasProfile) {
-    specificHtml += callout("On your profile, please add or complete:", profilePicked, "#0c4a6e", "#eff6ff", "#bfdbfe");
-    specificText += "On your profile, please add or complete:\n" + profilePicked.map(function (i) { return "- " + i; }).join("\n") + "\n\n";
+    var pHead = improve ? "On your profile:" : "On your profile, please add or complete:";
+    specificHtml += callout(pHead, profilePicked, "#0c4a6e", "#eff6ff", "#bfdbfe");
+    specificText += pHead + "\n" + profilePicked.map(function (i) { return "- " + i; }).join("\n") + "\n\n";
     // Identity + listing opt-in live at the end of the setup wizard.
     var identity = profilePicked.some(function (i) { return /identit|verif/i.test(i); });
     if (identity) {
@@ -455,14 +504,22 @@ function buildEmail({ name, listingUrl, listingPicked, profilePicked, note }) {
   // The full standard photo checklist appears ONLY when photos are involved.
   var standardHtml = "", standardText = "";
   if (hasPhotos) {
-    standardHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>Every live listing needs clear, well-lit photos of the whole property:</p>"
+    var stdIntro = improve
+      ? "For reference, this is what a complete set of photos covers:"
+      : "Every live listing needs clear, well-lit photos of the whole property:";
+    standardHtml = "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 14px;'>" + stdIntro + "</p>"
       + "<table style='border-collapse:collapse;width:100%;margin:0 0 20px;'>" + checklistRows(STANDARD_ITEMS) + "</table>";
-    standardText = "Every live listing needs clear, well-lit photos of the whole property:\n" + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n";
+    standardText = stdIntro + "\n" + STANDARD_ITEMS_TEXT.map(function (i) { return "- " + i; }).join("\n") + "\n";
   }
   var midHtml = specificHtml + standardHtml;
   var midText = specificText + standardText;
   var subject;
-  if (hasPhotos) subject = "Your Renters.com listing needs updated photos to go live";
+  if (improve) {
+    if (hasPhotos) subject = "A few updates to help your Renters.com listing match better";
+    else if (hasProfile) subject = "A couple of profile details to help you match better";
+    else subject = "A note about your Renters.com listing";
+  }
+  else if (hasPhotos) subject = "Your Renters.com listing needs updated photos to go live";
   else if (hasProfile) subject = "A couple of updates to get your Renters.com listing live";
   else subject = "A quick fix to get your Renters.com listing live";
   const html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
@@ -471,17 +528,21 @@ function buildEmail({ name, listingUrl, listingPicked, profilePicked, note }) {
     + "<div style='background:#0d2d4e;border-radius:14px 14px 0 0;padding:26px 30px;text-align:center;'>"
     + "<div style='font-size:22px;font-weight:800;color:#ffffff;'>RENTERS<span style='color:#8dc63f;'>.</span></div></div>"
     + "<div style='background:#ffffff;padding:32px 30px;border-radius:0 0 14px 14px;'>"
-    + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 14px;'>A quick fix to get your listing live</h1>"
+    + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 14px;'>" + (improve ? "A few suggestions for your listing" : "A quick fix to get your listing live") + "</h1>"
     + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + greet + ", thanks for listing your place on Renters.com. " + reasonHtml + "</p>"
     + midHtml
-    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>Once those are done, set your listing back to live. It will go to pending approval, and we&rsquo;ll review it and make it visible as soon as it meets the standard.</p>"
-    + "<div style='text-align:center;margin-bottom:24px;'><a href='" + esc(url) + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>Complete your listing &rarr;</a></div>"
+    + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>" + (improve
+        ? "Your listing stays live either way."
+        : "Once those are done, set your listing back to live. It will go to pending approval, and we&rsquo;ll review it and make it visible as soon as it meets the standard.") + "</p>"
+    + "<div style='text-align:center;margin-bottom:24px;'><a href='" + esc(url) + "' style='display:inline-block;background:#8dc63f;color:#0d2d4e;text-decoration:none;border-radius:10px;padding:13px 30px;font-size:15px;font-weight:700;'>" + (improve ? "Update your listing &rarr;" : "Complete your listing &rarr;") + "</a></div>"
     + "<p style='font-size:14px;color:#4a5a6a;line-height:1.6;margin:0;'>&mdash; The Renters.com team</p>"
     + "</div><p style='font-size:12px;color:#9aa7b3;text-align:center;margin:18px 0 0;'>Renters.com. Finding a home should feel safe.</p>"
     + "</div></body></html>";
   const text = "Hi " + cleanName(name) + ",\n\n"
     + "Thanks for listing your place on Renters.com. " + reasonText + "\n\n"
-    + midText + "\nOnce those are done, set your listing back to live. It will go to pending approval, and we'll review it and make it visible as soon as it meets the standard.\n\nComplete your listing: " + url + "\n\n- The Renters.com team\n\nRenters.com. Finding a home should feel safe.";
+    + midText + "\n" + (improve
+        ? "Your listing stays live either way."
+        : "Once those are done, set your listing back to live. It will go to pending approval, and we'll review it and make it visible as soon as it meets the standard.") + "\n\n" + (improve ? "Update your listing: " : "Complete your listing: ") + url + "\n\n- The Renters.com team\n\nRenters.com. Finding a home should feel safe.";
   return { subject, html, text };
 }
 
@@ -609,12 +670,16 @@ exports.handler = async function (event) {
   const listingPicked = pickedItems(listingSrc, null);
   const profilePicked = pickedItems(body.profileReasons, null);
   const note = (body.missing && String(body.missing).trim()) ? String(body.missing).trim() : "";
+  // "improve" softens the framing for a listing that is staying live. Unknown
+  // or absent values fall through to the original blocking wording, so an old
+  // caller behaves exactly as before.
+  const tone = String(body.tone || "") === "improve" ? "improve" : "draft";
   const picked = listingPicked.concat(profilePicked).concat(note ? [note] : []); // combined, for the status log/tracker
   const nowISO = new Date().toISOString();
 
   // Preview: render the email and return it, without sending or requiring a recipient.
   if (body.preview === true) {
-    const pv = buildEmail({ name: body.name, listingUrl: body.listingUrl, listingPicked: listingPicked, profilePicked: profilePicked, note: note });
+    const pv = buildEmail({ name: body.name, listingUrl: body.listingUrl, listingPicked: listingPicked, profilePicked: profilePicked, note: note, tone: tone });
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ success: true, preview: true, subject: pv.subject, html: pv.html, text: pv.text }) };
   }
 
@@ -637,7 +702,7 @@ exports.handler = async function (event) {
   }
   if (!looksLikeEmail(email)) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Provide a landlord email or a valid member ID", got: email }) };
 
-  const { subject, html, text } = buildEmail({ name: name, listingUrl: body.listingUrl, listingPicked: listingPicked, profilePicked: profilePicked, note: note });
+  const { subject, html, text } = buildEmail({ name: name, listingUrl: body.listingUrl, listingPicked: listingPicked, profilePicked: profilePicked, note: note, tone: tone });
 
   const destination = { ToAddresses: [email] };
   if (BCC && looksLikeEmail(BCC)) destination.BccAddresses = [BCC.trim()];
