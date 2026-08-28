@@ -44,7 +44,18 @@
   .emailinfo { font-size:12px; color:var(--muted); }
   .actions { white-space:nowrap; }
   .actions button { display:block; width:100%; margin-bottom:6px; border:0; border-radius:7px; padding:7px 10px; font-size:12px; font-weight:700; cursor:pointer; }
-  .btn-email { background:var(--navy); color:#fff; }
+  /* FIXED WIDTH. The armed label used to swap in the full email address,
+     which made the button far wider and moved it out from under the cursor -
+     so the second click landed on empty space and nothing was ever sent. The
+     tracker bookmarklet had the identical bug. The armed label is now SHORTER
+     than the idle one, and the width never changes either way. */
+  .btn-email { background:var(--navy); color:#fff; width:132px; min-width:132px; text-align:center; box-sizing:border-box; white-space:nowrap; overflow:hidden; }
+  .btn-email.armed { background:#b45309; }
+  .actions textarea.note { width:132px; margin-top:6px; font:inherit; font-size:12px; padding:5px 7px; border:1px solid var(--line); border-radius:7px; resize:vertical; box-sizing:border-box; }
+  .tonepill { display:inline-block; font-size:11px; font-weight:700; padding:2px 7px; border-radius:999px; margin-top:6px; }
+  .tonepill.improve { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
+  .tonepill.draft { background:#fff7ed; color:#7c2d12; border:1px solid #fed7aa; }
+  .redo { margin-top:5px; font-size:12px; font-weight:700; color:#7f1d1d; background:#fee2e2; border:1px solid #fecaca; border-radius:6px; padding:4px 7px; display:inline-block; }
   .btn-scan { background:#eef2f5; color:var(--navy); border:1px solid var(--line)!important; }
   .empty { text-align:center; color:var(--muted); padding:50px 20px; }
   .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--navy); color:#fff; padding:10px 16px; border-radius:8px; font-size:14px; box-shadow:0 8px 24px rgba(2,6,23,.35); opacity:0; transition:opacity .2s; pointer-events:none; }
@@ -69,6 +80,7 @@
       <button data-f="pending">Pending approval</button>
       <button data-f="published">Published</button>
       <button data-f="notemailed">Not emailed</button>
+      <button data-f="edited">Edited since notified</button>
       <button data-f="all">All</button>
     </div>
     <div class="scanbox">
@@ -120,17 +132,55 @@
   }
   function totalGaps(s) { var g = gaps(s); return g.photo.length + g.listing.length + g.profile.length + ((s.items && !g.scanned) ? s.items.length : 0); }
 
+  // EDITED SINCE WE TOLD THEM. The landlord has changed the listing after our
+  // notice, so it is waiting on a re-review. This is the actual work queue.
+  // DATE FORMATS DISAGREE ACROSS THE STORE, and that is the whole difficulty:
+  //   auto.lastEdit   "2026-08-28 04:14:58"
+  //   auto.created    "20260828011458"
+  //   tracker badge   "08/28/2026"   (scraped off BD's page)
+  // Parse each to a day rather than comparing strings, or this dashboard and
+  // the tracker badge will disagree about the same listing.
+  function dayOf(raw) {
+    if (!raw) return null;
+    var t = String(raw).trim();
+    var y, m, d;
+    if (t.length >= 8 && t.indexOf("-") === -1 && t.indexOf("/") === -1) {
+      y = +t.slice(0, 4); m = +t.slice(4, 6); d = +t.slice(6, 8);
+    } else if (t.indexOf("/") !== -1) {
+      var a = t.split("/");
+      if (a.length < 3) return null;
+      m = +a[0]; d = +a[1]; y = +String(a[2]).slice(0, 4);
+    } else {
+      var b = t.slice(0, 10).split("-");
+      if (b.length < 3) return null;
+      y = +b[0]; m = +b[1]; d = +b[2];
+    }
+    if (!y || !m || !d) return null;
+    var ms = new Date(y, m - 1, d).getTime();
+    return isNaN(ms) ? null : ms;
+  }
+
+  function editedSince(s) {
+    if (!s || !s.notifyCount) return false;
+    var g = gaps(s);
+    var edited = dayOf(g.lastEdit);
+    var told = dayOf(s.lastNotified || s.date);
+    if (edited === null || told === null) return false;
+    return edited > told;
+  }
+
   function stats() {
-    var ids = Object.keys(DATA), needs = 0, published = 0, pending = 0, notpub = 0, emailed = 0;
+    var ids = Object.keys(DATA), needs = 0, published = 0, pending = 0, notpub = 0, emailed = 0, redo = 0;
     ids.forEach(function (id) {
       var s = DATA[id], g = gaps(s), tg = totalGaps(s), code = String(g.group_status);
       if (tg > 0) needs++;
       if (code === "1") published++; else if (code === "3") pending++; else if (code === "0") notpub++;
       if (s.notifyCount) emailed++;
+      if (editedSince(s)) redo++;
     });
     var box = document.getElementById("stats");
     function card(n, l) { return '<div class="stat"><div class="n">' + n + '</div><div class="l">' + l + '</div></div>'; }
-    box.innerHTML = card(ids.length, "Listings tracked") + card(needs, "Need work") + card(notpub, "Not published") + card(pending, "Pending approval") + card(published, "Published");
+    box.innerHTML = card(ids.length, "Listings tracked") + card(needs, "Need work") + card(redo, "Awaiting re-review") + card(notpub, "Not published") + card(pending, "Pending approval") + card(published, "Published");
   }
 
   function matches(id, s) {
@@ -140,6 +190,7 @@
     if (FILTER === "pending" && code !== "3") return false;
     if (FILTER === "published" && code !== "1") return false;
     if (FILTER === "notemailed" && (s.notifyCount || tg === 0 || isLive(code))) return false;
+    if (FILTER === "edited" && !editedSince(s)) return false;
     if (SEARCH) {
       var hay = (id + " " + (s.listingName || "") + " " + ((s.landlord && s.landlord.email) || "")).toLowerCase();
       if (hay.indexOf(SEARCH) === -1) return false;
@@ -157,26 +208,39 @@
     if (!ids.length) { wrap.innerHTML = '<div class="empty">No listings match this view yet. Scan a listing by ID above, or run the tracker on your BD listings page.</div>'; return; }
     var rows = ids.map(function (id) {
       var s = DATA[id], g = gaps(s), tg = totalGaps(s), code = String(g.group_status), meta = statusMeta(code);
+      var redoFlag = editedSince(s) ? '<div class="redo">&#9888; Edited after your notice &mdash; re-review</div>' : "";
       var statusCell = tg > 0
         ? (grpHtml("Photos", g.photo) + grpHtml("Listing", g.listing) + grpHtml("Profile", g.profile) + ((!g.scanned && s.items && s.items.length) ? grpHtml("Flagged", s.items) : ""))
         : (g.scanned ? '<span class="complete">&#10003; Looks complete</span>' : '<span class="muted">Not scanned</span>');
       var land = s.landlord || {};
       var landCell = land.email ? esc(land.email) : (land.userId ? ('member ' + esc(land.userId)) : '<span class="muted">unknown</span>');
       var emailCell = s.notifyCount ? ("&#9993; " + s.notifyCount + "&times;<br><span class='muted'>last " + esc(d10(s.lastNotified || s.date)) + "</span>") : '<span class="muted">Not emailed</span>';
-      var canEmail = tg > 0 && isNotLive(code) && (land.userId || land.email);
+      // ANY listing with a landlord can be emailed now, live or not.
+      // Publication is no longer the goal - matching is - so a LIVE listing
+      // with weak photos is exactly one worth writing about. The TONE changes
+      // rather than the availability: live listings get the "improve" framing,
+      // which never claims the listing has been set back to draft.
+      // tg === 0 still qualifies, because a note may be the only reason to
+      // write - construction equipment in a photo is not a MISSING photo, so
+      // no scanner flags it.
+      var canEmail = !!(land.userId || land.email);
       var actions = '<div class="actions">'
         + (canEmail ? '<button class="btn-email" data-email="' + esc(id) + '">' + (s.notifyCount ? "Email again" : "Email landlord") + '</button>' : '')
-        + '<button class="btn-scan" data-scan="' + esc(id) + '">Re-scan</button></div>';
+        + '<button class="btn-scan" data-scan="' + esc(id) + '">Re-scan</button>'
+        + (canEmail ? '<textarea class="note" data-note="' + esc(id) + '" rows="2" placeholder="Anything else to mention (optional)"></textarea>' : '')
+        + '</div>';
       var dateHtml = "";
       if (g.created || g.lastEdit) {
         dateHtml = '<div class="dates">' + (g.created ? ("Created " + esc(fmtDate(g.created))) : "") + (g.lastEdit ? ((g.created ? " &middot; " : "") + "Edited " + esc(fmtDate(g.lastEdit))) : "") + '</div>';
       }
       return '<tr>'
         + '<td><span class="name">' + esc(s.listingName || ("Listing " + id)) + '</span><span class="idpill">ID ' + esc(id) + '</span><br>'
-        + '<span class="tag ' + meta.cls + '">' + esc(meta.label) + '</span>' + dateHtml + '</td>'
+        + '<span class="tag ' + meta.cls + '">' + esc(meta.label) + '</span>' + dateHtml + redoFlag + '</td>'
         + '<td>' + statusCell + '</td>'
         + '<td>' + landCell + '</td>'
-        + '<td class="emailinfo">' + emailCell + '</td>'
+        + '<td class="emailinfo">' + emailCell
+        + (canEmail ? ('<div class="tonepill ' + (isLive(code) ? "improve" : "draft") + '">' + (isLive(code) ? "suggestion" : "draft notice") + '</div>') : "")
+        + '</td>'
         + '<td class="actions">' + actions + '</td>'
         + '</tr>';
     }).join("");
@@ -191,12 +255,29 @@
         var id = btn.getAttribute("data-email"), armed = false, timer = null;
         var s = DATA[id], land = s.landlord || {}, g = gaps(s);
         var to = land.email || ("member " + land.userId);
+        var IDLE = btn.textContent;
+        // The address lives in the tooltip now rather than the label, because
+        // the label has to stay a fixed width or the button moves when armed.
+        btn.title = "Send to " + to;
         btn.onclick = function () {
-          if (!armed) { armed = true; var orig = btn.textContent; btn.textContent = "Send to " + to + "?"; timer = setTimeout(function () { armed = false; btn.textContent = orig; }, 4000); return; }
+          if (!armed) {
+            armed = true;
+            btn.classList.add("armed");
+            btn.textContent = "Confirm send";
+            timer = setTimeout(function () { armed = false; btn.classList.remove("armed"); btn.textContent = IDLE; }, 6000);
+            return;
+          }
+          btn.classList.remove("armed");
           if (timer) clearTimeout(timer);
           btn.disabled = true; btn.textContent = "Sending…";
           var sendListing = g.photo.concat(g.listing), sendProfile = g.profile;
-          fetch(FN, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: KEY, postId: id, memberId: land.userId || "", email: land.email || "", listingReasons: sendListing, profileReasons: sendProfile }) })
+          // A LIVE listing gets the suggestion framing. The draft wording
+          // asserts the listing has been set back to draft, which is simply
+          // untrue for anything already published.
+          var tone = isLive(String(g.group_status)) ? "improve" : "draft";
+          var noteEl = document.querySelector('[data-note="' + id + '"]');
+          var note = noteEl ? String(noteEl.value || "").trim() : "";
+          fetch(FN, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: KEY, postId: id, memberId: land.userId || "", email: land.email || "", listingReasons: sendListing, profileReasons: sendProfile, missing: note, tone: tone }) })
             .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
             .then(function (res) {
               if (res.ok && res.j && res.j.success) {
