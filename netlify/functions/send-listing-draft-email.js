@@ -1,5 +1,21 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v31  (2026-08-29)
+//    slde-v31 THE ABOUT/BIO CHECK READ ONE FIELD OUT OF TWO.
+//             assessProfile() tested about_me alone, so a landlord who wrote
+//             their intro into MY STORY had a complete profile and was told to
+//             complete it. Head code w143 already recorded this: BD accepts
+//             about_me OR my_story as the intro, and three wizards broke by
+//             reading only one signal for it.
+//             THIS IS THE WORST KIND OF FALSE POSITIVE. Telling someone to fix
+//             what they have already done does not just waste their time, it
+//             teaches them our notices are not worth reading - and then the
+//             true ones get ignored too.
+//             Name and phone hardened the same way: BD stores a display name
+//             in more than one place, and phone in more than one column, so
+//             both now accept any of the fields that can legitimately hold
+//             them rather than the single one this happened to be written
+//             against.
 //  FN_VERSION: slde-v30  (2026-08-28)
 //    slde-v30 THE SUGGESTION TONE SAYS WHY IT IS WORTH DOING, AND STOPS
 //             REASSURING. v29 opened with "your listing is live and there is
@@ -74,7 +90,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v30";
+const FN_VERSION = "slde-v31";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -408,12 +424,21 @@ function assessListingFields(g) {
   return out;
 }
 // Gaps on the landlord's member profile.
+// ACCEPT ANY FIELD THAT LEGITIMATELY HOLDS THE VALUE. BD stores several of
+// these in more than one column depending on which form was used, and checking
+// a single one produces a false gap on a profile that is genuinely complete.
+// The intro is the one that bit: w143 in head code records that BD counts
+// about_me OR my_story, and three wizards broke by reading only one.
+function anyVal(u, names) {
+  for (var i = 0; i < names.length; i++) { if (hasVal(u[names[i]])) return true; }
+  return false;
+}
 function assessProfile(u) {
   u = u || {};
   var out = [];
-  if (!hasVal(u.first_name) && !hasVal(u.last_name)) out.push("Add your name");
-  if (!hasVal(u.phone_number)) out.push("Add a contact phone number");
-  if (!hasVal(u.about_me)) out.push("Complete your About / bio");
+  if (!anyVal(u, ["first_name", "last_name", "display_name", "full_name", "name", "company_name"])) out.push("Add your name");
+  if (!anyVal(u, ["phone_number", "phone", "mobile_phone", "cell_phone", "telephone", "phone_1"])) out.push("Add a contact phone number");
+  if (!anyVal(u, ["about_me", "my_story", "bio", "about", "description", "profile_description"])) out.push("Complete your About / bio");
   if (String(u.verified) !== "1") out.push("Get verified");
   return out;
 }
