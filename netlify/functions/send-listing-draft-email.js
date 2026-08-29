@@ -1,5 +1,19 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v32  (2026-08-29)
+//    slde-v32 A MEMBER DUMP, so profile checks stop being written against
+//             guesses. v31 widened the About/bio check to accept six possible
+//             field names, which fixed the false positive by brute force
+//             without anyone knowing which field BD actually uses. That is a
+//             patch, not knowledge, and the next check written blind will
+//             break the same way.
+//               GET ?diag=member&memberId=NNN   (x-admin-key header required)
+//             returns every field on the record that has a value, plus the
+//             full key list, so a check can be written against what is really
+//             stored.
+//             VALUES ARE TRUNCATED to 300 characters. This is a diagnostic
+//             read of somebody's personal record - it should show enough to
+//             identify a field and no more.
 //  FN_VERSION: slde-v31  (2026-08-29)
 //    slde-v31 THE ABOUT/BIO CHECK READ ONE FIELD OUT OF TWO.
 //             assessProfile() tested about_me alone, so a landlord who wrote
@@ -90,7 +104,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v31";
+const FN_VERSION = "slde-v32";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -240,6 +254,33 @@ async function blobSelfTest() {
 }
 
 // ---- BD member lookup -------------------------------------------------------
+// The whole record, untouched. bdGetMember() reduces it to email + first name,
+// which is right for sending but useless for working out what BD stores.
+function bdGetMemberRaw(id) {
+  return new Promise(function (resolve) {
+    const key = process.env.BD_API_KEY;
+    if (!key) return resolve({ error: "no_bd_key" });
+    const req = https.request(
+      { host: "www.renters.com", path: "/api/v2/user/get/" + encodeURIComponent(String(id).trim()),
+        method: "GET", headers: { "X-Api-Key": key, Accept: "application/json" } },
+      function (res) {
+        let data = "";
+        res.on("data", function (c) { data += c; });
+        res.on("end", function () {
+          try {
+            const j = JSON.parse(data);
+            const rec = Array.isArray(j.message) ? j.message[0] : (j.message || j.data || j);
+            if (!rec || typeof rec !== "object") return resolve({ error: "no_record" });
+            resolve(rec);
+          } catch (e) { resolve({ error: "parse_error", raw: String(data).slice(0, 200) }); }
+        });
+      }
+    );
+    req.on("error", function (e) { resolve({ error: "request_failed", detail: String(e && e.message) }); });
+    req.end();
+  });
+}
+
 function bdGetMember(id) {
   return new Promise(function (resolve) {
     const key = process.env.BD_API_KEY;
@@ -584,6 +625,31 @@ exports.handler = async function (event) {
       if (!ak || !safeEqual(hk, ak)) return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
       const idx = await readStatusIndex();
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(idx) };
+    }
+    if (qs.diag === "member") {
+      // Which fields does BD ACTUALLY populate? Written because v31 had to
+      // accept six possible names for one field, none of them confirmed.
+      const hk = (event.headers && (event.headers["x-admin-key"] || event.headers["X-Admin-Key"])) || "";
+      const ak = process.env.LISTING_EMAIL_ADMIN_KEY || "";
+      if (!ak || !safeEqual(hk, ak)) return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
+      const mid = String(qs.memberId || "").trim();
+      if (!mid) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "memberId required" }) };
+      const rec = await bdGetMemberRaw(mid);
+      if (!rec || rec.error) return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ ok: false, _v: FN_VERSION, memberId: mid, error: (rec && rec.error) || "no_record" }) };
+      const populated = {};
+      Object.keys(rec).forEach(function (k) {
+        const v = rec[k];
+        if (v === null || v === undefined) return;
+        const str = typeof v === "object" ? JSON.stringify(v) : String(v);
+        if (!str.trim() || str.trim() === "0") return;
+        populated[k] = str.length > 300 ? (str.slice(0, 300) + "...[truncated]") : str;
+      });
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+        ok: true, _v: FN_VERSION, memberId: mid,
+        allKeys: Object.keys(rec).sort(),
+        populated: populated,
+        assessedAs: assessProfile(rec)
+      }, null, 2) };
     }
     if (qs.blobtest != null) {
       const hk = (event.headers && (event.headers["x-admin-key"] || event.headers["X-Admin-Key"])) || "";
