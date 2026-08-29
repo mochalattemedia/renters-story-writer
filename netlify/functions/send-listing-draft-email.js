@@ -1,5 +1,28 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v35  (2026-08-29)
+//    slde-v35 CAN WE EVEN SEE ALL 213 LISTINGS? A diagnostic, no behaviour
+//             change. The dashboard renders from the stored index, and a
+//             listing only enters that index when someone scans it - so it
+//             shows 23 of 213 and the other 190 are invisible.
+//             Before designing a full pull, find out what BD will actually
+//             return. The Bible records /api/v2/leads/get capped at 100 rows,
+//             ignoring ?limit and ?offset, and returning the OLDEST hundred -
+//             which can never see a recent record. If groups behave the same
+//             way the pull needs a different route entirely, and it is much
+//             cheaper to learn that now than after building against it.
+//               GET ?diag=listings   (x-admin-key header required)
+//             tries several paging shapes and reports, for each: row count,
+//             first and last id, and whether the ids differ from the plain
+//             call. Ids and status only - it is a shape probe, not a data
+//             dump.
+//  FN_VERSION: slde-v34  (2026-08-29)
+//    slde-v34 "A few suggestions for your listing" -> "Your listing".
+//             The heading announced that we had opinions before saying
+//             anything useful, which reads as preachy. The subject line had
+//             the same shape and is now plain too. Nothing else changed: the
+//             body already opens with what needs doing, so the heading was
+//             doing no work the first sentence was not.
 //  FN_VERSION: slde-v33  (2026-08-29)
 //    slde-v33 THE BIO LIVES IN search_description, AND NOW GETS READ.
 //             The dump settled what v31 guessed at and got wrong. The landlord
@@ -127,7 +150,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v33";
+const FN_VERSION = "slde-v35";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -350,6 +373,26 @@ function bdRawGet(path) {
 }
 
 // ---- automatic scan: read a listing (photos + details) from BD --------------
+// A raw GET against BD, so a diagnostic can try arbitrary paths without each
+// one needing its own helper.
+function bdRawGet(path) {
+  return new Promise(function (resolve) {
+    const key = process.env.BD_API_KEY;
+    if (!key) return resolve({ error: "no_bd_key" });
+    const req = https.request({ host: "www.renters.com", path: path, method: "GET", headers: { "X-Api-Key": key, Accept: "application/json" } }, function (res) {
+      var data = "";
+      res.on("data", function (c) { data += c; });
+      res.on("end", function () {
+        if (res.statusCode === 429) return resolve({ error: "rate_limited_429" });
+        try { resolve(JSON.parse(data)); }
+        catch (e) { resolve({ error: "parse_error_" + res.statusCode, raw: String(data).slice(0, 160) }); }
+      });
+    });
+    req.on("error", function (e) { resolve({ error: String(e && e.message) }); });
+    req.end();
+  });
+}
+
 function bdGetListing(id) {
   return new Promise(function (resolve) {
     const key = process.env.BD_API_KEY;
@@ -672,9 +715,10 @@ function buildEmail({ name, listingUrl, listingPicked, profilePicked, note, tone
   var midText = specificText + standardText;
   var subject;
   if (improve) {
-    if (hasPhotos) subject = "A few updates to help your Renters.com listing match better";
-    else if (hasProfile) subject = "A couple of profile details to help you match better";
-    else subject = "A note about your Renters.com listing";
+    // Plain, for the same reason as the heading. The body says what it is.
+    if (hasPhotos) subject = "Your Renters.com listing";
+    else if (hasProfile) subject = "Your Renters.com profile";
+    else subject = "Your Renters.com listing";
   }
   else if (hasPhotos) subject = "Your Renters.com listing needs updated photos to go live";
   else if (hasProfile) subject = "A couple of updates to get your Renters.com listing live";
@@ -685,7 +729,7 @@ function buildEmail({ name, listingUrl, listingPicked, profilePicked, note, tone
     + "<div style='background:#0d2d4e;border-radius:14px 14px 0 0;padding:26px 30px;text-align:center;'>"
     + "<div style='font-size:22px;font-weight:800;color:#ffffff;'>RENTERS<span style='color:#8dc63f;'>.</span></div></div>"
     + "<div style='background:#ffffff;padding:32px 30px;border-radius:0 0 14px 14px;'>"
-    + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 14px;'>" + (improve ? "A few suggestions for your listing" : "A quick fix to get your listing live") + "</h1>"
+    + "<h1 style='font-size:22px;font-weight:800;color:#0d2d4e;margin:0 0 14px;'>" + (improve ? "Your listing" : "A quick fix to get your listing live") + "</h1>"
     + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 16px;'>Hi " + greet + ", thanks for listing your place on Renters.com. " + reasonHtml + "</p>"
     + midHtml
     + "<p style='font-size:15px;color:#4a5a6a;line-height:1.6;margin:0 0 22px;'>" + (improve
@@ -716,6 +760,44 @@ exports.handler = async function (event) {
       if (!ak || !safeEqual(hk, ak)) return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
       const idx = await readStatusIndex();
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(idx) };
+    }
+    if (qs.diag === "listings") {
+      // WHAT DOES BD ACTUALLY RETURN? Probe rather than assume: same call with
+      // different paging parameters, and compare. If every variant returns an
+      // identical first and last id, the parameters are being ignored - which
+      // is exactly what /leads/get does.
+      const hk = (event.headers && (event.headers["x-admin-key"] || event.headers["X-Admin-Key"])) || "";
+      const ak = process.env.LISTING_EMAIL_ADMIN_KEY || "";
+      if (!ak || !safeEqual(hk, ak)) return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
+      const variants = [
+        { name: "plain", path: "/api/v2/users_portfolio_groups/get" },
+        { name: "limit250", path: "/api/v2/users_portfolio_groups/get?limit=250" },
+        { name: "limit250_offset100", path: "/api/v2/users_portfolio_groups/get?limit=250&offset=100" },
+        { name: "page2", path: "/api/v2/users_portfolio_groups/get?page=2" },
+        { name: "perpage250", path: "/api/v2/users_portfolio_groups/get?per_page=250" }
+      ];
+      const results = [];
+      for (var vi = 0; vi < variants.length; vi++) {
+        const v = variants[vi];
+        const r = await bdRawGet(v.path);
+        if (r.error) { results.push({ variant: v.name, error: r.error }); continue; }
+        const rows = Array.isArray(r.message) ? r.message : (Array.isArray(r.data) ? r.data : []);
+        const ids = rows.map(function (x) { return String(x.group_id || x.id || ""); });
+        results.push({
+          variant: v.name, rows: rows.length,
+          firstId: ids[0] || null, lastId: ids[ids.length - 1] || null,
+          statuses: rows.reduce(function (acc, x) { var k = String(x.group_status); acc[k] = (acc[k] || 0) + 1; return acc; }, {})
+        });
+      }
+      const base = results[0] || {};
+      const allSame = results.every(function (r) { return r.error || (r.firstId === base.firstId && r.lastId === base.lastId); });
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+        ok: true, _v: FN_VERSION, results: results,
+        pagingIgnored: allSame,
+        note: allSame
+          ? "Every variant returned the same window - BD is ignoring the paging parameters, same as /leads/get."
+          : "Paging changes the window, so a full pull is possible."
+      }, null, 2) };
     }
     if (qs.diag === "member") {
       // Which fields does BD ACTUALLY populate? Written because v31 had to
