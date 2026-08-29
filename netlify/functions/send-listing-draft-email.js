@@ -1,5 +1,24 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v36  (2026-08-29)
+//    slde-v36 THE v35 PROBE ANSWERED ITS OWN QUESTION WRONG. It reported
+//             "paging works" because ?limit raised the default 25 to 100 - but
+//             ?offset=100 returned the IDENTICAL window (ids 1..128, same
+//             84/16 split) and ?page=2 returned nothing at all. So it is the
+//             same ceiling the Bible records for /leads/get: 100 rows, OLDEST
+//             first, offset ignored. A pull cannot page past the first
+//             hundred, and the newest listings are the ones it can never see.
+//             THE TEST WAS TOO WEAK. It compared each variant against the
+//             plain call rather than against the one that differed only by the
+//             parameter under test, so a real change from ?limit masked the
+//             absence of a change from ?offset.
+//             v36 probes the three remaining routes: SORT (reverse it and the
+//             newest hundred become reachable), FILTER (status or user, so
+//             each slice fits under the cap), and WALK-BY-ID (always works,
+//             costs ~213 calls against a ~100/minute limit).
+//             EVERY VARIANT IS NOW COMPARED AGAINST ITS OWN CONTROL, and the
+//             walk probe deliberately fetches only 3 ids: enough to prove the
+//             route, not enough to spend the rate limit finding out.
 //  FN_VERSION: slde-v35  (2026-08-29)
 //    slde-v35 CAN WE EVEN SEE ALL 213 LISTINGS? A diagnostic, no behaviour
 //             change. The dashboard renders from the stored index, and a
@@ -150,7 +169,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v35";
+const FN_VERSION = "slde-v36";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -760,6 +779,58 @@ exports.handler = async function (event) {
       if (!ak || !safeEqual(hk, ak)) return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
       const idx = await readStatusIndex();
       return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(idx) };
+    }
+    if (qs.diag === "listings2") {
+      // ROUND TWO. ?limit works, ?offset and ?page do not. What is left:
+      // sorting (to reach the newest), filtering (so a slice fits the cap),
+      // and walking ids one at a time (slow but certain).
+      const hk2 = (event.headers && (event.headers["x-admin-key"] || event.headers["X-Admin-Key"])) || "";
+      const ak2 = process.env.LISTING_EMAIL_ADMIN_KEY || "";
+      if (!ak2 || !safeEqual(hk2, ak2)) return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
+      const BASE = "/api/v2/users_portfolio_groups/get?limit=100";
+      const probes = [
+        { name: "control", path: BASE },
+        { name: "sort_desc", path: BASE + "&sort=desc" },
+        { name: "order_desc", path: BASE + "&order=desc" },
+        { name: "orderby_id_desc", path: BASE + "&order_by=group_id&order=desc" },
+        { name: "sortby_newest", path: BASE + "&sort_by=newest" },
+        { name: "status_1", path: BASE + "&group_status=1" },
+        { name: "status_0", path: BASE + "&group_status=0" },
+        { name: "start_100", path: BASE + "&start=100" }
+      ];
+      const out = [];
+      for (var pi = 0; pi < probes.length; pi++) {
+        const pr = probes[pi];
+        const r = await bdRawGet(pr.path);
+        if (r.error) { out.push({ probe: pr.name, error: r.error }); continue; }
+        const rows = Array.isArray(r.message) ? r.message : (Array.isArray(r.data) ? r.data : []);
+        const ids = rows.map(function (x) { return String(x.group_id || x.id || ""); });
+        out.push({ probe: pr.name, rows: rows.length, firstId: ids[0] || null, lastId: ids[ids.length - 1] || null });
+      }
+      // COMPARE EACH AGAINST THE CONTROL, not against a different variant.
+      // That is the mistake v35 made.
+      const ctrl = out[0] || {};
+      out.forEach(function (o) {
+        if (o.probe === "control" || o.error) return;
+        o.differsFromControl = !(o.firstId === ctrl.firstId && o.lastId === ctrl.lastId && o.rows === ctrl.rows);
+      });
+      // Can we simply ask for an id above the cap? Three only - enough to
+      // prove the route, not enough to spend the rate limit on.
+      const walk = [];
+      const tryIds = ["286", "290", "293"];
+      for (var wi = 0; wi < tryIds.length; wi++) {
+        const one = await bdGetListing(tryIds[wi]);
+        walk.push({ id: tryIds[wi], ok: !one.error, error: one.error || null, name: (one.listing && one.listing.group_name) || null });
+      }
+      const useful = out.filter(function (o) { return o.differsFromControl; }).map(function (o) { return o.probe; });
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+        ok: true, _v: FN_VERSION, control: ctrl, probes: out,
+        walkById: walk,
+        routesThatChangeTheWindow: useful,
+        note: useful.length
+          ? "These parameters move the window, so a full pull is possible without walking every id."
+          : "Nothing moves the window. Walking ids one at a time is the only route that reaches every listing."
+      }, null, 2) };
     }
     if (qs.diag === "listings") {
       // WHAT DOES BD ACTUALLY RETURN? Probe rather than assume: same call with
