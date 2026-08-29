@@ -1,5 +1,28 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v33  (2026-08-29)
+//    slde-v33 THE BIO LIVES IN search_description, AND NOW GETS READ.
+//             The dump settled what v31 guessed at and got wrong. The landlord
+//             form has exactly ONE paragraph field, labelled Short Description,
+//             stored as `search_description`. about_me and my_story are legacy
+//             columns that no current form writes to - which is why they are
+//             empty on a complete profile, and why widening the check to six
+//             names in v31 fixed nothing at all. THE DUMP SHOULD HAVE COME
+//             FIRST; guessing field names produced two versions of noise.
+//             THREE STATES, NOT TWO. Presence was never the real question:
+//               empty            -> a gap, as before
+//               under 80 chars   -> a SUGGESTION, not a gap. "Three words" is
+//                                   technically filled in and tells a renter
+//                                   nothing.
+//               about the RENTAL -> a suggestion. It is an About Me, not a
+//                                   second listing description, and length
+//                                   cannot detect this - 200 words about the
+//                                   kitchen is still wrong.
+//             The subject test is the only part that needs the model, so it
+//             runs on the text alone: no images, ~200 tokens, and it is skipped
+//             entirely when the bio is empty or already too short to judge.
+//             SUGGESTIONS ARE RETURNED SEPARATELY from gaps, so they can go out
+//             in the improve voice and never assert a listing is blocked.
 //  FN_VERSION: slde-v32  (2026-08-29)
 //    slde-v32 A MEMBER DUMP, so profile checks stop being written against
 //             guesses. v31 widened the About/bio check to accept six possible
@@ -104,7 +127,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v32";
+const FN_VERSION = "slde-v33";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -439,6 +462,43 @@ function anthropicAssess(listing, photos) {
   });
 }
 
+// Is the bio about the PERSON or about the PROPERTY? Length cannot answer this
+// - two hundred words about the kitchen is still the wrong field - so it is the
+// one profile check that needs the model. Text only, no images, and skipped
+// whenever the bio is empty or already too short to be worth judging.
+function anthropicBioSubject(bio) {
+  return new Promise(function (resolve) {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) return resolve({ verdict: "unknown", error: "no_anthropic_key" });
+    const text = String(bio || "").trim();
+    if (text.length < BIO_MIN) return resolve({ verdict: "unknown", skipped: "too_short_to_judge" });
+    const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+    const prompt = "This is the Short Description on a landlord's PROFILE on a rental site. It is meant to introduce the person or company a renter would be renting from - not to describe a property.\n\n"
+      + "Text: " + text.slice(0, 900) + "\n\n"
+      + "Answer with ONLY one word: \"person\" if it is about the landlord, their company, their approach or their experience; \"property\" if it is mainly describing a rental unit, its rooms, features, price or availability; \"unclear\" if it is neither or you cannot tell. One word, nothing else.";
+    const bodyStr = JSON.stringify({ model: model, max_tokens: 10, messages: [{ role: "user", content: prompt }] });
+    const req = https.request({ host: "api.anthropic.com", path: "/v1/messages", method: "POST", headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json", "Content-Length": Buffer.byteLength(bodyStr) } }, function (res) {
+      var data = "";
+      res.on("data", function (c) { data += c; });
+      res.on("end", function () {
+        try {
+          const j = JSON.parse(data);
+          if (j.error) return resolve({ verdict: "unknown", error: "anthropic_" + (j.error.type || "err") });
+          const t = String((j.content && j.content[0] && j.content[0].text) || "").toLowerCase();
+          // FAIL TOWARD SAYING NOTHING. An unrecognised answer must not produce
+          // a suggestion telling a landlord their bio is about the wrong thing.
+          if (t.indexOf("property") !== -1) return resolve({ verdict: "property" });
+          if (t.indexOf("person") !== -1) return resolve({ verdict: "person" });
+          resolve({ verdict: "unknown", raw: t.slice(0, 40) });
+        } catch (e) { resolve({ verdict: "unknown", error: "parse_error" }); }
+      });
+    });
+    req.on("error", function () { resolve({ verdict: "unknown", error: "request_failed" }); });
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
 // ---- deterministic checks: listing fields + landlord profile ----------------
 // A field "has a value" if it is non-empty and not a zero / null placeholder.
 function hasVal(x) {
@@ -474,13 +534,44 @@ function anyVal(u, names) {
   for (var i = 0; i < names.length; i++) { if (hasVal(u[names[i]])) return true; }
   return false;
 }
+// THE BIO FIELD, CONFIRMED FROM A LIVE RECORD rather than guessed: the landlord
+// form has one paragraph field, labelled Short Description, stored as
+// `search_description`. The legacy names are kept as fallbacks only - if a
+// member predates the current form, their text may still be in one of them.
+var BIO_FIELDS = ["search_description", "about_me", "my_story"];
+var BIO_MIN = 80;   // characters. Anas's reads well at 152; three words is ~15.
+
+function bioText(u) {
+  for (var i = 0; i < BIO_FIELDS.length; i++) {
+    var v = u[BIO_FIELDS[i]];
+    if (hasVal(v)) return String(v).trim();
+  }
+  return "";
+}
+
 function assessProfile(u) {
   u = u || {};
   var out = [];
-  if (!anyVal(u, ["first_name", "last_name", "display_name", "full_name", "name", "company_name"])) out.push("Add your name");
-  if (!anyVal(u, ["phone_number", "phone", "mobile_phone", "cell_phone", "telephone", "phone_1"])) out.push("Add a contact phone number");
-  if (!anyVal(u, ["about_me", "my_story", "bio", "about", "description", "profile_description"])) out.push("Complete your About / bio");
+  if (!anyVal(u, ["first_name", "last_name", "full_name", "company", "companyname"])) out.push("Add your name");
+  if (!anyVal(u, ["phone_number"])) out.push("Add a contact phone number");
+  if (!bioText(u)) out.push("Complete your Short Description");
   if (String(u.verified) !== "1") out.push("Get verified");
+  return out;
+}
+
+// SUGGESTIONS, NOT GAPS. These are things that are present but weak, so they
+// belong in the improve voice and must never read as blocking. Returned
+// separately for that reason.
+function assessProfileSoft(u, subjectVerdict) {
+  u = u || {};
+  var out = [];
+  var bio = bioText(u);
+  if (bio && bio.length < BIO_MIN) {
+    out.push("Your Short Description is filled in but very brief - a couple of sentences about you or your company helps renters take the listing seriously");
+  }
+  if (bio && subjectVerdict === "property") {
+    out.push("Your Short Description talks about the property rather than about you - renters see it as an introduction to who they would be renting from");
+  }
   return out;
 }
 
@@ -724,6 +815,9 @@ exports.handler = async function (event) {
     const photoGaps = (a && a.parsed && Array.isArray(a.parsed.missing)) ? a.parsed.missing : [];
     const listingGaps = assessListingFields(L.listing);
     const profileGaps = assessProfile(L.user);
+    // One extra text-only call, and only when there is a bio worth judging.
+    const bioSubj = await anthropicBioSubject(bioText(L.user || {}));
+    const profileSoft = assessProfileSoft(L.user, bioSubj.verdict);
     const aiOk = !!(a && a.parsed);
     // Landlord, so the tracker can email them their gaps in one click.
     const uid = String((L.listing && (L.listing.user_id || L.listing.logged_user)) || (L.user && (L.user.user_id || L.user.id)) || "").trim();
@@ -736,6 +830,9 @@ exports.handler = async function (event) {
       landlord: { userId: uid, email: (L.user && L.user.email) || "", name: lname },
       auto: {
         photo: photoGaps, listing: listingGaps, profile: profileGaps,
+        // Suggestions are stored apart from gaps so the dashboard can show them
+        // differently and they never make a listing look blocked.
+        profileSoft: profileSoft, bioSubject: bioSubj.verdict,
         items: photoGaps.concat(listingGaps, profileGaps),
         photoError: aiOk ? "" : ((a && (a.error || a.detail)) || "photo_scan_failed"),
         notes: (a && a.parsed && a.parsed.notes) || "", quality: (a && a.parsed && a.parsed.quality) || "",
@@ -749,6 +846,10 @@ exports.handler = async function (event) {
       beds: L.listing.property_beds, baths: L.listing.property_baths, type: L.listing.property_type,
       photoCount: L.photos.length, landlordEmail: (L.user && L.user.email) || null, saved: saved,
       gaps: { photo: photoGaps, listing: listingGaps, profile: profileGaps },
+      // Kept out of `gaps` deliberately: the tracker counts gaps to decide
+      // whether a listing needs work, and a brief bio should not make a
+      // complete listing read as incomplete.
+      profileSoft: profileSoft, bioSubject: bioSubj.verdict,
       assessment: a,
     }, null, 2) };
   }
