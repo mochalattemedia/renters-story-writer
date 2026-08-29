@@ -51,6 +51,9 @@
      than the idle one, and the width never changes either way. */
   .btn-email { background:var(--navy); color:#fff; width:132px; min-width:132px; text-align:center; box-sizing:border-box; white-space:nowrap; overflow:hidden; }
   .btn-email.armed { background:#b45309; }
+  .gapitem { cursor:pointer; border-bottom:1px dashed transparent; }
+  .gapitem:hover { border-bottom-color:var(--muted); }
+  .gapitem.off { text-decoration:line-through; opacity:.4; }
   .actions textarea.note { width:132px; margin-top:6px; font:inherit; font-size:12px; padding:5px 7px; border:1px solid var(--line); border-radius:7px; resize:vertical; box-sizing:border-box; }
   .tonepill { display:inline-block; font-size:11px; font-weight:700; padding:2px 7px; border-radius:999px; margin-top:6px; }
   .tonepill.improve { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
@@ -198,7 +201,31 @@
     return true;
   }
 
-  function grpHtml(title, arr) { return arr && arr.length ? ('<div class="grp"><b>' + title + ':</b> ' + arr.map(esc).join("; ") + '</div>') : ""; }
+  // EVERY ITEM IS CLICKABLE, so a scan verdict can be corrected before it is
+  // sent. The scanner is an AI reading photos and it gets things wrong - it
+  // has flagged a missing exterior photo on a listing that plainly has one.
+  // Sending that tells a landlord to do something they have already done,
+  // which is worse than sending nothing: it teaches them these notices are
+  // not worth reading.
+  // Click strikes an item out and it is left out of the email. EXCLUDED is
+  // keyed by listing id + section + item text, so it survives a re-render but
+  // NOT a reload - this is a correction for THIS send, not an edit to the
+  // stored scan. Re-scan still overwrites everything, as it should.
+  var EXCLUDED = {};
+  function exKey(id, sec, item) { return id + "||" + sec + "||" + item; }
+  function isExcluded(id, sec, item) { return !!EXCLUDED[exKey(id, sec, item)]; }
+  function keepOnly(id, sec, arr) {
+    return (arr || []).filter(function (it) { return !isExcluded(id, sec, it); });
+  }
+
+  function grpHtml(id, title, sec, arr) {
+    if (!arr || !arr.length) return "";
+    var bits = arr.map(function (it) {
+      var off = isExcluded(id, sec, it);
+      return '<span class="gapitem' + (off ? " off" : "") + '" data-gap="' + esc(id) + '" data-sec="' + esc(sec) + '" data-item="' + esc(it) + '" title="Click to leave this out of the email">' + esc(it) + '</span>';
+    });
+    return '<div class="grp"><b>' + title + ':</b> ' + bits.join(" ") + '</div>';
+  }
 
   function render() {
     stats();
@@ -210,7 +237,7 @@
       var s = DATA[id], g = gaps(s), tg = totalGaps(s), code = String(g.group_status), meta = statusMeta(code);
       var redoFlag = editedSince(s) ? '<div class="redo">&#9888; Edited after your notice &mdash; re-review</div>' : "";
       var statusCell = tg > 0
-        ? (grpHtml("Photos", g.photo) + grpHtml("Listing", g.listing) + grpHtml("Profile", g.profile) + ((!g.scanned && s.items && s.items.length) ? grpHtml("Flagged", s.items) : ""))
+        ? (grpHtml(id, "Photos", "photo", g.photo) + grpHtml(id, "Listing", "listing", g.listing) + grpHtml(id, "Profile", "profile", g.profile) + ((!g.scanned && s.items && s.items.length) ? grpHtml(id, "Flagged", "flagged", s.items) : ""))
         : (g.scanned ? '<span class="complete">&#10003; Looks complete</span>' : '<span class="muted">Not scanned</span>');
       var land = s.landlord || {};
       var landCell = land.email ? esc(land.email) : (land.userId ? ('member ' + esc(land.userId)) : '<span class="muted">unknown</span>');
@@ -249,6 +276,18 @@
   }
 
   function wireRowButtons() {
+    // Toggle a scanned item out of, or back into, the email.
+    var gi = document.querySelectorAll("[data-gap]");
+    for (var q = 0; q < gi.length; q++) {
+      (function (el) {
+        el.addEventListener("click", function () {
+          var k = exKey(el.getAttribute("data-gap"), el.getAttribute("data-sec"), el.getAttribute("data-item"));
+          if (EXCLUDED[k]) delete EXCLUDED[k]; else EXCLUDED[k] = 1;
+          render();
+        });
+      })(gi[q]);
+    }
+
     var eb = document.querySelectorAll("[data-email]");
     for (var i = 0; i < eb.length; i++) {
       (function (btn) {
@@ -270,13 +309,23 @@
           btn.classList.remove("armed");
           if (timer) clearTimeout(timer);
           btn.disabled = true; btn.textContent = "Sending…";
-          var sendListing = g.photo.concat(g.listing), sendProfile = g.profile;
+          // Only what survived review. An item struck out above is one the
+          // operator has judged wrong, and it must not reach the landlord.
+          var sendListing = keepOnly(id, "photo", g.photo).concat(keepOnly(id, "listing", g.listing));
+          var sendProfile = keepOnly(id, "profile", g.profile);
           // A LIVE listing gets the suggestion framing. The draft wording
           // asserts the listing has been set back to draft, which is simply
           // untrue for anything already published.
           var tone = isLive(String(g.group_status)) ? "improve" : "draft";
           var noteEl = document.querySelector('[data-note="' + id + '"]');
           var note = noteEl ? String(noteEl.value || "").trim() : "";
+          // Everything struck out and nothing typed: there is no email to
+          // send, and an empty one is worse than none.
+          if (!sendListing.length && !sendProfile.length && !note) {
+            btn.textContent = "Nothing to send";
+            setTimeout(function () { btn.textContent = IDLE; }, 2500);
+            return;
+          }
           fetch(FN, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: KEY, postId: id, memberId: land.userId || "", email: land.email || "", listingReasons: sendListing, profileReasons: sendProfile, missing: note, tone: tone }) })
             .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
             .then(function (res) {
