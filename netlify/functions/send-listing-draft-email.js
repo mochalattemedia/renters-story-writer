@@ -1,5 +1,25 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v38  (2026-08-29)
+//    slde-v38 NOTHING HAS BEEN SAVING. @netlify/blobs was required INSIDE a
+//             function body, and esbuild - Netlify's default bundler, with no
+//             node_bundler set in netlify.toml - did not include it. The module
+//             was declared in package.json and simply never reached the bundle.
+//             ?blobtest=1 said it plainly: "Cannot find module @netlify/blobs".
+//             SO EVERY WRITE FAILED SILENTLY. mergeStatus catches, logs to a
+//             console nobody reads, and returns false. Scans appeared to work
+//             because the dashboard held the response in memory; on reload the
+//             index came back {} and every stat card read zero.
+//             It also explains two things read as UI bugs earlier the same day:
+//             a row that vanished after a re-scan, and a send that did not
+//             record. Both were real, and both were this.
+//             THE FIX IS THE REQUIRE POSITION, one line. @aws-sdk/client-ses
+//             sits at the top of this file and has always worked; blobs sat
+//             inside statusStore() and never did. That was the whole difference.
+//             A FAILED WRITE NOW SAYS SO. mergeStatus and saveStatus return
+//             false on failure and the callers surface it, because a store that
+//             silently discards everything is the worst possible failure mode -
+//             it looks exactly like success until you reload.
 //  FN_VERSION: slde-v37  (2026-08-29)
 //    slde-v37 INVENTORY WALK. The dashboard showed 23 of 213 listings, because
 //             a listing only entered the index when somebody scanned it - so
@@ -197,11 +217,16 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v37";
+const FN_VERSION = "slde-v38";
 
 const crypto = require("crypto");
 const https = require("https");
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
+// TOP LEVEL, DELIBERATELY. Required inside a function body, esbuild tree-shook
+// this out of the bundle and every blob write failed silently for an unknown
+// stretch of time. Netlify's default bundler only reliably includes what it can
+// see statically. DO NOT MOVE THIS INSIDE A FUNCTION.
+const netlifyBlobs = require("@netlify/blobs");
 const ses = new SESClient({
   region: process.env.SES_REGION || "us-east-2",
   credentials: {
@@ -254,7 +279,7 @@ function safeEqual(a, b) {
 // Netlify didn't auto-configure Blobs on this site, so configure it explicitly
 // with a Site ID + token when those env vars are present (falls back to auto).
 function statusStore() {
-  const blobs = require("@netlify/blobs");
+  const blobs = netlifyBlobs;
   const siteID = process.env.BLOBS_SITE_ID || process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
   const token = process.env.BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN;
   if (siteID && token) return blobs.getStore({ name: "listing-status", siteID: siteID, token: token });
@@ -295,13 +320,22 @@ async function writeStatus(postId, entry) {
 }
 // Shallow-merge a patch onto one listing's record. Only touches that listing's
 // own key, so it never disturbs any other listing.
+// RETURNS FALSE ON FAILURE, and callers must surface it. A store that quietly
+// discards every write is the worst failure mode there is: it is
+// indistinguishable from success until something reloads.
+var LAST_STORE_ERROR = "";
 async function mergeStatus(postId, patch) {
   try {
     const store = statusStore();
     const cur = (await store.get(statusKey(postId), { type: "json" })) || {};
     await store.setJSON(statusKey(postId), Object.assign({}, cur, patch));
+    LAST_STORE_ERROR = "";
     return true;
-  } catch (e) { console.error("[slde] status merge failed: " + (e && e.message)); return false; }
+  } catch (e) {
+    LAST_STORE_ERROR = String((e && e.message) || e);
+    console.error("[slde] status merge failed: " + LAST_STORE_ERROR);
+    return false;
+  }
 }
 
 // Record that a landlord was emailed about a listing: bump the count, stamp the
@@ -325,7 +359,7 @@ async function recordNotification(postId, info) {
 // then read a value? Returns the exact failure so we can fix the right thing.
 async function blobSelfTest() {
   const out = { moduleLoaded: false };
-  try { require("@netlify/blobs"); out.moduleLoaded = true; }
+  try { if (!netlifyBlobs || !netlifyBlobs.getStore) throw new Error("no getStore"); out.moduleLoaded = true; }
   catch (e) { out.moduleError = (e && e.message) || String(e); return out; }
   out.manualConfig = !!((process.env.BLOBS_SITE_ID || process.env.NETLIFY_SITE_ID || process.env.SITE_ID) && (process.env.BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN));
   out.envSeen = {
@@ -1081,7 +1115,11 @@ exports.handler = async function (event) {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
       scanPost: sid, name: L.listing.group_name, group_status: L.listing.group_status,
       beds: L.listing.property_beds, baths: L.listing.property_baths, type: L.listing.property_type,
-      photoCount: L.photos.length, landlordEmail: (L.user && L.user.email) || null, saved: saved,
+      photoCount: L.photos.length, landlordEmail: (L.user && L.user.email) || null,
+      // saved:false means the verdict was computed and THROWN AWAY. The front
+      // end must say so - this failed silently for an unknown stretch and
+      // looked exactly like success until a reload.
+      saved: saved, saveError: saved ? "" : LAST_STORE_ERROR,
       gaps: { photo: photoGaps, listing: listingGaps, profile: profileGaps },
       // Kept out of `gaps` deliberately: the tracker counts gaps to decide
       // whether a listing needs work, and a brief bio should not make a
