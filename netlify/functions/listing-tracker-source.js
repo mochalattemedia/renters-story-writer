@@ -1,3 +1,34 @@
+// ============================================================
+//  listing-tracker-source.js
+//  LT_VERSION: lt-v2  (2026-08-29)
+//
+//  THE READABLE ORIGINAL of the Listing Tracker bookmarklet. Nothing loads
+//  this file - it is minified into one line and pasted as the URL of a browser
+//  bookmark. It exists because a minified bookmarklet cannot be read, let alone
+//  safely edited, and the next person to touch it should not have to reverse
+//  engineer it first.
+//  KEEP THE TWO IN STEP: edit here, re-minify, replace the bookmark URL.
+//
+//  Runs on BD's admin listings page. Finds rows by scanning ul.dates for
+//  "ID: n", draws a badge into that row's cell, and can email the landlord.
+//  Everything routes through send-listing-draft-email.
+//
+//  lt-v2  THE SEND BUTTON COULD NOT BE CLICKED. Arming swapped the label to
+//         the full email address, which made the button wider, wrapped it onto
+//         a new line inside a flex-wrap footer and moved it out from under the
+//         cursor - so the second click landed on the footer div and nothing
+//         was ever sent. Fixed width, and an armed label SHORTER than the idle
+//         one. The listing dashboard had the identical bug.
+//         Also: the email button is open to ANY listing with a landlord, live
+//         or not, because publication is no longer the goal - matching is. A
+//         pill says which tone will be sent. Scanning no longer overwrites a
+//         stored landlord wholesale, which could discard a userId and leave a
+//         listing with no way to email its owner. Failures now report their
+//         reason to the console and the button tooltip instead of a bare
+//         "Failed - retry".
+//  lt-v1  Original.
+// ============================================================
+
 (function () {
   var FN = "https://renters-story-writer.netlify.app/.netlify/functions/send-listing-draft-email";
   var KEY = "A5lnMxcTVBsZ1yuO6oJUEgkw";
