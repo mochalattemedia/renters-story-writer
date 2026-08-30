@@ -1,5 +1,25 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v39  (2026-08-30)
+//    slde-v39 MATCH verify-log's IMPORT SHAPE EXACTLY, and stop the function
+//             dying when Blobs is unavailable.
+//             v38 crashed on load: "Cannot find module @netlify/blobs" - for
+//             THIS function only, while verify-log.js resolves the same module
+//             from the same repo and works. So the module exists; Netlify's
+//             bundler simply did not copy it into this function's package.
+//             TWO CHANGES, and the second matters more than the first:
+//             1. Destructure at the top, byte-identical to verify-log:
+//                  const { getStore } = require("@netlify/blobs");
+//                That is the shape known to work here. v38 assigned the whole
+//                module object instead, which should be equivalent and was not.
+//             2. THE REQUIRE IS WRAPPED so a resolution failure can never take
+//                the whole function down again. v37 failed silently, v38 failed
+//                totally; neither is acceptable. Now storage degrades on its
+//                own while scanning and email keep working, and every response
+//                that depended on a write says plainly that it did not save.
+//             ALSO: accept NETLIFY_BLOBS_TOKEN, which is the variable actually
+//             set on this site - verify-log reads it and this file never did,
+//             checking BLOBS_TOKEN and NETLIFY_API_TOKEN instead.
 //  FN_VERSION: slde-v38  (2026-08-29)
 //    slde-v38 NOTHING HAS BEEN SAVING. @netlify/blobs was required INSIDE a
 //             function body, and esbuild - Netlify's default bundler, with no
@@ -217,16 +237,26 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v38";
+const FN_VERSION = "slde-v39";
 
 const crypto = require("crypto");
 const https = require("https");
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
-// TOP LEVEL, DELIBERATELY. Required inside a function body, esbuild tree-shook
-// this out of the bundle and every blob write failed silently for an unknown
-// stretch of time. Netlify's default bundler only reliably includes what it can
-// see statically. DO NOT MOVE THIS INSIDE A FUNCTION.
-const netlifyBlobs = require("@netlify/blobs");
+// TOP LEVEL AND DESTRUCTURED, byte-identical to verify-log.js, which resolves
+// this module correctly in this same repo. Required inside a function body the
+// bundler did not copy the module at all and every write failed silently; as a
+// whole-module assignment at the top it failed to resolve and took the entire
+// function down. This shape is the one known to work here.
+// WRAPPED, so a resolution failure degrades storage instead of killing
+// scanning and email with it. That happened once and must not happen again.
+var getStore = null;
+var BLOBS_LOAD_ERROR = "";
+try {
+  getStore = require("@netlify/blobs").getStore;
+} catch (e) {
+  BLOBS_LOAD_ERROR = String((e && e.message) || e);
+  console.error("[slde] @netlify/blobs unavailable: " + BLOBS_LOAD_ERROR);
+}
 const ses = new SESClient({
   region: process.env.SES_REGION || "us-east-2",
   credentials: {
@@ -279,9 +309,13 @@ function safeEqual(a, b) {
 // Netlify didn't auto-configure Blobs on this site, so configure it explicitly
 // with a Site ID + token when those env vars are present (falls back to auto).
 function statusStore() {
-  const blobs = netlifyBlobs;
+  if (!getStore) throw new Error("blobs_unavailable: " + BLOBS_LOAD_ERROR);
+  const blobs = { getStore: getStore };
   const siteID = process.env.BLOBS_SITE_ID || process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
-  const token = process.env.BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN;
+  // NETLIFY_BLOBS_TOKEN is the one actually set on this site - verify-log.js
+  // reads it and this file never did, which is why the manual branch never
+  // engaged and it always fell through to the implicit store.
+  const token = process.env.BLOBS_TOKEN || process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN;
   if (siteID && token) return blobs.getStore({ name: "listing-status", siteID: siteID, token: token });
   return blobs.getStore("listing-status");
 }
@@ -359,14 +393,15 @@ async function recordNotification(postId, info) {
 // then read a value? Returns the exact failure so we can fix the right thing.
 async function blobSelfTest() {
   const out = { moduleLoaded: false };
-  try { if (!netlifyBlobs || !netlifyBlobs.getStore) throw new Error("no getStore"); out.moduleLoaded = true; }
+  try { if (!getStore) throw new Error(BLOBS_LOAD_ERROR || "no getStore"); out.moduleLoaded = true; }
   catch (e) { out.moduleError = (e && e.message) || String(e); return out; }
-  out.manualConfig = !!((process.env.BLOBS_SITE_ID || process.env.NETLIFY_SITE_ID || process.env.SITE_ID) && (process.env.BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN));
+  out.manualConfig = !!((process.env.BLOBS_SITE_ID || process.env.NETLIFY_SITE_ID || process.env.SITE_ID) && (process.env.BLOBS_TOKEN || process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN));
   out.envSeen = {
     BLOBS_SITE_ID: !!process.env.BLOBS_SITE_ID,
     BLOBS_TOKEN: !!process.env.BLOBS_TOKEN,
     SITE_ID: !!process.env.SITE_ID,
     NETLIFY_SITE_ID: !!process.env.NETLIFY_SITE_ID,
+    NETLIFY_BLOBS_TOKEN: !!process.env.NETLIFY_BLOBS_TOKEN,
     NETLIFY_API_TOKEN: !!process.env.NETLIFY_API_TOKEN,
   };
   try {
