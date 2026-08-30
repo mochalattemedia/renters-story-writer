@@ -3,9 +3,15 @@
      Served from Netlify, site root. Operator page, behind an access key.
      ============================================================
 
-     ld-v4   <-- PASTE CHECK: this is the version. Must match LD_VERSION
+     ld-v5   <-- PASTE CHECK: this is the version. Must match LD_VERSION
      and the marker in the <h1>. Bump all three on every change.
 
+     ld-v5  A FAILED SAVE NOW SAYS SO. The function returns saved:false when a
+            scan verdict could not be stored, and this page ignored it - so a
+            scan that saved nothing looked identical to one that worked, right
+            up until a reload showed an empty dashboard. That is precisely what
+            happened: @netlify/blobs was missing from the function bundle and
+            every write failed quietly for an unknown stretch of time.
      ld-v4  INVENTORY WALK. "Find all listings" walks BD ids in batches of 25,
             recording what exists with NO AI, so the dashboard can show all 213
             listings rather than only the 23 somebody had scanned. New "Never
@@ -106,7 +112,7 @@
 </head>
 <body>
 <header>
-  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v4</span></h1>
+  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v5</span></h1>
   <span class="sp"></span>
   <span id="updated" class="updated" style="color:#cbd8e6;"></span>
   <button id="refresh">Refresh</button>
@@ -151,7 +157,7 @@
   // when a fix appeared not to have landed and had in fact simply not loaded.
   // Bump this on every change. It prints to the console AND renders in the
   // header, so it can be checked without opening devtools.
-  var LD_VERSION = "ld-v4";
+  var LD_VERSION = "ld-v5";
 
   var FN = "https://renters-story-writer.netlify.app/.netlify/functions/send-listing-draft-email";
   var KEY = sessionStorage.getItem("rdc_key") || "";
@@ -469,6 +475,12 @@
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (res) {
         if (!res.ok || !(res.j && res.j.gaps)) throw new Error((res.j && (res.j.error || res.j.detail)) || "no response");
+        // A verdict computed and then thrown away is NOT a success. Say so
+        // loudly - this failed silently for an unknown stretch and looked
+        // exactly like it had worked until the page was reloaded.
+        if (res.j.saved === false) {
+          throw new Error("Scanned but NOT SAVED - " + (res.j.saveError || "storage unavailable"));
+        }
         // Re-pull the saved record so we get landlord + notify history too.
         return load().then(function () { return "Scanned listing " + id; });
       });
