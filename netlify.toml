@@ -1,3 +1,26 @@
+# ============================================================
+#  netlify.toml
+#  Site: renters-story-writer
+# ============================================================
+
 [build]
   functions = "netlify/functions"
   publish = "."
+
+# send-listing-draft-email could not resolve @netlify/blobs at runtime -
+# "Cannot find module" on every invocation - while verify-log.js requires the
+# identical module, in the identical way, from this same repo and works fine.
+# The default bundler copies node_modules per function and was not copying it
+# for this one. Rewriting the require three different ways changed nothing.
+#
+# esbuild bundles dependencies INTO the function file instead of copying
+# folders beside it, so there is no resolution step left to fail.
+#
+# SCOPED TO ONE FUNCTION ON PURPOSE. There are 74 functions here and this is
+# the only one with the problem; a site-wide bundler change is not something to
+# make while chasing an unrelated bug. If this proves out, moving it to a plain
+# [functions] block applies it to everything.
+#
+# TO REVERT: delete the block below. Nothing else depends on it.
+[functions."send-listing-draft-email"]
+  node_bundler = "esbuild"
