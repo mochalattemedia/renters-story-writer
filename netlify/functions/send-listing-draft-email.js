@@ -1,5 +1,34 @@
+
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v37  (2026-08-29)
+//    slde-v37 INVENTORY WALK. The dashboard showed 23 of 213 listings, because
+//             a listing only entered the index when somebody scanned it - so
+//             the 190 nobody had looked at were invisible, which is exactly
+//             the set most likely to be stale or junk.
+//             WALKING IDS IS THE ONLY ROUTE, proven by the v36 probe: BD
+//             accepts ?limit and ignores offset, page, start, sort, order and
+//             status filters. Every variant returned the same window, ids
+//             1..128. Individual fetches above that ceiling work fine.
+//               POST { key, walk:true, from, to, cursor }
+//             fetches ids in a bounded batch, records what it finds, and
+//             returns a cursor to continue from.
+//             NO AI, DELIBERATELY. This records what EXISTS - id, name,
+//             status, landlord, dates. The photo assessment is the expensive
+//             part and it is not needed to answer "what have we got" or "is
+//             this still live". Scanning stays a separate, deliberate act.
+//             IT MERGES, NEVER OVERWRITES. A listing already scanned keeps its
+//             verdict and its notify history; the walk only fills in what was
+//             missing. Discovering a listing must never erase what we know
+//             about it.
+//             BATCHED ON PURPOSE. BD is capped around 100 requests a minute
+//             and a 429 is indistinguishable from a missing record unless you
+//             check for it - that is how an inventory count once came back as
+//             79 when it was 213. Each batch is small, paced, and STOPS on a
+//             429 rather than recording a run of false absences.
+//             IDS ARE NOT CONTIGUOUS. 213 listings reach id 293+, so deleted
+//             records leave gaps. A miss is recorded and skipped, never
+//             treated as the end of the walk.
 //  FN_VERSION: slde-v36  (2026-08-29)
 //    slde-v36 THE v35 PROBE ANSWERED ITS OWN QUESTION WRONG. It reported
 //             "paging works" because ?limit raised the default 25 to 100 - but
@@ -169,7 +198,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v36";
+const FN_VERSION = "slde-v37";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -956,6 +985,62 @@ exports.handler = async function (event) {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
       inspectPost: iid, memberIdGuess: uid,
       listingFields: inv(L.listing), embeddedUser: L.user, memberRaw: member,
+    }, null, 2) };
+  }
+
+  // INVENTORY WALK. Records what exists, with no AI. See the v37 header note.
+  if (body.walk === true) {
+    const from = Math.max(1, parseInt(body.from || body.cursor || 1, 10) || 1);
+    const to = Math.max(from, parseInt(body.to || (from + 24), 10) || (from + 24));
+    // Bounded per call so a browser tab is never holding a four-minute request
+    // open, and so a 429 costs one small batch rather than the whole run.
+    const span = Math.min(to - from + 1, 25);
+    const found = [], missing = [];
+    var rateLimited = false, lastId = from - 1;
+
+    for (var wid = from; wid < from + span; wid++) {
+      const one = await bdGetListing(String(wid));
+      lastId = wid;
+      if (one.error) {
+        // A 429 is NOT a missing listing. Stop, rather than write a run of
+        // false absences that look exactly like deleted records.
+        if (String(one.error).indexOf("429") !== -1 || String(one.error).indexOf("rate") !== -1) { rateLimited = true; break; }
+        missing.push(wid);
+        continue;
+      }
+      const L = one;
+      const uid = String((L.listing && (L.listing.user_id || L.listing.logged_user)) || (L.user && L.user.user_id) || "").trim();
+      var lname = "";
+      if (L.user) { lname = [L.user.first_name, L.user.last_name].filter(Boolean).join(" ").trim(); if (!lname && L.user.company) lname = String(L.user.company).trim(); }
+      // MERGE. A listing already scanned keeps its verdict and notify history;
+      // this only fills in what was missing.
+      await mergeStatus(String(wid), {
+        listingName: L.listing.group_name,
+        landlord: { userId: uid, email: (L.user && L.user.email) || "", name: lname },
+        inv: {
+          group_status: L.listing.group_status,
+          created: L.listing.date_updated || "",
+          lastEdit: L.listing.revision_timestamp || "",
+          beds: L.listing.property_beds || "",
+          baths: L.listing.property_baths || "",
+          type: L.listing.property_type || "",
+          rent: L.listing.post_promo || "",
+          photoCount: (L.photos || []).length,
+          seenAt: new Date().toISOString()
+        }
+      });
+      found.push({ id: String(wid), name: L.listing.group_name, status: L.listing.group_status, photos: (L.photos || []).length });
+      // Paced under BD's ~100/minute ceiling.
+      await new Promise(function (r) { setTimeout(r, 120); });
+    }
+
+    return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({
+      ok: true, _v: FN_VERSION,
+      from: from, scanned: lastId - from + 1,
+      found: found.length, missingIds: missing,
+      rateLimited: rateLimited,
+      nextCursor: rateLimited ? lastId : (lastId + 1),
+      items: found
     }, null, 2) };
   }
 
