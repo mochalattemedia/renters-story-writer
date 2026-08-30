@@ -3,9 +3,21 @@
      Served from Netlify, site root. Operator page, behind an access key.
      ============================================================
 
-     ld-v6   <-- PASTE CHECK: this is the version. Must match LD_VERSION
+     ld-v7   <-- PASTE CHECK: this is the version. Must match LD_VERSION
      and the marker in the <h1>. Bump all three on every change.
 
+     ld-v7  THE RESUME OVERSHOT AND THE WALK FOUND NOTHING. ld-v6 started
+            from the highest id already stored, on the assumption that ids are
+            walked in order - but the interrupted run had written records
+            scattered up to ~350, so it resumed above every real listing,
+            walked an empty stretch and reported "found 0".
+            THE HIGHEST ID ON RECORD IS NOT THE SAME AS THE LAST ID WALKED.
+            Inferring one from the other was wrong, so the walk no longer
+            guesses: it starts at 1 and merges, which costs a little time and
+            cannot be wrong. Re-walking an id already held is harmless - the
+            merge fills gaps and never overwrites a scan verdict.
+            The range is also EDITABLE now, two small boxes beside the button,
+            so a specific stretch can be re-walked without a console.
      ld-v6  THE WALK OUTRAN BD'S RATE LIMIT AND DIED ON THE ERROR PAGE.
             25 ids per batch with a 120ms gap is ~200 requests a minute, and
             BD caps around 100. It ran clean for roughly fourteen batches, hit
@@ -106,6 +118,8 @@
      than the idle one, and the width never changes either way. */
   .btn-email { background:var(--navy); color:#fff; width:132px; min-width:132px; text-align:center; box-sizing:border-box; white-space:nowrap; overflow:hidden; }
   .btn-email.armed { background:#b45309; }
+  .walkrange { width:56px; padding:8px 6px; border:1px solid var(--line); border-radius:8px; font:inherit; font-size:13px; text-align:center; }
+  .walkdash { font-size:12px; color:var(--muted); }
   .walkbtn { background:#fff; color:var(--navy); border:1px solid var(--navy); border-radius:8px; padding:8px 14px; font:inherit; font-size:13px; font-weight:700; cursor:pointer; margin-right:4px; }
   .walkbtn:disabled { opacity:.6; cursor:default; }
   .walkprog { font-size:12px; color:var(--muted); margin-top:8px; }
@@ -127,7 +141,7 @@
 </head>
 <body>
 <header>
-  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v6</span></h1>
+  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v7</span></h1>
   <span class="sp"></span>
   <span id="updated" class="updated" style="color:#cbd8e6;"></span>
   <button id="refresh">Refresh</button>
@@ -151,6 +165,9 @@
       <!-- ACTIONS, not filters. Sitting in the filter row this read as another
            view to switch to rather than something that DOES something. -->
       <button id="walkbtn" class="walkbtn">Find all listings</button>
+      <input id="walkfrom" class="walkrange" type="text" inputmode="numeric" value="1" title="Start at listing ID">
+      <span class="walkdash">to</span>
+      <input id="walkto" class="walkrange" type="text" inputmode="numeric" value="400" title="Stop at listing ID">
       <input id="scanid" type="text" inputmode="numeric" placeholder="Listing ID">
       <button id="scanbtn">Scan</button>
     </div>
@@ -174,7 +191,7 @@
   // when a fix appeared not to have landed and had in fact simply not loaded.
   // Bump this on every change. It prints to the console AND renders in the
   // header, so it can be checked without opening devtools.
-  var LD_VERSION = "ld-v6";
+  var LD_VERSION = "ld-v7";
 
   var FN = "https://renters-story-writer.netlify.app/.netlify/functions/send-listing-draft-email";
   var KEY = sessionStorage.getItem("rdc_key") || "";
@@ -381,11 +398,18 @@
     var btn = document.getElementById("walkbtn");
     var prog = document.getElementById("walkprog");
     btn.disabled = true;
-    // RESUME rather than restart. An interrupted walk should not re-fetch
-    // hundreds of ids it already has - that is what burns the rate limit.
-    var highest = 0;
-    Object.keys(DATA).forEach(function (k) { var n = parseInt(k, 10); if (n > highest) highest = n; });
-    var cursor = Math.max(1, highest - 5), TOP = 400, totalFound = 0, batches = 0;
+    // START WHERE THE BOXES SAY, defaulting to the whole range. ld-v6 inferred
+    // a resume point from the highest id on record and was wrong: the
+    // interrupted run had written scattered records up to ~350, so it began
+    // above every real listing and found nothing. The highest id STORED is not
+    // the last id WALKED, and the two must not be confused again.
+    // Re-walking a known id is harmless: the merge fills gaps and never
+    // overwrites a scan verdict.
+    var fromEl = document.getElementById("walkfrom");
+    var toEl = document.getElementById("walkto");
+    var cursor = Math.max(1, parseInt((fromEl && fromEl.value) || "1", 10) || 1);
+    var TOP = Math.max(cursor, parseInt((toEl && toEl.value) || "400", 10) || 400);
+    var totalFound = 0, batches = 0;
     // 10 per batch at 600ms is ~90 requests a minute. BD caps around 100, and
     // the previous 25-at-120ms was roughly 200 - fine on a cold limit, fatal a
     // few minutes in.
