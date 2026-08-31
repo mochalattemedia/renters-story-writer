@@ -3,9 +3,22 @@
      Served from Netlify, site root. Operator page, behind an access key.
      ============================================================
 
-     ld-v11   <-- PASTE CHECK: this is the version. Must match LD_VERSION
+     ld-v12   <-- PASTE CHECK: this is the version. Must match LD_VERSION
      and the marker in the <h1>. Bump all three on every change.
 
+     ld-v12 WHO CAN WE ACTUALLY MATCH TO. Each row now shows the owner's
+            ACCOUNT TYPE and their MATCHING PLAN, with a filter for listings
+            whose owner has NOT opted in.
+            THIS MATTERS MORE THAN A MISSING PHOTO. A listing whose owner never
+            opted in cannot be matched to anyone, however complete it is - and
+            that was invisible here, so a finished listing and an unmatchable
+            one looked identical.
+            ⚠️ THE TAGS ONLY STARTED WRITING TODAY. landlord-optin wrote to
+            match-per-lead / match-on-movein and neither tag existed in BD, so
+            every opt-in since failed at the write while the wizard still
+            displayed the choice from its own storage. Anyone who chose before
+            31 Aug 2026 reads as NOT OPTED IN until they re-save. That is a
+            migration, not a bug in this page.
      ld-v11 THE FILTER AND ITS CARD HAD DIFFERENT NAMES for the same set:
             "Edited since notified" on one, "Awaiting re-review" on the other.
             Both now read AWAITING RE-REVIEW, which names the action rather
@@ -166,6 +179,11 @@
   .gapitem:hover { border-bottom-color:var(--muted); }
   .gapitem.off { text-decoration:line-through; opacity:.4; }
   .actions textarea.note { width:132px; margin-top:6px; font:inherit; font-size:12px; padding:5px 7px; border:1px solid var(--line); border-radius:7px; resize:vertical; box-sizing:border-box; }
+  .plan { display:inline-block; font-size:11px; font-weight:700; padding:2px 7px; border-radius:999px; margin-bottom:4px; }
+  .plan.pm { background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe; }
+  .plan.mi { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
+  .plan.none { background:#fef2f2; color:#991b1b; border:1px solid #fecaca; }
+  .atype { display:block; font-size:11px; color:var(--muted); margin-bottom:4px; }
   .tonepill { display:inline-block; font-size:11px; font-weight:700; padding:2px 7px; border-radius:999px; margin-top:6px; }
   .tonepill.improve { background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; }
   .tonepill.draft { background:#fff7ed; color:#7c2d12; border:1px solid #fed7aa; }
@@ -179,7 +197,7 @@
 </head>
 <body>
 <header>
-  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v11</span></h1>
+  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v12</span></h1>
   <span class="sp"></span>
   <span id="updated" class="updated" style="color:#cbd8e6;"></span>
   <button id="refresh">Refresh</button>
@@ -197,6 +215,7 @@
       <button data-f="emailed">Emailed</button>
       <button data-f="edited">Awaiting re-review</button>
       <button data-f="unscanned">Never scanned</button>
+      <button data-f="notoptedin">Not opted in</button>
       <button data-f="all">All</button>
     </div>
     <div class="walkprog" id="walkprog"></div>
@@ -230,7 +249,7 @@
   // when a fix appeared not to have landed and had in fact simply not loaded.
   // Bump this on every change. It prints to the console AND renders in the
   // header, so it can be checked without opening devtools.
-  var LD_VERSION = "ld-v11";
+  var LD_VERSION = "ld-v12";
 
   var FN = "https://renters-story-writer.netlify.app/.netlify/functions/send-listing-draft-email";
   var KEY = sessionStorage.getItem("rdc_key") || "";
@@ -321,7 +340,7 @@
   }
 
   function stats() {
-    var ids = Object.keys(DATA), needs = 0, published = 0, pending = 0, notpub = 0, emailed = 0, redo = 0, unscanned = 0, notEmailed = 0;
+    var ids = Object.keys(DATA), needs = 0, published = 0, pending = 0, notpub = 0, emailed = 0, redo = 0, unscanned = 0, notEmailed = 0, notOptedIn = 0;
     ids.forEach(function (id) {
       var s = DATA[id], g = gaps(s), tg = totalGaps(s), code = String(g.group_status);
       if (tg > 0) needs++;
@@ -332,6 +351,7 @@
       if (!s.notifyCount && tg > 0 && !isLive(code)) notEmailed++;
       if (editedSince(s)) redo++;
       if (isInvOnly(s)) unscanned++;
+      if (!(s.landlord && s.landlord.plan)) notOptedIn++;
     });
     var box = document.getElementById("stats");
     // Cards carry their filter, so reading a number and acting on it is one
@@ -355,7 +375,8 @@
       + card(notEmailed, "Not emailed", "notemailed")
       + card(emailed, "Emailed", "emailed")
       + card(redo, "Awaiting re-review", "edited")
-      + card(unscanned, "Never scanned", "unscanned");
+      + card(unscanned, "Never scanned", "unscanned")
+      + card(notOptedIn, "Not opted in", "notoptedin");
   }
 
   function matches(id, s) {
@@ -368,6 +389,7 @@
     if (FILTER === "emailed" && !s.notifyCount) return false;
     if (FILTER === "edited" && !editedSince(s)) return false;
     if (FILTER === "unscanned" && !isInvOnly(s)) return false;
+    if (FILTER === "notoptedin" && (s.landlord && s.landlord.plan)) return false;
     if (SEARCH) {
       var hay = (id + " " + (s.listingName || "") + " " + ((s.landlord && s.landlord.email) || "")).toLowerCase();
       if (hay.indexOf(SEARCH) === -1) return false;
@@ -409,6 +431,15 @@
     if (!ids.length) { wrap.innerHTML = '<div class="empty">No listings match this view yet. Scan a listing by ID above, or run the tracker on your BD listings page.</div>'; return; }
     var rows = ids.map(function (id) {
       var s = DATA[id], g = gaps(s), tg = totalGaps(s), code = String(g.group_status), meta = statusMeta(code);
+      // NOT OPTED IN is the strongest reason a listing cannot be used, so it
+      // reads as a flag rather than as an absence.
+      var plan = (s.landlord && s.landlord.plan) || "";
+      var atype = (s.landlord && s.landlord.accountType) || "";
+      var planHtml = plan
+        ? ('<span class="plan ' + (plan === "per-match" ? "pm" : "mi") + '">' + (plan === "per-match" ? "Per match" : "On move-in") + '</span>')
+        : '<span class="plan none">Not opted in</span>';
+      var typeHtml = atype ? ('<span class="atype">' + esc(atype === "pm" ? "Property manager" : atype.charAt(0).toUpperCase() + atype.slice(1)) + '</span>') : "";
+
       var redoFlag = editedSince(s) ? '<div class="redo">&#9888; Edited after your notice &mdash; re-review</div>' : "";
       var statusCell = tg > 0
         ? (grpHtml(id, "Photos", "photo", g.photo) + grpHtml(id, "Listing", "listing", g.listing) + grpHtml(id, "Profile", "profile", g.profile) + ((!g.scanned && s.items && s.items.length) ? grpHtml(id, "Flagged", "flagged", s.items) : ""))
@@ -448,7 +479,7 @@
         + '<span class="tag ' + meta.cls + '">' + esc(meta.label) + '</span>' + dateHtml + redoFlag + '</td>'
         + '<td>' + statusCell + '</td>'
         + '<td>' + landCell + '</td>'
-        + '<td class="emailinfo">' + emailCell
+        + '<td class="emailinfo">' + planHtml + typeHtml + emailCell
         + (canEmail ? ('<div class="tonepill ' + (isLive(code) ? "improve" : "draft") + '">' + (isLive(code) ? "suggestion" : "draft notice") + '</div>') : "")
         + '</td>'
         + '<td class="actions">' + actions + '</td>'
