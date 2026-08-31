@@ -1,5 +1,20 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v40  (2026-08-30)
+//    slde-v40 WHAT DOES A DELETED LISTING LOOK LIKE? A diagnostic, no
+//             behaviour change. The inventory walk records whatever BD returns
+//             for an id, and ids 7-18 came back as listings while being absent
+//             from the admin - so either BD keeps deleted rows and serves them,
+//             or those ids mean something else entirely.
+//             This matters before anything is built on top: if deleted records
+//             carry a distinctive status the walk can skip them and no manual
+//             dismissal is needed. If they are indistinguishable from live
+//             ones, they have to be dismissed by hand, which is a different
+//             feature. Guessing between those two is how you build the wrong
+//             one.
+//               GET ?diag=listing&ids=7,8,9   (x-admin-key header required)
+//             returns every populated field on each record, capped at 10 ids,
+//             values truncated - a shape probe, not a data dump.
 //  FN_VERSION: slde-v39  (2026-08-30)
 //    slde-v39 MATCH verify-log's IMPORT SHAPE EXACTLY, and stop the function
 //             dying when Blobs is unavailable.
@@ -237,7 +252,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v39";
+const FN_VERSION = "slde-v40";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -966,6 +981,30 @@ exports.handler = async function (event) {
           ? "Every variant returned the same window - BD is ignoring the paging parameters, same as /leads/get."
           : "Paging changes the window, so a full pull is possible."
       }, null, 2) };
+    }
+    if (qs.diag === "listing") {
+      const hk3 = (event.headers && (event.headers["x-admin-key"] || event.headers["X-Admin-Key"])) || "";
+      const ak3 = process.env.LISTING_EMAIL_ADMIN_KEY || "";
+      if (!ak3 || !safeEqual(hk3, ak3)) return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: "Unauthorized" }) };
+      const ids = String(qs.ids || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 10);
+      if (!ids.length) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "ids required, e.g. ?diag=listing&ids=7,8,9" }) };
+      const out = [];
+      for (var li = 0; li < ids.length; li++) {
+        const r = await bdRawGet("/api/v2/users_portfolio_groups/get/" + encodeURIComponent(ids[li]));
+        if (r.error) { out.push({ id: ids[li], error: r.error }); continue; }
+        const rec = Array.isArray(r.message) ? r.message[0] : (r.message || r.data || r);
+        if (!rec || typeof rec !== "object") { out.push({ id: ids[li], error: "no_record" }); continue; }
+        const pop = {};
+        Object.keys(rec).forEach(function (k) {
+          const v = rec[k];
+          if (v === null || v === undefined) return;
+          const str = typeof v === "object" ? JSON.stringify(v) : String(v);
+          if (!str.trim()) return;
+          pop[k] = str.length > 120 ? (str.slice(0, 120) + "...") : str;
+        });
+        out.push({ id: ids[li], populated: pop });
+      }
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ ok: true, _v: FN_VERSION, listings: out }, null, 2) };
     }
     if (qs.diag === "member") {
       // Which fields does BD ACTUALLY populate? Written because v31 had to
