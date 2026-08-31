@@ -3,9 +3,31 @@
      Served from Netlify, site root. Operator page, behind an access key.
      ============================================================
 
-     ld-v8   <-- PASTE CHECK: this is the version. Must match LD_VERSION
+     ld-v11   <-- PASTE CHECK: this is the version. Must match LD_VERSION
      and the marker in the <h1>. Bump all three on every change.
 
+     ld-v11 THE FILTER AND ITS CARD HAD DIFFERENT NAMES for the same set:
+            "Edited since notified" on one, "Awaiting re-review" on the other.
+            Both now read AWAITING RE-REVIEW, which names the action rather
+            than the event - the card is a queue, and what matters is that it
+            needs looking at, not what the landlord did to put it there.
+     ld-v10 EMAILED AND NOT EMAILED ARE BOTH FILTERS NOW, so the pair behaves
+            like every other card: one number, one filter, same name. v9 solved
+            the mismatch by deleting the Emailed view, which fixed the labelling
+            and lost something useful - who has already been written to is a
+            question worth being able to ask.
+            NOT EMAILED KEEPS ITS QUALIFIER: it means "has gaps, is not live,
+            and nobody has written to them" - a work queue, not merely an
+            absence of email. EMAILED is simply anyone written to at all.
+     ld-v9  THE "EMAILED" CARD SAT OVER THE "NOT EMAILED" FILTER. Same data,
+            opposite meaning: the card counted listings already written to, the
+            filter showed the ones still needing it. Aligning them and then
+            labelling them as opposites was worse than leaving them unaligned.
+            The card now counts and reads NOT EMAILED, matching its filter. The
+            queue is what matters - who still needs writing to.
+            The eighth card is gone. "Listings tracked" was the sum of the
+            others and duplicated the All filter, and it wrapped onto a line of
+            its own. Seven cards, seven filters, one row.
      ld-v8  THE CARDS AND THE FILTERS WERE IN DIFFERENT ORDERS, so the number
             you read and the button you then reached for were never in the same
             place. The cards now follow the filter row exactly, and each card is
@@ -157,7 +179,7 @@
 </head>
 <body>
 <header>
-  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v8</span></h1>
+  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v11</span></h1>
   <span class="sp"></span>
   <span id="updated" class="updated" style="color:#cbd8e6;"></span>
   <button id="refresh">Refresh</button>
@@ -172,7 +194,8 @@
       <button data-f="pending">Pending approval</button>
       <button data-f="published">Published</button>
       <button data-f="notemailed">Not emailed</button>
-      <button data-f="edited">Edited since notified</button>
+      <button data-f="emailed">Emailed</button>
+      <button data-f="edited">Awaiting re-review</button>
       <button data-f="unscanned">Never scanned</button>
       <button data-f="all">All</button>
     </div>
@@ -207,7 +230,7 @@
   // when a fix appeared not to have landed and had in fact simply not loaded.
   // Bump this on every change. It prints to the console AND renders in the
   // header, so it can be checked without opening devtools.
-  var LD_VERSION = "ld-v8";
+  var LD_VERSION = "ld-v11";
 
   var FN = "https://renters-story-writer.netlify.app/.netlify/functions/send-listing-draft-email";
   var KEY = sessionStorage.getItem("rdc_key") || "";
@@ -298,12 +321,15 @@
   }
 
   function stats() {
-    var ids = Object.keys(DATA), needs = 0, published = 0, pending = 0, notpub = 0, emailed = 0, redo = 0, unscanned = 0;
+    var ids = Object.keys(DATA), needs = 0, published = 0, pending = 0, notpub = 0, emailed = 0, redo = 0, unscanned = 0, notEmailed = 0;
     ids.forEach(function (id) {
       var s = DATA[id], g = gaps(s), tg = totalGaps(s), code = String(g.group_status);
       if (tg > 0) needs++;
       if (code === "1") published++; else if (code === "3") pending++; else if (code === "0") notpub++;
       if (s.notifyCount) emailed++;
+      // Exactly the test the notemailed FILTER uses, so the number and the
+      // list can never disagree.
+      if (!s.notifyCount && tg > 0 && !isLive(code)) notEmailed++;
       if (editedSince(s)) redo++;
       if (isInvOnly(s)) unscanned++;
     });
@@ -322,10 +348,14 @@
       + card(notpub, "Not published", "notpub")
       + card(pending, "Pending approval", "pending")
       + card(published, "Published", "published")
-      + card(emailed, "Emailed", "notemailed")
+      // COUNTS WHAT ITS FILTER SHOWS. This read "Emailed" over a "Not emailed"
+      // filter - the same data with the opposite meaning, which is worse than
+      // no alignment at all. The queue is the useful number: who still needs
+      // writing to.
+      + card(notEmailed, "Not emailed", "notemailed")
+      + card(emailed, "Emailed", "emailed")
       + card(redo, "Awaiting re-review", "edited")
-      + card(unscanned, "Never scanned", "unscanned")
-      + card(ids.length, "Listings tracked", "all");
+      + card(unscanned, "Never scanned", "unscanned");
   }
 
   function matches(id, s) {
@@ -335,6 +365,7 @@
     if (FILTER === "pending" && code !== "3") return false;
     if (FILTER === "published" && code !== "1") return false;
     if (FILTER === "notemailed" && (s.notifyCount || tg === 0 || isLive(code))) return false;
+    if (FILTER === "emailed" && !s.notifyCount) return false;
     if (FILTER === "edited" && !editedSince(s)) return false;
     if (FILTER === "unscanned" && !isInvOnly(s)) return false;
     if (SEARCH) {
