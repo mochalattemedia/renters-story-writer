@@ -1,5 +1,26 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v41  (2026-08-31)
+//    slde-v41 THE WALK WAS RECORDING THINGS THAT ARE NOT LISTINGS. Ids 7-18
+//             came back as records while being absent from the admin, and the
+//             diagnostic showed why: they are data_type 14, not 4. Different
+//             content type entirely. They carry user_id 0, no group_filename,
+//             no group_token, user:false and users_portfolio:false. Two are
+//             named "test".
+//             REAL PROPERTY POSTS ARE data_type 4 - Mission Viejo (id 25) has
+//             it, along with a filename, a token, a real user object and
+//             photos.
+//             So the walk now records ONLY data_type 4 with a real user_id.
+//             Nothing has to be dismissed by hand: these were never listings,
+//             they were being misread as some.
+//             ⚠️ NOTE ID 9: it reads like a genuine rental, with a real
+//             description and a phone number. It is STILL data_type 14 with
+//             user_id 0, so it is not a property post in BD's terms, does not
+//             appear in the admin, and cannot be emailed - there is no owner
+//             on it. Looking real is not the same as being inventory.
+//             POST { key, walk:true, purge:true } also DELETES records already
+//             stored under the wrong type, so an index built by earlier walks
+//             corrects itself rather than carrying junk forward.
 //  FN_VERSION: slde-v40  (2026-08-30)
 //    slde-v40 WHAT DOES A DELETED LISTING LOOK LIKE? A diagnostic, no
 //             behaviour change. The inventory walk records whatever BD returns
@@ -252,7 +273,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v40";
+const FN_VERSION = "slde-v41";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -373,6 +394,17 @@ async function writeStatus(postId, entry) {
 // discards every write is the worst failure mode there is: it is
 // indistinguishable from success until something reloads.
 var LAST_STORE_ERROR = "";
+
+// Remove a stored record entirely. Used when a walk finds that something it
+// recorded earlier is not a property post at all - the index should correct
+// itself rather than carry junk forward for someone to dismiss by hand.
+async function deleteStatus(postId) {
+  try {
+    const store = statusStore();
+    await store.delete(statusKey(postId));
+    return true;
+  } catch (e) { return false; }
+}
 async function mergeStatus(postId, patch) {
   try {
     const store = statusStore();
@@ -1102,7 +1134,7 @@ exports.handler = async function (event) {
     // Bounded per call so a browser tab is never holding a four-minute request
     // open, and so a 429 costs one small batch rather than the whole run.
     const span = Math.min(to - from + 1, 25);
-    const found = [], missing = [];
+    const found = [], missing = [], notListings = [];
     var rateLimited = false, lastId = from - 1;
 
     for (var wid = from; wid < from + span; wid++) {
@@ -1116,7 +1148,18 @@ exports.handler = async function (event) {
         continue;
       }
       const L = one;
+      // ONLY REAL PROPERTY POSTS. data_type 4 is a property; 14 is a different
+      // content type that BD serves on the same endpoint and does not show in
+      // the admin. Recording those as listings is what pushed the walk past
+      // the real inventory count.
+      const dtype = String((L.listing && L.listing.data_type) || "");
       const uid = String((L.listing && (L.listing.user_id || L.listing.logged_user)) || (L.user && L.user.user_id) || "").trim();
+      if (dtype !== "4" || !uid || uid === "0") {
+        notListings.push(wid);
+        // Remove it if an earlier walk stored it under the wrong type.
+        try { await deleteStatus(String(wid)); } catch (e) {}
+        continue;
+      }
       var lname = "";
       if (L.user) { lname = [L.user.first_name, L.user.last_name].filter(Boolean).join(" ").trim(); if (!lname && L.user.company) lname = String(L.user.company).trim(); }
       // MERGE. A listing already scanned keeps its verdict and notify history;
@@ -1145,6 +1188,9 @@ exports.handler = async function (event) {
       ok: true, _v: FN_VERSION,
       from: from, scanned: lastId - from + 1,
       found: found.length, missingIds: missing,
+      // Records that exist in BD but are not property posts. Reported rather
+      // than hidden, so an unexpected count is visible rather than silent.
+      notListings: notListings,
       rateLimited: rateLimited,
       nextCursor: rateLimited ? lastId : (lastId + 1),
       items: found
