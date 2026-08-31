@@ -3,9 +3,22 @@
      Served from Netlify, site root. Operator page, behind an access key.
      ============================================================
 
-     ld-v7   <-- PASTE CHECK: this is the version. Must match LD_VERSION
+     ld-v8   <-- PASTE CHECK: this is the version. Must match LD_VERSION
      and the marker in the <h1>. Bump all three on every change.
 
+     ld-v8  THE CARDS AND THE FILTERS WERE IN DIFFERENT ORDERS, so the number
+            you read and the button you then reached for were never in the same
+            place. The cards now follow the filter row exactly, and each card is
+            CLICKABLE - reading a count and then hunting for its filter was two
+            steps where one would do.
+            NO EMAIL BUTTON ON A LISTING THAT HAS NEVER BEEN SCANNED, unless a
+            note has been typed. ld-v2 opened the button to any listing with a
+            landlord, which was right for a scanned one and wrong here: the walk
+            finds listings without assessing them, so the button was offering to
+            send a gap list that does not exist yet. A note-only email is still
+            allowed, because "is this still available" is a legitimate thing to
+            ask about an unscanned listing.
+            "Re-scan" now reads "Scan" on a listing that has never been scanned.
      ld-v7  THE RESUME OVERSHOT AND THE WALK FOUND NOTHING. ld-v6 started
             from the highest id already stored, on the assumption that ids are
             walked in order - but the interrupted run had written records
@@ -81,7 +94,10 @@
   header button { background:var(--green); color:var(--navy); border:0; border-radius:8px; padding:8px 14px; font-size:14px; font-weight:700; cursor:pointer; }
   .wrap { max-width:1180px; margin:0 auto; padding:18px 22px 60px; }
   .stats { display:flex; gap:12px; flex-wrap:wrap; margin:6px 0 16px; }
-  .stat { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 16px; min-width:130px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 16px; min-width:130px; cursor:pointer; }
+  .stat:hover { border-color:var(--navy); }
+  .stat.on { background:var(--navy); }
+  .stat.on .n, .stat.on .l { color:#fff; }
   .stat .n { font-size:24px; font-weight:800; color:var(--navy); }
   .stat .l { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
   .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
@@ -141,7 +157,7 @@
 </head>
 <body>
 <header>
-  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v7</span></h1>
+  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v8</span></h1>
   <span class="sp"></span>
   <span id="updated" class="updated" style="color:#cbd8e6;"></span>
   <button id="refresh">Refresh</button>
@@ -191,7 +207,7 @@
   // when a fix appeared not to have landed and had in fact simply not loaded.
   // Bump this on every change. It prints to the console AND renders in the
   // header, so it can be checked without opening devtools.
-  var LD_VERSION = "ld-v7";
+  var LD_VERSION = "ld-v8";
 
   var FN = "https://renters-story-writer.netlify.app/.netlify/functions/send-listing-draft-email";
   var KEY = sessionStorage.getItem("rdc_key") || "";
@@ -292,8 +308,24 @@
       if (isInvOnly(s)) unscanned++;
     });
     var box = document.getElementById("stats");
-    function card(n, l) { return '<div class="stat"><div class="n">' + n + '</div><div class="l">' + l + '</div></div>'; }
-    box.innerHTML = card(ids.length, "Listings tracked") + card(unscanned, "Never scanned") + card(needs, "Need work") + card(redo, "Awaiting re-review") + card(notpub, "Not published") + card(pending, "Pending approval") + card(published, "Published");
+    // Cards carry their filter, so reading a number and acting on it is one
+    // step rather than two.
+    function card(n, l, f) {
+      return '<div class="stat' + (FILTER === f ? " on" : "") + '" data-cardf="' + f + '">'
+        + '<div class="n">' + n + '</div><div class="l">' + l + '</div></div>';
+    }
+    // SAME ORDER AS THE FILTER ROW. They were in different orders, so the
+    // number you read and the button you then reached for were never in the
+    // same place. Each card is also its own filter now.
+    box.innerHTML =
+        card(needs, "Need work", "needs")
+      + card(notpub, "Not published", "notpub")
+      + card(pending, "Pending approval", "pending")
+      + card(published, "Published", "published")
+      + card(emailed, "Emailed", "notemailed")
+      + card(redo, "Awaiting re-review", "edited")
+      + card(unscanned, "Never scanned", "unscanned")
+      + card(ids.length, "Listings tracked", "all");
   }
 
   function matches(id, s) {
@@ -363,11 +395,18 @@
       // tg === 0 still qualifies, because a note may be the only reason to
       // write - construction equipment in a photo is not a MISSING photo, so
       // no scanner flags it.
-      var canEmail = !!(land.userId || land.email);
+      // NOT ON A LISTING THAT HAS NEVER BEEN SCANNED. The walk finds listings
+      // without assessing them, so offering "Email landlord" there was offering
+      // to send a gap list that does not exist yet. A NOTE-ONLY email is still
+      // legitimate - "is this still available" is a fair thing to ask about a
+      // 2024 listing nobody has looked at - so the button appears as soon as
+      // something is typed in the note box.
+      var canEmail = !!(land.userId || land.email) && !isInvOnly(s);
+      var noteOnly = !!(land.userId || land.email) && isInvOnly(s);
       var actions = '<div class="actions">'
         + (canEmail ? '<button class="btn-email" data-email="' + esc(id) + '">' + (s.notifyCount ? "Email again" : "Email landlord") + '</button>' : '')
-        + '<button class="btn-scan" data-scan="' + esc(id) + '">Re-scan</button>'
-        + (canEmail ? '<textarea class="note" data-note="' + esc(id) + '" rows="2" placeholder="Anything else to mention (optional)"></textarea>' : '')
+        + '<button class="btn-scan" data-scan="' + esc(id) + '">' + (isInvOnly(s) ? "Scan" : "Re-scan") + '</button>'
+        + ((canEmail || noteOnly) ? '<textarea class="note" data-note="' + esc(id) + '" rows="2" placeholder="' + (noteOnly ? "Type a note to email this landlord" : "Anything else to mention (optional)") + '"></textarea>' : '')
         + '</div>';
       var dateHtml = "";
       if (g.created || g.lastEdit) {
@@ -558,6 +597,19 @@
   }
 
   document.getElementById("refresh").onclick = function () { load().then(render).catch(function (e) { toast("Load failed: " + e.message); }); };
+  // A card is a filter. Clicking the number you just read should do the
+  // obvious thing.
+  document.getElementById("stats").onclick = function (e) {
+    var el = e.target.closest ? e.target.closest("[data-cardf]") : null;
+    if (!el) return;
+    FILTER = el.getAttribute("data-cardf");
+    var fb = document.querySelectorAll("#filters button");
+    for (var i = 0; i < fb.length; i++) {
+      fb[i].classList.toggle("active", fb[i].getAttribute("data-f") === FILTER);
+    }
+    render();
+  };
+
   document.getElementById("walkbtn").onclick = runWalk;
   document.getElementById("filters").onclick = function (e) {
     if (e.target.tagName !== "BUTTON") return;
