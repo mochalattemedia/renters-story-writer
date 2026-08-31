@@ -1,5 +1,28 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v42  (2026-08-31)
+//    slde-v42 WHO HAS OPTED IN, AND WHAT ARE THEY. Both the walk and the scan
+//             now record the owner's ACCOUNT TYPE and MATCHING PLAN from the
+//             member record they already fetch - no extra call.
+//             WHY IT MATTERS MORE THAN A MISSING PHOTO: a listing whose owner
+//             never opted in cannot be matched to anyone, however complete it
+//             is. That was invisible on the dashboard, so a perfectly finished
+//             listing and an unmatchable one looked identical.
+//             THE TAGS ONLY STARTED WORKING TODAY. landlord-optin v21 wrote
+//             match-per-lead / match-on-movein and those tags DID NOT EXIST in
+//             BD - its own header documented the requirement and the step was
+//             never done. So every landlord opt-in since failed at the write
+//             while the wizard still showed the choice, because it was stored
+//             locally. Tags 18 and 19 now exist and the write lands.
+//             CONSEQUENCE: anyone who chose a plan before today has it in
+//             landlord-optin's storage and NOT in BD, so they will read as
+//             "not opted in" until they re-save. That is a migration, not a
+//             bug in this file.
+//             PMs SHARE THE LANDLORD TAGS deliberately - the terms are
+//             effectively the same and the member record already carries the
+//             account type, so the split is a sort on the page rather than a
+//             fourth tag. NOTE the PM wizard writes no tag at all (w142), so a
+//             PM currently has no way to opt in.
 //  FN_VERSION: slde-v41  (2026-08-31)
 //    slde-v41 THE WALK WAS RECORDING THINGS THAT ARE NOT LISTINGS. Ids 7-18
 //             came back as records while being absent from the admin, and the
@@ -273,7 +296,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v41";
+const FN_VERSION = "slde-v42";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -730,6 +753,41 @@ function assessListingFields(g) {
   if (!hasVal(g.post_location)) out.push("Add the property address");
   return out;
 }
+// WHAT THE OWNER IS, AND WHETHER THEY HAVE OPTED IN. Read from the member
+// record already in hand, so this costs nothing extra.
+// Plans: match-per-lead (18) and match-on-movein (19). matching-opted-in (1)
+// is legacy and maps to on-movein - same deal, no reason to re-ask.
+// matching-opted-out (2) is treated as UNSET rather than as a refusal: it used
+// to mean the free tier, which no longer exists, so those members are asked
+// once rather than silently enrolled in a paid plan. Same rule landlord-optin
+// v21 applies, and the two must not disagree.
+function readTags(u) {
+  var raw = (u && u.tags) || "";
+  if (!raw || raw === "false") return [];
+  try {
+    var arr = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!Array.isArray(arr)) return [];
+    return arr.map(function (t) { return String(t.tag_name || ""); });
+  } catch (e) { return []; }
+}
+
+function matchPlan(u) {
+  var t = readTags(u);
+  if (t.indexOf("match-per-lead") !== -1) return "per-match";
+  if (t.indexOf("match-on-movein") !== -1) return "on-movein";
+  if (t.indexOf("matching-opted-in") !== -1) return "on-movein";
+  return "";
+}
+
+function accountType(u) {
+  var n = String((u && (u.subscription_name || u.member_type)) || "").toLowerCase();
+  if (n.indexOf("property manager") !== -1) return "pm";
+  if (n.indexOf("realtor") !== -1) return "realtor";
+  if (n.indexOf("landlord") !== -1) return "landlord";
+  if (n.indexOf("renter") !== -1) return "renter";
+  return "";
+}
+
 // Gaps on the landlord's member profile.
 // ACCEPT ANY FIELD THAT LEGITIMATELY HOLDS THE VALUE. BD stores several of
 // these in more than one column depending on which form was used, and checking
@@ -1166,7 +1224,11 @@ exports.handler = async function (event) {
       // this only fills in what was missing.
       await mergeStatus(String(wid), {
         listingName: L.listing.group_name,
-        landlord: { userId: uid, email: (L.user && L.user.email) || "", name: lname },
+        landlord: {
+          userId: uid, email: (L.user && L.user.email) || "", name: lname,
+          // An unmatchable listing is worth more attention than an untidy one.
+          plan: matchPlan(L.user), accountType: accountType(L.user)
+        },
         inv: {
           group_status: L.listing.group_status,
           created: L.listing.date_updated || "",
@@ -1218,7 +1280,10 @@ exports.handler = async function (event) {
     // it never clobbers a manual "notified" record — it only updates `auto`.
     const saved = await mergeStatus(sid, {
       listingName: L.listing.group_name,
-      landlord: { userId: uid, email: (L.user && L.user.email) || "", name: lname },
+      landlord: {
+        userId: uid, email: (L.user && L.user.email) || "", name: lname,
+        plan: matchPlan(L.user), accountType: accountType(L.user)
+      },
       auto: {
         photo: photoGaps, listing: listingGaps, profile: profileGaps,
         // Suggestions are stored apart from gaps so the dashboard can show them
@@ -1236,6 +1301,7 @@ exports.handler = async function (event) {
       scanPost: sid, name: L.listing.group_name, group_status: L.listing.group_status,
       beds: L.listing.property_beds, baths: L.listing.property_baths, type: L.listing.property_type,
       photoCount: L.photos.length, landlordEmail: (L.user && L.user.email) || null,
+      plan: matchPlan(L.user), accountType: accountType(L.user),
       // saved:false means the verdict was computed and THROWN AWAY. The front
       // end must say so - this failed silently for an unknown stretch and
       // looked exactly like success until a reload.
