@@ -3,9 +3,13 @@
      Served from Netlify, site root. Operator page, behind an access key.
      ============================================================
 
-     ld-v13   <-- PASTE CHECK: this is the version. Must match LD_VERSION
+     ld-v14   <-- PASTE CHECK: this is the version. Must match LD_VERSION
      and the marker in the <h1>. Bump all three on every change.
 
+     ld-v14 ID SORT RUNS NEWEST FIRST. Ascending put the oldest test listings
+            from 2024 at the top and buried everything recent, which is the
+            opposite of useful - the newest listing is the one most likely to
+            need looking at.
      ld-v13 SORTING, AND TWO THINGS RUNNING TOGETHER.
             Rows were sorted by gap count and nothing else, so the ids read as
             scrambled - 246, 245, 290, 25, 292, 101 - and there was no way to
@@ -214,7 +218,7 @@
 </head>
 <body>
 <header>
-  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v13</span></h1>
+  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v14</span></h1>
   <span class="sp"></span>
   <span id="updated" class="updated" style="color:#cbd8e6;"></span>
   <button id="refresh">Refresh</button>
@@ -245,7 +249,7 @@
       <input id="walkto" class="walkrange" type="text" inputmode="numeric" value="400" title="Stop at listing ID">
       <select id="sortby" class="sortby" title="Sort rows">
         <option value="gaps">Most gaps</option>
-        <option value="id">Listing ID</option>
+        <option value="id">Listing ID (newest first)</option>
         <option value="edited">Recently edited</option>
       </select>
       <input id="scanid" type="text" inputmode="numeric" placeholder="Listing ID">
@@ -271,7 +275,7 @@
   // when a fix appeared not to have landed and had in fact simply not loaded.
   // Bump this on every change. It prints to the console AND renders in the
   // header, so it can be checked without opening devtools.
-  var LD_VERSION = "ld-v13";
+  var LD_VERSION = "ld-v14";
 
   var FN = "https://renters-story-writer.netlify.app/.netlify/functions/send-listing-draft-email";
   var KEY = sessionStorage.getItem("rdc_key") || "";
@@ -452,7 +456,9 @@
     // Gap count was the only order, which made the ids look random and gave
     // no way to find a listing by number.
     if (SORT === "id") {
-      ids.sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); });
+      // Newest first. Ascending buried everything recent under the 2024 test
+      // listings, and the newest is what usually needs looking at.
+      ids.sort(function (a, b) { return parseInt(b, 10) - parseInt(a, 10); });
     } else if (SORT === "edited") {
       ids.sort(function (a, b) {
         return (dayOf(gaps(DATA[b]).lastEdit) || 0) - (dayOf(gaps(DATA[a]).lastEdit) || 0);
