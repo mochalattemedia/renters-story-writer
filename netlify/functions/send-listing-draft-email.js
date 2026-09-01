@@ -1,5 +1,30 @@
 // ============================================================
 //  send-listing-draft-email.js
+//  FN_VERSION: slde-v43  (2026-09-01)
+//    slde-v43 THE PROFILE CHECK NOW MATCHES THE ACTUAL STANDARD. It tested
+//             four things picked more or less arbitrarily; the requirement is
+//             that the About Me form is complete, the profile photo is there,
+//             identity is confirmed, and they have opted in through the wizard.
+//             REQUIRED FIELDS ARE NAMED ONE BY ONE, so a landlord is told what
+//             to fill in rather than "complete your profile". Starred on the
+//             form: Type of Profile, First Name, Last Name, Email, Phone,
+//             Position, Short Description, City, State, plus the photo.
+//             OPTIONAL FIELDS ARE NEVER MENTIONED - company name, address
+//             lines, postal code, and the three links. Naming something that
+//             is not required is how a notice starts being ignored.
+//             "..." IS EMPTY. A three-character Short Description passes any
+//             presence test and says nothing (member 4133 wrote exactly that).
+//             Punctuation and whitespace are stripped before judging, so a row
+//             of dots reads as blank rather than as filled in.
+//             THE PROFILE PHOTO WAS NEVER CHECKED AT ALL, so a member with no
+//             photo could read as complete. image_main_file on the member
+//             record, so it costs nothing.
+//             NOT OPTING IN IS A GAP, not just a pill on a dashboard. It is
+//             the single thing that makes a listing unmatchable however good
+//             it is, so it belongs in the email with everything else.
+//             FIELD NAMES READ OFF A LIVE RECORD, not guessed: listing_type,
+//             position, city, state_ln, image_main_file. Guessing these cost
+//             two versions earlier.
 //  FN_VERSION: slde-v42  (2026-08-31)
 //    slde-v42 WHO HAS OPTED IN, AND WHAT ARE THEY. Both the walk and the scan
 //             now record the owner's ACCOUNT TYPE and MATCHING PLAN from the
@@ -296,7 +321,7 @@
 //   GET ?statuses=1  -> { "<postId>": { items:[...], date, to }, ... }
 //   POST (JSON)      -> { key, email?|memberId?, reasons?, missing?, postId?, saveOnly? }
 // ============================================================
-const FN_VERSION = "slde-v42";
+const FN_VERSION = "slde-v43";
 
 const crypto = require("crypto");
 const https = require("https");
@@ -805,21 +830,67 @@ function anyVal(u, names) {
 var BIO_FIELDS = ["search_description", "about_me", "my_story"];
 var BIO_MIN = 80;   // characters. Anas's reads well at 152; three words is ~15.
 
+// A Short Description of "..." passes every presence test and tells a renter
+// nothing. Strip anything that is not a letter or a digit; if nothing is left,
+// it is blank however many characters it had.
+function meaningful(t) {
+  var s = String(t == null ? "" : t);
+  var n = 0;
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charAt(i);
+    if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || (c >= "0" && c <= "9")) n++;
+  }
+  return n;
+}
+
 function bioText(u) {
   for (var i = 0; i < BIO_FIELDS.length; i++) {
     var v = u[BIO_FIELDS[i]];
-    if (hasVal(v)) return String(v).trim();
+    if (hasVal(v) && meaningful(v) > 0) return String(v).trim();
   }
   return "";
 }
 
+// THE REQUIRED FIELDS on the About Me form, in the order they appear there,
+// with the wording a landlord will recognise when they open it. Optional
+// fields - company name, address lines, postal code, and the three links -
+// are deliberately absent: naming something that is not required is how a
+// notice starts being ignored.
+var REQUIRED_PROFILE = [
+  { fields: ["listing_type"], say: "Choose your Type of Profile" },
+  { fields: ["first_name"], say: "Add your first name" },
+  { fields: ["last_name"], say: "Add your last name" },
+  { fields: ["email"], say: "Add your email address" },
+  { fields: ["phone_number"], say: "Add a contact phone number" },
+  { fields: ["position"], say: "Add your position" },
+  { fields: ["city"], say: "Add your city" },
+  { fields: ["state_ln", "state_code", "state_sn"], say: "Add your state" }
+];
+
 function assessProfile(u) {
   u = u || {};
   var out = [];
-  if (!anyVal(u, ["first_name", "last_name", "full_name", "company", "companyname"])) out.push("Add your name");
-  if (!anyVal(u, ["phone_number"])) out.push("Add a contact phone number");
+
+  for (var i = 0; i < REQUIRED_PROFILE.length; i++) {
+    if (!anyVal(u, REQUIRED_PROFILE[i].fields)) out.push(REQUIRED_PROFILE[i].say);
+  }
+
+  // "..." IS NOT A DESCRIPTION. bioText strips punctuation before judging, so
+  // a row of dots reads as blank rather than as filled in.
   if (!bioText(u)) out.push("Complete your Short Description");
+
+  // NEVER CHECKED BEFORE, so a member with no photo could read as complete.
+  if (!anyVal(u, ["image_main_file"])) out.push("Add a profile photo");
+
   if (String(u.verified) !== "1") out.push("Get verified");
+
+  // THE ONE THAT MAKES EVERYTHING ELSE MOOT. A listing whose owner has not
+  // opted in cannot be matched to anyone, however finished it is - so it
+  // belongs in the email alongside the rest rather than only as a dashboard
+  // pill. matching-opted-out is treated as unset, because it meant the free
+  // tier that no longer exists.
+  if (!matchPlan(u)) out.push("Choose how you would like to be matched (per match, or on move-in)");
+
   return out;
 }
 
