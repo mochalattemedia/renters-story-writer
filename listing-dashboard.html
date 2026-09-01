@@ -3,9 +3,22 @@
      Served from Netlify, site root. Operator page, behind an access key.
      ============================================================
 
-     ld-v12   <-- PASTE CHECK: this is the version. Must match LD_VERSION
+     ld-v13   <-- PASTE CHECK: this is the version. Must match LD_VERSION
      and the marker in the <h1>. Bump all three on every change.
 
+     ld-v13 SORTING, AND TWO THINGS RUNNING TOGETHER.
+            Rows were sorted by gap count and nothing else, so the ids read as
+            scrambled - 246, 245, 290, 25, 292, 101 - and there was no way to
+            find a listing by number or see what changed most recently. A sort
+            control now offers ID, recently edited, and most gaps (the old
+            behaviour, still the default).
+            The "Not opted in" pill sat inline with "Not emailed" and the two
+            ran together as one line of text. Separated.
+            GAP ITEMS HAD NO SEPARATORS: "A photo of the second bedroom A clear
+            photo of the full bathroom" read as one sentence. The ld-v3 rule
+            used :not(:last-child), which does not match how these nest. Each
+            item is its own line now, which also makes clicking one to exclude
+            it far easier to aim at.
      ld-v12 WHO CAN WE ACTUALLY MATCH TO. Each row now shows the owner's
             ACCOUNT TYPE and their MATCHING PLAN, with a filter for listings
             whose owner has NOT opted in.
@@ -169,14 +182,18 @@
      than the idle one, and the width never changes either way. */
   .btn-email { background:var(--navy); color:#fff; width:132px; min-width:132px; text-align:center; box-sizing:border-box; white-space:nowrap; overflow:hidden; }
   .btn-email.armed { background:#b45309; }
+  .sortby { padding:8px 8px; border:1px solid var(--line); border-radius:8px; font:inherit; font-size:13px; background:#fff; margin-right:4px; }
   .walkrange { width:56px; padding:8px 6px; border:1px solid var(--line); border-radius:8px; font:inherit; font-size:13px; text-align:center; }
   .walkdash { font-size:12px; color:var(--muted); }
   .walkbtn { background:#fff; color:var(--navy); border:1px solid var(--navy); border-radius:8px; padding:8px 14px; font:inherit; font-size:13px; font-weight:700; cursor:pointer; margin-right:4px; }
   .walkbtn:disabled { opacity:.6; cursor:default; }
   .walkprog { font-size:12px; color:var(--muted); margin-top:8px; }
   .unscanned { font-size:12px; color:#64748b; font-style:italic; }
-  .gapitem { cursor:pointer; border-bottom:1px dashed transparent; }
-  .gapitem:hover { border-bottom-color:var(--muted); }
+  /* One per line. Run together they read as a single sentence, and they are
+     also click targets - a bigger, clearly bounded one is easier to aim at. */
+  .gapitem { cursor:pointer; display:block; padding:1px 0 1px 10px; position:relative; }
+  .gapitem:before { content:"\2022"; position:absolute; left:0; color:var(--muted); }
+  .gapitem:hover { background:#f8fafc; }
   .gapitem.off { text-decoration:line-through; opacity:.4; }
   .actions textarea.note { width:132px; margin-top:6px; font:inherit; font-size:12px; padding:5px 7px; border:1px solid var(--line); border-radius:7px; resize:vertical; box-sizing:border-box; }
   .plan { display:inline-block; font-size:11px; font-weight:700; padding:2px 7px; border-radius:999px; margin-bottom:4px; }
@@ -197,7 +214,7 @@
 </head>
 <body>
 <header>
-  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v12</span></h1>
+  <h1>Renters.com &middot; Listing Status <span style="font-size:11px;font-weight:600;opacity:.6;letter-spacing:.04em;">ld-v13</span></h1>
   <span class="sp"></span>
   <span id="updated" class="updated" style="color:#cbd8e6;"></span>
   <button id="refresh">Refresh</button>
@@ -226,6 +243,11 @@
       <input id="walkfrom" class="walkrange" type="text" inputmode="numeric" value="1" title="Start at listing ID">
       <span class="walkdash">to</span>
       <input id="walkto" class="walkrange" type="text" inputmode="numeric" value="400" title="Stop at listing ID">
+      <select id="sortby" class="sortby" title="Sort rows">
+        <option value="gaps">Most gaps</option>
+        <option value="id">Listing ID</option>
+        <option value="edited">Recently edited</option>
+      </select>
       <input id="scanid" type="text" inputmode="numeric" placeholder="Listing ID">
       <button id="scanbtn">Scan</button>
     </div>
@@ -249,12 +271,13 @@
   // when a fix appeared not to have landed and had in fact simply not loaded.
   // Bump this on every change. It prints to the console AND renders in the
   // header, so it can be checked without opening devtools.
-  var LD_VERSION = "ld-v12";
+  var LD_VERSION = "ld-v13";
 
   var FN = "https://renters-story-writer.netlify.app/.netlify/functions/send-listing-draft-email";
   var KEY = sessionStorage.getItem("rdc_key") || "";
   var DATA = {};        // id -> status record
   var FILTER = "needs";
+  var SORT = "gaps";
   var SEARCH = "";
 
   function esc(x) { return String(x == null ? "" : x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
@@ -426,7 +449,17 @@
   function render() {
     stats();
     var ids = Object.keys(DATA).filter(function (id) { return matches(id, DATA[id]); });
-    ids.sort(function (a, b) { return totalGaps(DATA[b]) - totalGaps(DATA[a]); });
+    // Gap count was the only order, which made the ids look random and gave
+    // no way to find a listing by number.
+    if (SORT === "id") {
+      ids.sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); });
+    } else if (SORT === "edited") {
+      ids.sort(function (a, b) {
+        return (dayOf(gaps(DATA[b]).lastEdit) || 0) - (dayOf(gaps(DATA[a]).lastEdit) || 0);
+      });
+    } else {
+      ids.sort(function (a, b) { return totalGaps(DATA[b]) - totalGaps(DATA[a]); });
+    }
     var wrap = document.getElementById("tablewrap");
     if (!ids.length) { wrap.innerHTML = '<div class="empty">No listings match this view yet. Scan a listing by ID above, or run the tracker on your BD listings page.</div>'; return; }
     var rows = ids.map(function (id) {
@@ -479,7 +512,7 @@
         + '<span class="tag ' + meta.cls + '">' + esc(meta.label) + '</span>' + dateHtml + redoFlag + '</td>'
         + '<td>' + statusCell + '</td>'
         + '<td>' + landCell + '</td>'
-        + '<td class="emailinfo">' + planHtml + typeHtml + emailCell
+        + '<td class="emailinfo">' + planHtml + typeHtml + '<div>' + emailCell + '</div>'
         + (canEmail ? ('<div class="tonepill ' + (isLive(code) ? "improve" : "draft") + '">' + (isLive(code) ? "suggestion" : "draft notice") + '</div>') : "")
         + '</td>'
         + '<td class="actions">' + actions + '</td>'
@@ -672,6 +705,7 @@
     render();
   };
 
+  document.getElementById("sortby").onchange = function () { SORT = this.value; render(); };
   document.getElementById("walkbtn").onclick = runWalk;
   document.getElementById("filters").onclick = function (e) {
     if (e.target.tagName !== "BUTTON") return;
@@ -713,3 +747,4 @@
 </script>
 </body>
 </html>
+
