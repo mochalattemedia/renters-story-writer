@@ -1,6 +1,14 @@
 # ============================================================
-#  netlify.toml
+#  netlify.toml — v2
 #  Site: renters-story-writer
+#
+#  v2: esbuild extended to the five Vertical Insure functions. Same
+#      @netlify/blobs resolution failure send-listing-draft-email hit,
+#      and these four have a second reason on top of it — they import a
+#      RELATIVE module from outside the functions directory
+#      (netlify/lib/vi-token.js), which the default bundler has to trace
+#      and copy. esbuild inlines it instead, so there is nothing left to
+#      resolve at runtime.
 # ============================================================
 
 [build]
@@ -23,4 +31,37 @@
 #
 # TO REVERT: delete the block below. Nothing else depends on it.
 [functions."send-listing-draft-email"]
+  node_bundler = "esbuild"
+
+# ------------------------------------------------------------
+#  VERTICAL INSURE (v2)
+#
+#  All four of these import @netlify/blobs, three of them indirectly
+#  through netlify/lib/vi-token.js. That relative import reaching OUTSIDE
+#  the functions directory is the part the default bundler is least
+#  reliable about, and the failure mode is the bad one: the function
+#  deploys clean and throws "Cannot find module" on first invocation.
+#
+#  Still scoped rather than site-wide, same reasoning as above. If these
+#  five run clean for a few weeks, that is the evidence for collapsing all
+#  six blocks into one plain [functions] block.
+#
+#  TO REVERT: delete the blocks below.
+# ------------------------------------------------------------
+[functions."vi-webhook"]
+  node_bundler = "esbuild"
+
+[functions."vi-prefill"]
+  node_bundler = "esbuild"
+
+[functions."vi-invite-email"]
+  node_bundler = "esbuild"
+
+[functions."vi-offer-log"]
+  node_bundler = "esbuild"
+
+# vi-offer-js pulls in no packages at all - it only returns a string - but
+# it is bundled the same way so the whole VI set behaves identically and
+# nobody has to remember which one is the exception.
+[functions."vi-offer-js"]
   node_bundler = "esbuild"
