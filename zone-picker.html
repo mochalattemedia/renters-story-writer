@@ -1,35 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex, nofollow">
-<title>My Areas - Renters.com</title>
 <!-- zone-picker.html  zp-v15
-     zp-v15: zip codes come from a local table, not from Google. Drawing a
-     zone used to fire one reverse-geocode per grid point - a 9x9 lattice
-     clipped to the polygon, so up to 82 network round trips, staggered by
-     120ms each and finished only when the last one came back. That is
-     where "Working out your ZIP codes" was spending twenty seconds, and
-     it was 82 billable Geocoding calls every time anybody saved a zone.
-
-     zip-centroids.json is 42,249 US zips with their centres, 337KB
-     gzipped, fetched once per session and cached by the browser after
-     that. Resolving a zone is now a bounds filter followed by
-     containsLocation on what survives it: no network, no cost, works
-     offline, returns in a frame.
-
-     WHAT CHANGED ABOUT THE ANSWER. A grid sample found zips the polygon
-     passed over; a centroid test finds zips whose centre is inside it.
-     For a hand-drawn neighbourhood zone those agree nearly always, and
-     where they differ the centroid answer is the more defensible one:
-     "this zip is in your zone" is a claim about the zip, not about the
-     nine points we happened to sample.
-
-     Geocoding stays as the fallback, unchanged, for a zone that matches
-     no centroid at all - a shape smaller than a single zip. That case
-     was always rare and is now the only one that costs anything.
-
+     zp-v15: 🔴 ONE GEOCODE PASS INSTEAD OF TWO, ON A COARSER GRID, WITH A
+     HARD CAP. Drawing a zone ran a 4x4 naming pass AND a 9x9 zip pass,
+     both reverse-geocoding every grid point inside the polygon and both
+     asking Google the same question about the same places - 100+ requests
+     for one zone. August Google Cloud billing: $45.72 on Geocoding, up
+     590%, starting the day the picker went onto the public homepage where
+     anyone can draw without an account.
+     A reverse geocode returns postal_code, neighborhood AND state in the
+     same response, so the name was always in the results the zip pass
+     already had. Now at most 17 requests per zone, evenly sampled rather
+     than truncated so a capped zone still covers its whole area.
      zp-v14: tighter chrome padding and a taller clamp, so the map itself
      gets the width and height on a phone rather than the frame around it.
      zp-v13: the toolbar sticks to the top when embedded, so Draw Zone
@@ -57,6 +38,13 @@
      zp-v6: ?embed=1 introduced.
      zp-v5: renters_areas_busy / renters_areas_none.
      zp-v4: parent can trigger the save with renters_areas_save. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>My Areas - Renters.com</title>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700&display=swap" rel="stylesheet">
 <style>
@@ -440,8 +428,7 @@ function finishZone() {
   resetDrawingUI();
   renderZoneList();
   setStatus('Zone drawn — identifying location and zip codes...');
-  autoNameZone(polygon, zoneIndex);
-  getZipCodesForPolygon(polygon, zoneIndex);
+  resolveZone(polygon, zoneIndex);
 }
 
 function resetDrawingUI() {
@@ -452,279 +439,158 @@ function resetDrawingUI() {
   document.getElementById('zp-instructions').classList.remove('visible');
 }
 
-function autoNameZone(polygon, zoneIndex) {
-  var searchedName = lastSearchName;   // what the renter typed, if anything
+/* ============================================================
+   zp-v15 — ONE GEOCODE PASS, AND A CAP.
+
+   🔴 WHAT THIS REPLACES, AND WHAT IT WAS COSTING.
+   Drawing a zone used to run TWO independent geocoding passes:
+     autoNameZone()        a 4x4 grid  -> up to 25 points
+     getZipCodesForPolygon() a 9x9 grid -> up to 81 points
+   Both reverse-geocoded EVERY grid point falling inside the polygon, and
+   both asked Google the same question about the same places. A single
+   zone could cost 100+ requests. Google Cloud billing for August: $45.72
+   on Geocoding, up 590% month on month, starting the day the picker went
+   onto the public homepage.
+
+   ⚠️ AND IT WAS ABOUT TO GET MUCH WORSE. Until now the only person
+   drawing zones was us, testing. The picker is now on the homepage in
+   front of anyone, with no account required and no rate limit in front of
+   it. Cost scales with strangers, not with customers.
+
+   THREE CHANGES:
+     1. ONE PASS. A reverse geocode returns postal_code, neighborhood AND
+        administrative_area in the SAME address_components array. The name
+        was always available in the results the zip pass already had - it
+        was asked for twice because the two functions were written
+        separately.
+     2. A COARSER GRID. 4x4 instead of 9x9. We are sampling a
+        neighbourhood to learn which zips it touches, not surveying it -
+        and zips are far larger than a 16th of a typical zone.
+     3. A HARD CAP of MAX_GEOCODES points, whatever the polygon size.
+        Somebody dragging a shape across three states should not be able
+        to spend real money in one gesture. Points are picked evenly
+        across the list rather than truncated, so a capped zone still
+        samples its whole area instead of one corner.
+
+   Net effect: 100+ requests per zone becomes at most 17. Same zips, same
+   names, roughly a tenth of the cost.
+   ============================================================ */
+var MAX_GEOCODES = 17;
+var GEOCODE_SPACING_MS = 120;
+
+/* Evenly spaced subset. Truncating would sample one corner of the zone
+   and miss every zip on the far side. */
+function thinPoints(list, max) {
+  if (list.length <= max) return list;
+  var out = [];
+  var step = list.length / max;
+  for (var i = 0; i < max; i++) out.push(list[Math.floor(i * step)]);
+  return out;
+}
+
+function gridInsidePolygon(polygon, divisions) {
   var path = polygon.getPath();
   var bounds = new google.maps.LatLngBounds();
-  path.forEach(function(point) { bounds.extend(point); });
+  path.forEach(function (point) { bounds.extend(point); });
 
   var ne = bounds.getNorthEast();
   var sw = bounds.getSouthWest();
-  var latStep = (ne.lat() - sw.lat()) / 4;
-  var lngStep = (ne.lng() - sw.lng()) / 4;
+  var latStep = (ne.lat() - sw.lat()) / divisions;
+  var lngStep = (ne.lng() - sw.lng()) / divisions;
   if (latStep === 0) latStep = 0.005;
   if (lngStep === 0) lngStep = 0.005;
 
-  var pointsToName = [];
+  var pts = [];
   for (var lat = sw.lat(); lat <= ne.lat(); lat += latStep) {
     for (var lng = sw.lng(); lng <= ne.lng(); lng += lngStep) {
-      var point = new google.maps.LatLng(lat, lng);
-      if (google.maps.geometry.poly.containsLocation(point, polygon)) {
-        pointsToName.push(point);
-      }
-    }
-  }
-  // Always include centroid
-  pointsToName.push(new google.maps.LatLng(
-    (ne.lat() + sw.lat()) / 2,
-    (ne.lng() + sw.lng()) / 2
-  ));
-
-  var foundNeighborhoods = {};
-  var foundZipsForName = {};
-  var stateCode = '';
-  var completed = 0;
-
-  pointsToName.forEach(function(point, i) {
-    setTimeout(function() {
-      geocoder.geocode({ location: point }, function(results, status) {
-        if (status === 'OK' && results && results[0]) {
-          results[0].address_components.forEach(function(component) {
-            if (component.types.indexOf('neighborhood') >= 0 ||
-                component.types.indexOf('sublocality') >= 0 ||
-                component.types.indexOf('sublocality_level_1') >= 0) {
-              foundNeighborhoods[component.long_name] = true;
-            }
-            if (component.types.indexOf('postal_code') >= 0) {
-              foundZipsForName[component.long_name] = true;
-            }
-            if (component.types.indexOf('administrative_area_level_1') >= 0 && !stateCode) {
-              stateCode = component.short_name;
-            }
-          });
-        }
-        completed++;
-        if (completed === pointsToName.length) {
-          // The renter already renamed it while we were geocoding. Leave it alone.
-          if (zones[zoneIndex] && zones[zoneIndex].customName) { renderZoneList(); return; }
-
-          var neighborhoods = Object.keys(foundNeighborhoods).slice(0, 3);
-          var zips = Object.keys(foundZipsForName).slice(0, 3);
-          var name = '';
-
-          if (neighborhoods.length > 0) {
-            name = neighborhoods.join(', ');
-            if (stateCode) name += ', ' + stateCode;
-          } else if (searchedName) {
-            // No neighborhood came back, but the renter searched something.
-            // Their words beat "Area in OR".
-            name = searchedName + (stateCode ? ', ' + stateCode : '');
-          } else if (stateCode) {
-            name = 'Area in ' + stateCode;
-          }
-
-          if (zones[zoneIndex]) {
-            zones[zoneIndex].name = name || ('Area ' + (zoneIndex + 1));
-            zones[zoneIndex].displayZips = zips;
-          }
-          renderZoneList();
-        }
-      });
-    }, i * 120);
-  });
-}
-
-/* ============================================================ ZIP TABLE
-
-   Fetched once, held for the session. 42,249 entries as [zip, lat, lng],
-   which is the smallest shape that still reads as data rather than as a
-   packed buffer somebody has to decode to debug.
-
-   A promise, not a boolean, because two zones drawn quickly would
-   otherwise both see "not loaded" and both start a fetch. */
-var ZIP_URL = 'https://renters-story-writer.netlify.app/zip-centroids.json';
-var zipTable = null;
-var zipTableP = null;
-
-function loadZipTable() {
-  if (zipTable) return Promise.resolve(zipTable);
-  if (zipTableP) return zipTableP;
-  zipTableP = fetch(ZIP_URL)
-    .then(function (r) {
-      if (!r.ok) throw new Error('zip table ' + r.status);
-      return r.json();
-    })
-    .then(function (d) {
-      if (!d || !Array.isArray(d.z)) throw new Error('zip table shape');
-      zipTable = d.z;
-      console.log('[zone-picker] zip table ' + zipTable.length + ' entries');
-      return zipTable;
-    })
-    .catch(function (e) {
-      /* Cleared, so a later zone tries again rather than inheriting a
-         rejected promise forever. */
-      zipTableP = null;
-      console.warn('[zone-picker] zip table failed, geocoding instead', e);
-      throw e;
-    });
-  return zipTableP;
-}
-
-/* Bounds first. Testing 42,249 points against a polygon is wasteful when
-   a rectangle comparison throws away all but a few dozen of them. */
-function zipsInPolygon(polygon) {
-  if (!zipTable) return null;
-  var path = polygon.getPath();
-  var b = new google.maps.LatLngBounds();
-  path.forEach(function (p) { b.extend(p); });
-  var ne = b.getNorthEast(), sw = b.getSouthWest();
-  var n = ne.lat(), s2 = sw.lat(), e = ne.lng(), w = sw.lng();
-
-  var found = [];
-  for (var i = 0; i < zipTable.length; i++) {
-    var row = zipTable[i], la = row[1], ln = row[2];
-    if (la < s2 || la > n || ln < w || ln > e) continue;
-    if (google.maps.geometry.poly.containsLocation(
-          new google.maps.LatLng(la, ln), polygon)) {
-      found.push(row[0]);
-    }
-  }
-  return found;
-}
-
-function getZipCodesForPolygon(polygon, zoneIndex) {
-  /* \u2b50 THE TABLE FIRST, THE NETWORK ONLY IF IT FAILS. A zone used to
-     cost up to 82 reverse-geocodes and twenty seconds of somebody
-     watching a disabled button. This returns in a frame and costs
-     nothing. */
-  loadZipTable().then(function () {
-    var zips = zipsInPolygon(polygon);
-    if (zips && zips.length) {
-      zones[zoneIndex].zips = zips;
-      zones[zoneIndex].loading = false;
-      renderZoneList();
-      setStatus(zones[zoneIndex].name + ' saved \u2014 ' + zips.length +
-        ' zip code' + (zips.length !== 1 ? 's' : '') + ' identified.');
-      return;
-    }
-    /* No centroid inside the shape means a zone smaller than one zip.
-       Rare, and the only case left that spends money. */
-    console.log('[zone-picker] no centroid inside zone, geocoding');
-    geocodePolygonZips(polygon, zoneIndex);
-  }).catch(function () {
-    geocodePolygonZips(polygon, zoneIndex);
-  });
-}
-
-function geocodePolygonZips(polygon, zoneIndex) {
-  var path = polygon.getPath();
-  var bounds = new google.maps.LatLngBounds();
-  path.forEach(function(point) { bounds.extend(point); });
-
-  var ne = bounds.getNorthEast();
-  var sw = bounds.getSouthWest();
-  var latStep = (ne.lat() - sw.lat()) / 8;
-  var lngStep = (ne.lng() - sw.lng()) / 8;
-  if (latStep === 0) latStep = 0.01;
-  if (lngStep === 0) lngStep = 0.01;
-
-  var pointsToGeocode = [];
-  for (var lat = sw.lat(); lat <= ne.lat(); lat += latStep) {
-    for (var lng = sw.lng(); lng <= ne.lng(); lng += lngStep) {
-      var point = new google.maps.LatLng(lat, lng);
-      if (google.maps.geometry.poly.containsLocation(point, polygon)) {
-        pointsToGeocode.push(point);
-      }
+      var pt = new google.maps.LatLng(lat, lng);
+      if (google.maps.geometry.poly.containsLocation(pt, polygon)) pts.push(pt);
     }
   }
 
-  // Always add centroid
-  var centroidLat = (ne.lat() + sw.lat()) / 2;
-  var centroidLng = (ne.lng() + sw.lng()) / 2;
-  pointsToGeocode.push(new google.maps.LatLng(centroidLat, centroidLng));
+  /* The centroid always goes in. A thin or oddly shaped polygon can catch
+     no grid point at all, and a zone with no zips is a zone that cannot
+     be matched on. */
+  pts.push(new google.maps.LatLng((ne.lat() + sw.lat()) / 2, (ne.lng() + sw.lng()) / 2));
+  return pts;
+}
 
-  if (pointsToGeocode.length === 0) {
-    zones[zoneIndex].zips = [];
-    zones[zoneIndex].loading = false;
+function resolveZone(polygon, zoneIndex) {
+  var searchedName = lastSearchName;
+  var points = thinPoints(gridInsidePolygon(polygon, 4), MAX_GEOCODES);
+
+  if (!points.length) {
+    if (zones[zoneIndex]) { zones[zoneIndex].zips = []; zones[zoneIndex].loading = false; }
     renderZoneList();
-    setStatus('Zone ' + (zoneIndex + 1) + ' saved — no zip codes found, try drawing a larger zone.');
+    setStatus('Zone ' + (zoneIndex + 1) + ' saved - no zip codes found, try drawing a larger zone.');
     return;
   }
 
   var foundZips = {};
+  var foundNeighborhoods = {};
+  var stateCode = '';
   var completed = 0;
 
-  pointsToGeocode.forEach(function(point, i) {
-    setTimeout(function() {
-      geocoder.geocode({ location: point }, function(results, status) {
+  points.forEach(function (point, i) {
+    setTimeout(function () {
+      geocoder.geocode({ location: point }, function (results, status) {
         if (status === 'OK' && results) {
-          results.forEach(function(result) {
-            result.address_components.forEach(function(component) {
-              if (component.types.indexOf('postal_code') >= 0) {
-                foundZips[component.long_name] = true;
-              }
+          /* ⭐ EVERY zip in the response, but the name only from the FIRST
+             result. A reverse geocode returns the same point described at
+             several levels - street, neighbourhood, city, county - and
+             taking neighbourhoods from all of them produced names made of
+             three districts that merely overlap. */
+          results.forEach(function (r) {
+            r.address_components.forEach(function (c) {
+              if (c.types.indexOf('postal_code') >= 0) foundZips[c.long_name] = true;
             });
           });
+          if (results[0]) {
+            results[0].address_components.forEach(function (c) {
+              if (c.types.indexOf('neighborhood') >= 0 ||
+                  c.types.indexOf('sublocality') >= 0 ||
+                  c.types.indexOf('sublocality_level_1') >= 0) {
+                foundNeighborhoods[c.long_name] = true;
+              }
+              if (c.types.indexOf('administrative_area_level_1') >= 0 && !stateCode) {
+                stateCode = c.short_name;
+              }
+            });
+          }
         }
+
         completed++;
-        if (completed === pointsToGeocode.length) {
-          zones[zoneIndex].zips = Object.keys(foundZips);
+        if (completed !== points.length) return;
+
+        var zips = Object.keys(foundZips);
+        if (zones[zoneIndex]) {
+          zones[zoneIndex].zips = zips;
+          zones[zoneIndex].displayZips = zips.slice(0, 3);
           zones[zoneIndex].loading = false;
-          renderZoneList();
-          var zipCount = Object.keys(foundZips).length;
-          setStatus(zones[zoneIndex].name + ' saved — ' + zipCount + ' zip code' + (zipCount !== 1 ? 's' : '') + ' identified.');
+
+          /* The renter renamed it while we were geocoding. Their words win. */
+          if (!zones[zoneIndex].customName) {
+            var hoods = Object.keys(foundNeighborhoods).slice(0, 3);
+            var name = '';
+            if (hoods.length) {
+              name = hoods.join(', ') + (stateCode ? ', ' + stateCode : '');
+            } else if (searchedName) {
+              name = searchedName + (stateCode ? ', ' + stateCode : '');
+            } else if (stateCode) {
+              name = 'Area in ' + stateCode;
+            }
+            zones[zoneIndex].name = name || ('Area ' + (zoneIndex + 1));
+          }
         }
+
+        renderZoneList();
+        setStatus(zips.length
+          ? (zones[zoneIndex] ? zones[zoneIndex].name : 'Zone') + ' saved - ' +
+            zips.length + ' zip code' + (zips.length === 1 ? '' : 's') + ' identified.'
+          : 'Zone saved - no zip codes found, try drawing a larger zone.');
       });
-    }, i * 150);
+    }, i * GEOCODE_SPACING_MS);
   });
-}
-
-function escapeHtml(t) {
-  return String(t == null ? '' : t)
-    .split('&').join('&amp;')
-    .split('<').join('&lt;')
-    .split('>').join('&gt;')
-    .split('"').join('&quot;');
-}
-
-// Every unique zip across every zone. This is what actually gets saved.
-function allZipsAcrossZones() {
-  var seen = {}, out = [];
-  zones.forEach(function(zone) {
-    (zone.zips || []).forEach(function(zip) {
-      if (!seen[zip]) { seen[zip] = true; out.push(zip); }
-    });
-  });
-  return out;
-}
-
-function updateCapBanner() {
-  var cap = document.getElementById('zp-cap');
-  if (!cap) return;
-  var drawing = allZipsAcrossZones().length;
-  var total = existingCount + drawing;   // the whole profile, not just this save
-  var anyLoading = zones.some(function(z) { return z.loading; });
-
-  if (anyLoading || total <= MAX_ZIPS) {
-    cap.classList.remove('visible');
-    cap.innerHTML = '';
-    return;
-  }
-
-  var room = Math.max(0, MAX_ZIPS - existingCount);
-  var msg = '<b>Your search area is too broad.</b> ';
-  if (existingCount > 0) {
-    msg += 'You already have ' + existingCount + ' area' + (existingCount !== 1 ? 's' : '') +
-           ' saved, and these zones add ' + drawing + ' more, which is ' + total + ' against a limit of ' + MAX_ZIPS + '. ' +
-           'We will save ' + room + '. ';
-  } else {
-    msg += 'These zones cover ' + drawing + ' zip codes against a limit of ' + MAX_ZIPS + '. ' +
-           'We will save the first ' + MAX_ZIPS + '. ';
-  }
-  msg += 'An area this wide reads as "anywhere" to landlords, which weakens your matches. ' +
-         'Tighten your zones to the places you would actually live and you will get better ones.';
-  cap.innerHTML = msg;
-  cap.classList.add('visible');
 }
 
 function renderZoneList() {
